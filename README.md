@@ -175,13 +175,13 @@ Unlocks content warnings (animal deaths, jump scares, nudity, etc.).
 
 ## Supported Channels
 
-The script activates only on these URLs:
+The script targets `https://cytu.be/r/420Grindhouse`. To add additional channels, edit the `@match` lines in the script header.
 
-```
-https://cytu.be/r/420Grindhouse
+---
 
+## Vibe Coded with Claude
 
-To add additional channels, edit the `@match` lines in the script header.
+This project was 100% vibe coded using [Claude](https://claude.ai) by Anthropic. Every feature, bug fix, and line of CSS was written through natural language conversation with Claude Code — no manual coding required.
 
 ---
 
