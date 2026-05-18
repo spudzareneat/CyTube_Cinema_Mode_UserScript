@@ -130,7 +130,7 @@ A settings panel for managing API keys and preferences. It opens automatically o
 - DoesTheDogDie API key field (with a direct link to get one)
 - Toggle to enable or disable the grammar/spell check popup
 
-<!-- Add screenshot here -->
+<img width="357" height="355" alt="Screenshot 2026-05-18 191527" src="https://github.com/user-attachments/assets/69fa3a59-e05d-4237-8ce1-0a93ae9a8407" />
 
 ---
 
