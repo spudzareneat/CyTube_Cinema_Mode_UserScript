@@ -6,7 +6,7 @@ A Tampermonkey userscript that transforms [CyTube](https://cytu.be) into a cinem
 
 ## Screenshots
 
-<!-- Add screenshots here -->
+<img width="1910" height="965" alt="Screenshot 2026-05-18 191350(1)" src="https://github.com/user-attachments/assets/fd61fa98-e2a5-4424-90bd-e886e3a7aef3" />
 
 ---
 
@@ -41,7 +41,8 @@ A hidden poster strip that reveals the upcoming weekend lineup with a single cli
 - Strip is hidden by default — the button toggles it on and off
 - Adapts to both horizontal and vertical layout modes
 
-<!-- Add screenshot here -->
+<img width="1545" height="134" alt="Screenshot 2026-05-18 191415" src="https://github.com/user-attachments/assets/7bdd32f4-5922-48ef-9ff8-48b64e911ab7" />
+
 
 ---
 
@@ -77,7 +78,8 @@ Before a message is sent, it is checked against the free [LanguageTool](https://
 - Press **Enter** to send the reviewed message, **Escape** to go back and edit
 - Can be turned off entirely in the settings modal
 
-<!-- Add screenshot here -->
+<img width="395" height="206" alt="Screenshot 2026-05-18 193930" src="https://github.com/user-attachments/assets/505064ee-1573-48ae-a0c3-83beaf7be811" />
+
 
 ---
 
