@@ -166,7 +166,6 @@
         }
         if (last < text.length) annotation.push({ text: text.slice(last) });
 
-        // Full debug: show collected names and the resulting annotation chunks
         return annotation;
     }
 
@@ -479,17 +478,17 @@
     function addFloatingButtons() {
         if (document.getElementById('fs-toggle-btn')) return;
 
-        const fs = document.createElement('button');
-        fs.id = 'fs-toggle-btn'; fs.textContent = '⛶'; fs.title = 'Toggle Fullscreen';
-        fs.addEventListener('click', () => {
+        const fsBtn = document.createElement('button');
+        fsBtn.id = 'fs-toggle-btn'; fsBtn.textContent = '⛶'; fsBtn.title = 'Toggle Fullscreen';
+        fsBtn.addEventListener('click', () => {
             document.fullscreenElement
                 ? document.exitFullscreen().catch(() => {})
                 : document.documentElement.requestFullscreen().catch(() => {});
         });
-        document.body.appendChild(fs);
+        document.body.appendChild(fsBtn);
 
         document.addEventListener('fullscreenchange', () => {
-            fs.style.display = document.fullscreenElement ? 'none' : '';
+            fsBtn.style.display = document.fullscreenElement ? 'none' : '';
         });
     }
 
@@ -526,7 +525,9 @@
     }
 
     const applyInputMode = () => {
-        for (const input of document.getElementsByClassName('emotelist-search')) {
+        const inputs = document.getElementsByClassName('emotelist-search');
+        if (!inputs.length) return;
+        for (const input of inputs) {
             if (input.getAttribute('inputmode') !== 'none') input.setAttribute('inputmode', 'none');
         }
     };
@@ -564,6 +565,12 @@
     /* ==========================================================
        MOVIE LINKS — TMDB lookup → confirmed IMDb + Letterboxd + Wikipedia
     ========================================================== */
+
+    const LINK_DEFS = [
+        { key: 'imdb',       label: 'IMDb',       color: '#f5c518', fg: '#000', char: 'i' },
+        { key: 'letterboxd', label: 'Letterboxd', color: '#2c4a2e', fg: '#00e054', char: 'L' },
+        { key: 'wiki',       label: 'Wikipedia',  color: '#444',    fg: '#eee', char: 'W' },
+    ];
 
     let lastMovieTitle = '';
     let movieLinkCache = {}; // cache by raw title to avoid repeat lookups
@@ -603,8 +610,6 @@
         return killCountDb;
     }
 
-    // Pre-fetch the kill DB on page load so it's ready when the first title appears
-    window.addEventListener('load', getKillCountDb);
 
     // ── DoesTheDogDie: category/keyword filter ───────────────────────────────────
     // We read topic names directly from the API response (topic.name field)
@@ -654,7 +659,7 @@
     }
 
     async function getDtddStats(tmdbId, movieTitle, tmdbResult_year) {
-        if (!tmdbId || !movieTitle) return null;
+        if (!hasKey(LS_DTDD) || !tmdbId || !movieTitle) return null;
         const key = getKey(LS_DTDD);
         try {
             // DTDD search takes a text query, not a numeric ID
@@ -725,52 +730,55 @@
         const cacheKey = title + (year || '');
         if (movieLinkCache[cacheKey] !== undefined) return movieLinkCache[cacheKey];
 
-        // ── TMDB ─────────────────────────────────────────────────────────────────
+        // ── TMDB + Wikipedia in parallel ─────────────────────────────────────────
         let tmdbResult = null;
-        if (hasKey(LS_TMDB)) {
+        let wikiUrl    = null;
+
+        const tmdbPromise = hasKey(LS_TMDB) ? (async () => {
             try {
                 const params = new URLSearchParams({ api_key: getKey(LS_TMDB), query: title, language: 'en-US' });
                 if (year) params.set('year', year);
                 const res = await fetch(`https://api.themoviedb.org/3/search/movie?${params}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.results && data.results.length > 0) {
-                        let best = data.results[0];
-                        if (year) {
-                            const withYear = data.results.find(r => r.release_date && r.release_date.startsWith(year));
-                            if (withYear) best = withYear;
-                        }
-                        const detailRes = await fetch(
-                            `https://api.themoviedb.org/3/movie/${best.id}?api_key=${getKey(LS_TMDB)}&append_to_response=external_ids`
-                        );
-                        if (detailRes.ok) {
-                            const detail = await detailRes.json();
-                            tmdbResult = {
-                                tmdbId: best.id,
-                                imdbId: detail.imdb_id || (detail.external_ids && detail.external_ids.imdb_id) || null,
-                                title: detail.title,
-                                year: detail.release_date ? detail.release_date.slice(0, 4) : year,
-                            };
-                        }
-                    }
+                if (!res.ok) return;
+                const data = await res.json();
+                if (!data.results?.length) return;
+                let best = data.results[0];
+                if (year) {
+                    const withYear = data.results.find(r => r.release_date?.startsWith(year));
+                    if (withYear) best = withYear;
                 }
+                const detailRes = await fetch(
+                    `https://api.themoviedb.org/3/movie/${best.id}?api_key=${getKey(LS_TMDB)}&append_to_response=external_ids`
+                );
+                if (!detailRes.ok) return;
+                const detail = await detailRes.json();
+                tmdbResult = {
+                    tmdbId: best.id,
+                    imdbId: detail.imdb_id || detail.external_ids?.imdb_id || null,
+                    title:  detail.title,
+                    year:   detail.release_date ? detail.release_date.slice(0, 4) : year,
+                };
             } catch (e) {}
-        }
+        })() : Promise.resolve();
 
-        // ── Wikipedia ────────────────────────────────────────────────────────────
-        let wikiUrl = null;
-        try {
-            const wikiSearch = await fetch(
-                `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${
-                    encodeURIComponent((tmdbResult?.title || title) + ' ' + (year || '') + ' film')
-                }&srlimit=1&format=json&origin=*`
-            );
-            if (wikiSearch.ok) {
-                const wikiData = await wikiSearch.json();
-                const hit = wikiData?.query?.search?.[0];
+        // Wikipedia can start immediately with the raw title; we'll use tmdbResult.title if available
+        // but since it runs in parallel we use the raw title — good enough for wiki search
+        const wikiPromise = (async () => {
+            try {
+                const searchTitle = title + (year ? ' ' + year : '') + ' film';
+                const res = await fetch(
+                    `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${
+                        encodeURIComponent(searchTitle)
+                    }&srlimit=1&format=json&origin=*`
+                );
+                if (!res.ok) return;
+                const data = await res.json();
+                const hit = data?.query?.search?.[0];
                 if (hit) wikiUrl = `https://en.wikipedia.org/wiki/${encodeURIComponent(hit.title.replace(/ /g, '_'))}`;
-            }
-        } catch (e) {}
+            } catch (e) {}
+        })();
+
+        await Promise.all([tmdbPromise, wikiPromise]);
 
         // ── Kill count (from cached JSONL) ───────────────────────────────────────
         let killCount = null;
@@ -778,7 +786,6 @@
             const db = await getKillCountDb();
             const count = db[String(tmdbResult.tmdbId)];
             if (count !== undefined && count !== null) killCount = count;
-        } else {
         }
 
         // ── DoesTheDogDie ────────────────────────────────────────────────────────
@@ -816,7 +823,8 @@
 
     function injectMovieLinks(titleEl) {
         const rawTitle = titleEl.textContent.trim()
-            .replace(/^currently\s+playing[:\s]*/i, '').trim();
+            .replace(/^currently\s+playing[:\s]*/i, '')
+            .replace(/^now\s+playing[:\s]*/i, '').trim();
 
         if (!rawTitle || rawTitle === lastMovieTitle || rawTitle.length < 2) return;
         lastMovieTitle = rawTitle;
@@ -844,8 +852,8 @@
         lookupMovie(title, year).then(({ links, killCount, dtddStats, cleanTitle, cleanYear }) => {
             // Update the title element with the clean TMDB title if available
             if (cleanTitle && titleEl) {
-                const prefix = titleEl.textContent.match(/^currently\s+playing[:\s]*/i)?.[0] || '';
-                const newText = prefix + cleanTitle + (cleanYear ? ` (${cleanYear})` : '');
+                // No prefix — "Currently Playing:" label is hidden via CSS
+                const newText = cleanTitle + (cleanYear ? ` (${cleanYear})` : '');
                 // Only replace the text node, not the child elements (links etc.)
                 const textNode = [...titleEl.childNodes].find(n => n.nodeType === 3 && n.textContent.trim());
                 if (textNode) textNode.textContent = newText;
@@ -856,11 +864,7 @@
             if (!currentRow) return;
             currentRow.innerHTML = '';
 
-            const LINK_DEFS = [
-                { key: 'imdb',       label: 'IMDb',       color: '#f5c518', fg: '#000', char: 'i' },
-                { key: 'letterboxd', label: 'Letterboxd', color: '#2c4a2e', fg: '#00e054', char: 'L' },
-                { key: 'wiki',       label: 'Wikipedia',  color: '#444',    fg: '#eee', char: 'W' },
-            ];
+            // LINK_DEFS defined at module level
 
             let anyLink = false;
             LINK_DEFS.forEach(({ key, label, color, fg, char }) => {
@@ -918,7 +922,7 @@
         new MutationObserver(tryInject).observe(document.body, { childList: true, subtree: false });
     }
 
-        /* ==========================================================
+    /* ==========================================================
        USER COLOR SYSTEM
     ========================================================== */
 
@@ -939,12 +943,14 @@
             if (span) { span.style.color = usernameToColor(cls.replace('chat-msg-', '')); span.style.fontWeight = '700'; }
         });
     }
+    let _colorObserverStarted = false;
     function startUserColorObserver() {
         const buf = document.getElementById('messagebuffer');
-        if (!buf) return false;
+        if (!buf) return;
+        if (_colorObserverStarted) { applyUserColors(); return; }
+        _colorObserverStarted = true;
         new MutationObserver(applyUserColors).observe(buf, { childList: true, subtree: true });
         applyUserColors();
-        return true;
     }
 
     /* ==========================================================
@@ -1045,6 +1051,70 @@
     /* ==========================================================
        POSTER STRIP — toggle show/hide the MOTD poster images
     ========================================================== */
+
+    // Global wake/dim control — exposed so initPosterStrip can call wake()
+    let _topBarWake = null;
+    let _topBarIsOpen = false;
+
+    function initTopBar() {
+        // Gradient overlay — pointer-events:none so it never blocks clicks
+        const bar = document.createElement('div');
+        bar.id = 'sc-top-bar';
+        document.body.appendChild(bar);
+
+        let idleTimer  = null;
+        let playing    = false; // true once the video has actually started
+
+        // All elements that get .sc-bar-dim when the bar fades
+        const getDimEls = () => [
+            bar,
+            document.getElementById('videowrap-header'),
+            document.getElementById('sc-poster-toggle'),
+            document.getElementById('sc-movie-links'),
+        ].filter(Boolean);
+
+        const dim = () => {
+            if (_topBarIsOpen || !playing) return;
+            getDimEls().forEach(el => el.classList.add('sc-bar-dim'));
+        };
+
+        const wake = () => {
+            getDimEls().forEach(el => el.classList.remove('sc-bar-dim'));
+            clearTimeout(idleTimer);
+            if (!_topBarIsOpen && playing) idleTimer = setTimeout(dim, 3500);
+        };
+        _topBarWake = wake;
+
+        // Start the countdown only when a video element starts playing
+        const onVideoPlay = () => {
+            if (playing) return; // already started once
+            playing = true;
+            clearTimeout(idleTimer);
+            idleTimer = setTimeout(dim, 4000); // 4s after play starts
+        };
+
+        // Watch for video play events — video element may not exist yet at init
+        const bindVideoEvents = () => {
+            document.querySelectorAll('video').forEach(v => {
+                if (!v._scPlayBound) {
+                    v._scPlayBound = true;
+                    v.addEventListener('play', onVideoPlay);
+                }
+            });
+        };
+
+        // Re-check whenever DOM changes (video element may be injected later)
+        bindVideoEvents();
+        new MutationObserver(bindVideoEvents)
+            .observe(document.body, { childList: true, subtree: true });
+
+        // Mouse near top of video area wakes the bar
+        document.addEventListener('mousemove', (e) => {
+            if (e.clientY < 60 && e.clientX < window.innerWidth * (isVerticalMonitor() ? 1 : 0.8)) {
+                wake();
+            }
+        });
+    }
 
     function initPosterStrip() {
         const motd = document.getElementById('motdrow');
@@ -1174,6 +1244,13 @@
         toggleBtn.addEventListener('click', () => {
             const visible = strip.classList.toggle('sc-poster-visible');
             toggleBtn.classList.toggle('sc-poster-toggle-active', visible);
+            // Tell the top bar system whether strip is open
+            _topBarIsOpen = visible;
+            if (visible && _topBarWake) {
+                _topBarWake(); // wake and keep awake
+            }
+            // If closing, restart the idle timer via a mousemove wake
+            // (the next mousemove in the zone will restart it naturally)
         });
         document.body.appendChild(toggleBtn);
     }
@@ -1187,41 +1264,46 @@
 
         startMonitorWatcher();
         applyInputMode();
-        startUserColorObserver();
 
-        new MutationObserver(() => {
+        const bootObserver = new MutationObserver(() => {
             applyInputMode();
             installChatTextarea();
             relocateEmoteButton();
             addFloatingButtons();
             addSettingsButton();
-            if (!document.getElementById('tv-color-init') && startUserColorObserver()) {
-                const f = document.createElement('div');
-                f.id = 'tv-color-init'; f.style.display = 'none';
-                document.body.appendChild(f);
+            startUserColorObserver();
+            // Disconnect once all one-time elements are in place
+            if (
+                document.getElementById('sc-chat-textarea') &&
+                document.getElementById('sc-emote-proxy') &&
+                document.getElementById('fs-toggle-btn') &&
+                document.getElementById('sc-settings-btn')
+            ) {
+                bootObserver.disconnect();
             }
-        }).observe(document.body, { childList: true, subtree: true });
+        });
+        bootObserver.observe(document.body, { childList: true, subtree: true });
     };
 
     waitForBody();
 
-    // Show first-run settings modal if no keys are stored yet
-    window.addEventListener('load', () => {
-        if (!hasKey(LS_TMDB) && !hasKey(LS_DTDD)) {
-            setTimeout(openSettingsModal, 1200);
-        }
-    });
-
     /* ==========================================================
-       CSS
+       CSS + LOAD INIT
     ========================================================== */
 
     window.addEventListener('load', () => {
+        getKillCountDb(); // pre-fetch kill count DB
         installChatTextarea();
         relocateEmoteButton();
         addFloatingButtons();
         addSettingsButton();
         watchMovieTitle();
+        initTopBar();
+
+        // First-run settings modal
+        if (!hasKey(LS_TMDB) && !hasKey(LS_DTDD)) {
+            setTimeout(openSettingsModal, 1200);
+        }
 
         // Run immediately if #motdrow already has images, otherwise watch for it
         if (document.querySelector('#motdrow img')) {
@@ -1251,14 +1333,47 @@
             .modal, .popover, .dropdown-menu { z-index: 20001 !important; }
             .modal-dialog { margin: 0 auto !important; }
             #resize-video-smaller, #resize-video-larger { display: none !important; }
-            /* Currently playing header — cleaner styling */
+            /* ── TOP BAR SYSTEM ────────────────────────────────────────────────────
+               A single gradient band overlays the top of the video.
+               After a few seconds the gradient, icons and Coming Attractions
+               fade out leaving only the title. Mouse-over restores everything.
+               If the poster strip is open nothing fades.
+
+               States driven by .sc-bar-dim on #sc-top-bar:
+                 (no class)    = fully visible
+                 .sc-bar-dim   = gradient/icons/toggle faded, title stays
+            ─────────────────────────────────────────────────────────────────── */
+
+            /* Gradient overlay behind the whole bar */
+            /* Gradient starts below the header row so it never alpha-composites
+               over the title/pills/toggle — those have their own background */
+            #sc-top-bar {
+                position: fixed !important;
+                top: 20px !important; /* start below the header bar */
+                left: 0 !important;
+                width: 80vw !important; height: 40px !important;
+                z-index: 10001 !important; /* above video */
+                pointer-events: none !important;
+                background: linear-gradient(
+                    to bottom,
+                    rgba(0,0,0,0.35) 0%,
+                    rgba(0,0,0,0)    100%
+                ) !important;
+                transition: opacity 1.5s ease !important;
+                opacity: 1 !important;
+            }
+            body.sc-vertical #sc-top-bar { width: 100vw !important; }
+            #sc-top-bar.sc-bar-dim { opacity: 0 !important; }
+
+            /* Header — dark background fades out with gradient when dimmed */
             #videowrap-header {
                 border: 0 !important;
                 background: rgba(0,0,0,0.55) !important;
-                padding: 2px 8px !important;
-                font-size: 13px !important;
+                padding: 3px 8px !important;
+                font-size: 12px !important;
                 font-weight: 500 !important;
-                color: rgba(255,255,255,0.82) !important;
+                color: #fff !important;
+                text-shadow: 0 1px 4px rgba(0,0,0,1), 0 0 10px rgba(0,0,0,0.9) !important;
                 letter-spacing: 0.01em !important;
                 white-space: nowrap !important;
                 overflow: hidden !important;
@@ -1266,18 +1381,56 @@
                 width: 80vw !important;
                 box-sizing: border-box !important;
                 position: fixed !important;
-                top: 0 !important;
+                top: 0 !important; left: 0 !important;
+                z-index: 10002 !important;
+                pointer-events: auto !important;
+                transition: background 1.5s ease !important;
+            }
+            /* When dimmed: background fades away, title stays via text-shadow */
+            #videowrap-header.sc-bar-dim {
+                background: transparent !important;
+            }
+            body.sc-vertical #videowrap-header { width: 100vw !important; }
+            /* Hide the "Currently Playing:" prefix label */
+            #videowrap-header .pull-left > span:first-child,
+            #videowrap-header .label,
+            #videowrap-header b { display: none !important; }
+            #videowrap-header strong { font-weight: 500 !important; }
+
+            /* Movie link icons — background fades to transparent when dimmed,
+               /* Coming Attractions button — fades with gradient */
+            #sc-poster-toggle {
+                color: rgba(255,255,255,0.55) !important;
+                transition: opacity 1.5s ease, color 0.2s ease !important;
+                opacity: 1 !important;
+                pointer-events: auto !important;
+                cursor: pointer !important;
+            }
+            #sc-poster-toggle.sc-bar-dim {
+                opacity: 0 !important;
+                pointer-events: none !important;
+            }
+            #sc-poster-toggle:hover { color: rgba(255,255,255,0.9) !important; }
+            #sc-poster-toggle.sc-poster-toggle-active {
+                color: rgba(255,255,255,0.9) !important;
+            }
+            /* Pull the control bar out of embed-responsive's constrained box
+               and pin it as a fixed element flush to the bottom of the screen.
+               Right edge stops just before the settings button. */
+            .video-js .vjs-control-bar {
+                position: fixed !important;
+                bottom: 0 !important;
                 left: 0 !important;
-                z-index: 10000 !important;
+                right: calc(20vw + 150px) !important; /* stops before settings btn */
+                width: auto !important;
+                margin: 0 !important;
+                z-index: 10001 !important;
             }
-            body.sc-vertical #videowrap-header {
-                width: 100vw !important;
+            body.sc-vertical .video-js .vjs-control-bar {
+                bottom: 43vh !important; /* sit just above the chat panel */
+                right: 150px !important;
+                left: 0 !important;
             }
-            /* "Currently Playing:" label dimmer than the title */
-            #videowrap-header .pull-left { opacity: 1 !important; }
-            #videowrap-header b,
-            #videowrap-header strong { font-weight: 600 !important; color: white !important; }
-            .video-js .vjs-control-bar { bottom: 20px !important; width: 80% !important; }
             .video-js .vjs-big-play-button {
                 top: 50% !important;
                 left: 50% !important;
@@ -1292,7 +1445,7 @@
             #sc-poster-strip {
                 display: none !important; /* hidden by default */
                 position: fixed !important;
-                top: 38px !important;   /* sits below the toggle button */
+                top: 20px !important;   /* drops down from the header bar */
                 left: 0 !important;
                 z-index: 19500 !important;
                 width: 80vw !important;
@@ -1307,8 +1460,8 @@
             }
             body.sc-vertical #sc-poster-strip {
                 width: 100vw !important;
-                top: auto !important;
-                bottom: 42vh !important;
+                top: 20px !important;
+                bottom: auto !important;
             }
             #sc-poster-strip.sc-poster-visible {
                 display: block !important;
@@ -1352,16 +1505,15 @@
             }
 
 
-            /* Toggle button — thin bar directly below the currently playing header */
+            /* Toggle button — right side of the header bar, same line as the title */
             #sc-poster-toggle {
                 position: fixed !important;
-                top: 20px !important;
-                left: 0 !important;
-                z-index: 19600 !important;
-                background: rgba(0,0,0,0.5) !important;
-                color: rgba(255,255,255,0.38) !important;
+                top: 0 !important;
+                right: 20vw !important;  /* stops at the chat panel edge */
+                left: auto !important;
+                z-index: 10003 !important;
+                background: transparent !important;
                 border: none !important;
-                border-top: 1px solid rgba(255,255,255,0.06) !important;
                 border-radius: 0 !important;
                 padding: 2px 8px !important;
                 font-size: 10px !important;
@@ -1369,22 +1521,16 @@
                 letter-spacing: 0.06em !important;
                 text-transform: uppercase !important;
                 white-space: nowrap !important;
-                transition: color 0.15s, background 0.15s !important;
-                width: 80vw !important;
-                text-align: left !important;
-            }
-            #sc-poster-toggle:hover {
-                color: rgba(255,255,255,0.75) !important;
-                background: rgba(0,0,0,0.65) !important;
-            }
-            #sc-poster-toggle.sc-poster-toggle-active {
-                color: rgba(255,255,255,0.7) !important;
-                background: rgba(0,0,0,0.65) !important;
+                line-height: 1 !important;
+                height: 20px !important;
+                display: flex !important;
+                align-items: center !important;
             }
             body.sc-vertical #sc-poster-toggle {
-                top: auto !important;
-                bottom: calc(42vh + 18px) !important;
-                width: 100vw !important;
+                top: 0 !important;
+                right: 0 !important;
+                left: auto !important;
+                bottom: auto !important;
             }
 
             /* ===== MOVIE LINKS ===== */
@@ -1394,22 +1540,29 @@
                 margin-left: 8px !important;
                 vertical-align: middle !important;
             }
+            /* Dim: override inline background with transparent, fade text to ghost */
+            #sc-movie-links.sc-bar-dim .sc-movie-link {
+                background: transparent !important;
+                color: rgba(255,255,255,0.3) !important;
+                box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15) !important;
+            }
             .sc-movie-link {
                 display: inline-flex !important;
                 align-items: center !important; justify-content: center !important;
                 width: 17px !important; height: 17px !important;
                 border-radius: 3px !important;
                 font-size: 10px !important; font-weight: 900 !important;
-                text-decoration: none !important; opacity: 0.72 !important;
+                text-decoration: none !important;
                 line-height: 1 !important; font-family: Georgia, serif !important;
-                transition: opacity 0.15s !important; flex-shrink: 0 !important;
+                flex-shrink: 0 !important; cursor: pointer !important;
+                transition: background 2s ease, color 2s ease, box-shadow 2s ease, filter 0.2s ease !important;
             }
-            .sc-movie-link:hover { opacity: 1 !important; }
+            .sc-movie-link:hover { filter: brightness(1.3) !important; }
             .sc-movie-loading { font-size: 11px !important; color: rgba(255,255,255,0.3) !important; margin-left: 6px !important; }
             /* Stats bar — floats over bottom-left of video, auto-hides after 12s */
             #sc-movie-stats {
                 position: fixed !important;
-                bottom: 48px !important;
+                bottom: 40px !important;
                 left: 12px !important;
                 z-index: 19000 !important;
                 background: rgba(0,0,0,0.75) !important;
@@ -1450,7 +1603,9 @@
                 z-index: 9999 !important; background: black !important;
             }
             body.sc-horizontal #videowrap .embed-responsive,
-            body.sc-horizontal #ytapiplayer { width: 80vw !important; height: 100vh !important; }
+            body.sc-horizontal #ytapiplayer {
+                width: 80vw !important; height: 100vh !important;
+            }
             body.sc-horizontal #chatwrap {
                 position: fixed !important; top: 0 !important; right: 0 !important;
                 width: 19vw !important; height: 100vh !important;
@@ -1474,7 +1629,9 @@
                 z-index: 9999 !important; background: black !important;
             }
             body.sc-vertical #videowrap .embed-responsive,
-            body.sc-vertical #ytapiplayer { width: 100vw !important; height: 55vh !important; }
+            body.sc-vertical #ytapiplayer {
+                width: 100vw !important; height: 55vh !important;
+            }
             body.sc-vertical #chatwrap {
                 position: fixed !important; bottom: 0 !important; left: 0 !important;
                 width: 100vw !important; height: 42vh !important;
