@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube Fullscreen Video with Overlay Chat
 // @namespace    http://tampermonkey.net/
-// @version      3.2
+// @version      3.4.0
 // @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, vertical monitor support
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -51,8 +51,10 @@
 
     function getChatUsernames() {
         const names = new Set();
-        document.querySelectorAll('#userlist .userlist_item .username').forEach(el => {
-            const n = el.textContent.replace(/[:\s]+$/, '').trim();
+        document.querySelectorAll('#userlist .userlist_item').forEach(item => {
+            const spans = item.querySelectorAll('span');
+            const nameSpan = spans.length >= 2 ? spans[1] : spans[0];
+            const n = nameSpan?.textContent?.trim();
             if (n) names.add(n);
         });
         document.querySelectorAll('#messagebuffer .username').forEach(el => {
@@ -474,6 +476,77 @@
        Appended to document.body so they're never inside #leftcontrols
        and can't be accidentally hidden with it.
     ========================================================== */
+
+    /* ==========================================================
+       DESYNC BUTTON — temporarily pause CyTube's sync
+    ========================================================== */
+
+    function initDesyncButton() {
+        const btn = document.createElement('button');
+        btn.id = 'sc-desync-btn';
+        btn.textContent = '⟳';
+        btn.title = 'Free watch — click to watch freely, click again to re-sync';
+        document.body.appendChild(btn);
+
+        let desynced = false;
+        let savedListeners = null;
+
+        const getMediaUpdateListeners = () => {
+            // Socket.IO v2/v3 stores listeners under _callbacks['$eventName']
+            // Socket.IO v4 stores them under _events or via listeners()
+            const key = '$mediaUpdate';
+            if (socket._callbacks?.[key]) return { store: '_callbacks', key };
+            if (socket._events?.mediaUpdate) return { store: '_events', key: 'mediaUpdate' };
+            return null;
+        };
+
+        const freezeSync = () => {
+            const loc = getMediaUpdateListeners();
+            if (!loc) {
+                console.warn('[CyTube SC] Could not find mediaUpdate listeners to freeze');
+                return;
+            }
+            if (loc.store === '_callbacks') {
+                savedListeners = socket._callbacks[loc.key].slice();
+                socket._callbacks[loc.key] = [];
+            } else {
+                savedListeners = socket._events[loc.key];
+                delete socket._events[loc.key];
+            }
+            console.log('[CyTube SC] Sync frozen — removed', savedListeners?.length ?? 1, 'mediaUpdate listener(s)');
+        };
+
+        const thawSync = () => {
+            if (!savedListeners) return;
+            const loc = getMediaUpdateListeners();
+            if (loc?.store === '_callbacks') {
+                socket._callbacks[loc.key] = savedListeners;
+            } else {
+                socket._events = socket._events || {};
+                socket._events['mediaUpdate'] = savedListeners;
+            }
+            savedListeners = null;
+            console.log('[CyTube SC] Sync restored');
+            // Trigger immediate resync
+            if (typeof socket !== 'undefined' && socket) {
+                socket.emit('playerReady');
+            }
+        };
+
+        btn.addEventListener('click', () => {
+            if (typeof socket === 'undefined' || !socket) return;
+            desynced = !desynced;
+            if (desynced) {
+                freezeSync();
+                btn.classList.add('sc-desync-active');
+                btn.title = 'Free watch ON — click to re-sync';
+            } else {
+                thawSync();
+                btn.classList.remove('sc-desync-active');
+                btn.title = 'Free watch — click to watch freely';
+            }
+        });
+    }
 
     function addFloatingButtons() {
         if (document.getElementById('fs-toggle-btn')) return;
@@ -1256,6 +1329,225 @@
     }
 
     /* ==========================================================
+       POLL / ANNOUNCEMENT WATCHER
+    ========================================================== */
+
+    function initPollWatcher() {
+        // pollwrap may not exist yet or may be empty — watch for it
+        const tryInit = () => {
+            const pollwrap = document.getElementById('pollwrap');
+            if (!pollwrap) {
+                // Not in DOM yet, watch body
+                const bodyObs = new MutationObserver(() => {
+                    if (document.getElementById('pollwrap')) {
+                        bodyObs.disconnect();
+                        tryInit();
+                    }
+                });
+                bodyObs.observe(document.body, { childList: true, subtree: true });
+                return;
+            }
+            _initPollWatcher(pollwrap);
+        };
+        tryInit();
+    }
+
+    function _initPollWatcher(pollwrap) {
+
+        // Create the notification button — only shown when poll has content
+        const header = document.getElementById('sc-chat-header');
+        if (!header) return;
+        const btn = document.createElement('button');
+        btn.id = 'sc-poll-btn';
+        btn.title = 'Channel announcement / poll';
+        btn.textContent = 'POLL';
+        header.appendChild(btn);
+
+        // Create the floating panel
+        const panel = document.createElement('div');
+        panel.id = 'sc-poll-panel';
+        panel.style.display = 'none';
+        document.body.appendChild(panel);
+
+        let panelOpen = false;
+
+        const renderPanel = () => {
+            // Clone pollwrap content so we can restyle without affecting original
+            const well = pollwrap.querySelector('.well.active') || pollwrap.querySelector('.well');
+            if (!well) { panel.innerHTML = ''; return; }
+
+            // Extract just the useful parts: heading + options
+            const h = well.querySelector('h3')?.textContent?.trim() || '';
+            const opts = [...well.querySelectorAll('.option')].map(o => {
+                // Get text without the vote count button text
+                const btn = o.querySelector('button');
+                const text = o.textContent.replace(btn?.textContent || '', '').trim();
+                // Preserve links
+                const links = [...o.querySelectorAll('a')].map(a =>
+                    `<a href="${a.href}" target="_blank" rel="noopener noreferrer">${a.textContent}</a>`
+                );
+                let html = o.innerHTML.replace(/<button[^>]*>.*?<\/button>/i, '').trim();
+                return `<div class="sc-poll-option">${html}</div>`;
+            });
+
+            // Time/author label
+            const label = well.querySelector('.label')?.textContent?.trim() || '';
+            const author = well.querySelector('.label')?.getAttribute('title') || '';
+
+            panel.innerHTML = `
+                <div class="sc-poll-header">${h}</div>
+                <div class="sc-poll-options">${opts.join('')}</div>
+                ${label ? `<div class="sc-poll-meta">${author ? author + ' · ' : ''}${label}</div>` : ''}
+            `;
+        };
+
+        const hasPollContent = () => {
+            // CyTube marks open polls with .well.active
+            // Fall back to any .well with content if no active class
+            const activeWell = pollwrap.querySelector('.well.active') || pollwrap.querySelector('.well');
+            return !!(activeWell && activeWell.textContent.trim().length > 10);
+        };
+
+        const updateBtn = () => {
+            const hasContent = hasPollContent();
+            btn.style.display = hasContent ? '' : 'none';
+            if (!hasContent && panelOpen) {
+                panel.style.display = 'none';
+                panelOpen = false;
+                btn.classList.remove('sc-poll-btn-active');
+            }
+        };
+
+        btn.addEventListener('click', () => {
+            panelOpen = !panelOpen;
+            if (panelOpen) {
+                renderPanel();
+                panel.style.display = 'block';
+                btn.classList.add('sc-poll-btn-active');
+            } else {
+                panel.style.display = 'none';
+                btn.classList.remove('sc-poll-btn-active');
+            }
+        });
+
+        // Close on outside click
+        document.addEventListener('click', e => {
+            if (panelOpen && !btn.contains(e.target) && !panel.contains(e.target)) {
+                panel.style.display = 'none';
+                panelOpen = false;
+                btn.classList.remove('sc-poll-btn-active');
+            }
+        });
+
+        // Watch for poll changes
+        new MutationObserver(() => {
+            updateBtn();
+            if (panelOpen) renderPanel();
+        }).observe(pollwrap, { childList: true, subtree: true, characterData: true });
+
+        updateBtn();
+    } // end _initPollWatcher
+
+    /* ==========================================================
+       USER COUNT PANEL
+    ========================================================== */
+
+    function initChatHeader() {
+        if (document.getElementById('sc-chat-header')) return;
+        const header = document.createElement('div');
+        header.id = 'sc-chat-header';
+        document.body.appendChild(header);
+    }
+
+    function initUserCount() {
+        const header = document.getElementById('sc-chat-header');
+        if (!header) return;
+        const btn = document.createElement('button');
+        btn.id = 'sc-usercount-btn';
+        header.appendChild(btn);
+
+        // Create users panel
+        const panel = document.createElement('div');
+        panel.id = 'sc-users-panel';
+        document.body.appendChild(panel);
+
+        let open = false;
+
+        const getUsers = () => {
+            const items = [...document.querySelectorAll('#userlist .userlist_item')];
+            return items
+                .map(item => {
+                    // CyTube structure: <span>(rank icon)</span><span (optional class)>Name</span>
+                    // Get the second span which always contains the username
+                    const spans = item.querySelectorAll('span');
+                    const nameSpan = spans.length >= 2 ? spans[1] : spans[0];
+                    return nameSpan?.textContent?.trim() || '';
+                })
+                .filter(Boolean)
+                .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+        };
+
+        const updateCount = () => {
+            // Prefer CyTube's own count (accurate, socket-driven)
+            const cytubCount = document.getElementById('usercount');
+            const raw = cytubCount?.textContent?.match(/\d+/)?.[0];
+            const count = raw ? parseInt(raw) : getUsers().length;
+            btn.textContent = count + ' USERS';
+        };
+
+        const renderPanel = () => {
+            const users = getUsers();
+            panel.innerHTML = `
+                <div class="sc-users-panel-header">${users.length} connected</div>
+                ${users.map(u => {
+                    const color = usernameToColor(u);
+                    return `<div class="sc-users-panel-name" style="color:${color}">${u}</div>`;
+                }).join('')}
+            `;
+        };
+
+        const closePanel = () => {
+            panel.style.display = 'none';
+            btn.classList.remove('sc-users-active');
+            open = false;
+        };
+
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            open = !open;
+            if (open) {
+                renderPanel();
+                panel.style.display = 'block';
+                btn.classList.add('sc-users-active');
+            } else {
+                closePanel();
+            }
+        });
+
+        document.addEventListener('click', e => {
+            if (open && !panel.contains(e.target) && e.target !== btn) closePanel();
+        });
+
+        // Update count and panel when userlist changes
+        const ul = document.getElementById('userlist');
+        if (ul) {
+            new MutationObserver(() => {
+                updateCount();
+                if (open) renderPanel();
+            }).observe(ul, { childList: true, subtree: true });
+        }
+
+        // Also watch CyTube's usercount element for socket-driven updates
+        const uc = document.getElementById('usercount');
+        if (uc) {
+            new MutationObserver(updateCount)
+                .observe(uc, { childList: true, subtree: true, characterData: true });
+        }
+
+        updateCount();
+    }
+
+    /* ==========================================================
        BOOT
     ========================================================== */
 
@@ -1299,6 +1591,10 @@
         addSettingsButton();
         watchMovieTitle();
         initTopBar();
+        initDesyncButton();
+        initChatHeader();
+        initUserCount();
+        initPollWatcher();
 
         // First-run settings modal
         if (!hasKey(LS_TMDB) && !hasKey(LS_DTDD)) {
@@ -1327,12 +1623,24 @@
 
             /* ===== SHARED HIDDEN ELEMENTS ===== */
             nav.navbar, #drinkbarwrap, #announcements, #playlistrow,
-            #resizewrap, footer, #userlist, #userlisttoggle, #rightcontrols,
+            #resizewrap, footer, #userlisttoggle, #rightcontrols,
             .modal-header, .timestamp, .modal-footer { display: none !important; }
             body { background-image: none !important; background: #000 !important; }
             .modal, .popover, .dropdown-menu { z-index: 20001 !important; }
             .modal-dialog { margin: 0 auto !important; }
             #resize-video-smaller, #resize-video-larger { display: none !important; }
+            /* Remove pause and fullscreen from video.js control bar */
+            .video-js .vjs-play-control { display: none !important; }
+            .video-js .vjs-fullscreen-control { display: none !important; }
+            /* Userlist — hidden but fully rendered so all users appear in DOM */
+            #userlist {
+                visibility: hidden !important;
+                position: absolute !important;
+                pointer-events: none !important;
+                height: auto !important;
+                overflow: hidden !important;
+            }
+            #userlisttoggle { display: none !important; }
             /* ── TOP BAR SYSTEM ────────────────────────────────────────────────────
                A single gradient band overlays the top of the video.
                After a few seconds the gradient, icons and Coming Attractions
@@ -1392,6 +1700,95 @@
             }
             body.sc-vertical #videowrap-header { width: 100vw !important; }
             /* Hide the "Currently Playing:" prefix label */
+            /* Hide CyTube's original usercount */
+            #usercount { display: none !important; }
+
+            /* Chat header bar — sits above #chatwrap */
+            #sc-chat-header {
+                position: fixed !important;
+                top: 0 !important; right: 5px !important;
+                width: calc(19vw - 5px) !important; height: 28px !important;
+                z-index: 10003 !important;
+                background: rgba(0,0,0,0.7) !important;
+                border: 1px solid #aaaaaa !important;
+                border-bottom-color: #444 !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+                padding: 0 8px !important;
+                box-sizing: border-box !important;
+            }
+            body.sc-vertical #sc-chat-header {
+                left: 5px !important;
+                right: 5px !important;
+                width: auto !important;
+                bottom: calc(42vh - 20px) !important;
+                top: auto !important;
+            }
+            #sc-usercount-btn, #sc-poll-btn {
+                background: transparent !important;
+                border: none !important;
+                font-size: 10px !important;
+                font-weight: 700 !important;
+                letter-spacing: 0.06em !important;
+                text-transform: uppercase !important;
+                color: rgba(255,255,255,0.5) !important;
+                cursor: pointer !important;
+                padding: 0 4px !important;
+                font-family: inherit !important;
+                transition: color 0.2s !important;
+                line-height: 28px !important;
+            }
+            #sc-usercount-btn:hover, #sc-poll-btn:hover { color: rgba(255,255,255,0.9) !important; }
+            #sc-usercount-btn.sc-users-active,
+            #sc-poll-btn.sc-poll-btn-active { color: white !important; }
+
+            /* Users panel — drops down from usercount, same style as poll panel */
+            #sc-users-panel {
+                position: fixed !important;
+                top: 28px !important;
+                right: 5px !important;
+                width: calc(19vw - 5px) !important;
+                z-index: 19000 !important;
+                background: rgba(10,10,20,0.95) !important;
+                border: 1px solid #aaaaaa !important;
+                border-top: none !important;
+                border-radius: 0 0 0 8px !important;
+                padding: 10px 12px !important;
+                color: rgba(255,255,255,0.88) !important;
+                font-size: 12px !important;
+                line-height: 1.6 !important;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.7) !important;
+                max-height: 60vh !important;
+                overflow-y: auto !important;
+                scrollbar-width: thin !important;
+                scrollbar-color: rgba(255,255,255,0.15) transparent !important;
+                display: none;
+            }
+            body.sc-vertical #sc-users-panel {
+                top: auto !important;
+                bottom: calc(42vh) !important;
+                right: 5px !important;
+                width: calc(100vw - 5px) !important;
+                max-height: 40vh !important;
+            }
+            .sc-users-panel-header {
+                font-size: 10px !important;
+                font-weight: 700 !important;
+                letter-spacing: 0.06em !important;
+                text-transform: uppercase !important;
+                color: rgba(255,255,255,0.4) !important;
+                margin-bottom: 8px !important;
+                padding-bottom: 6px !important;
+                border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+            }
+            .sc-users-panel-name {
+                padding: 1px 0 !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+            }
+
             #videowrap-header .pull-left > span:first-child,
             #videowrap-header .label,
             #videowrap-header b { display: none !important; }
@@ -1417,26 +1814,112 @@
             /* Pull the control bar out of embed-responsive's constrained box
                and pin it as a fixed element flush to the bottom of the screen.
                Right edge stops just before the settings button. */
+            /* ===== VIDEO.JS CONTROL BAR — pill style matching our UI buttons ===== */
             .video-js .vjs-control-bar {
                 position: fixed !important;
-                bottom: 0 !important;
-                left: 0 !important;
-                right: calc(20vw + 150px) !important; /* stops before settings btn */
+                bottom: 4px !important;
+                left: 4px !important;
+                right: calc(20vw + 150px) !important;
                 width: auto !important;
                 margin: 0 !important;
                 z-index: 10001 !important;
+                /* Pill-style bar */
+                background: rgba(255,255,255,0.08) !important;
+                border-radius: 999px !important;
+                padding: 0 8px !important;
+                height: 32px !important;
+                display: flex !important;
+                align-items: center !important;
+                backdrop-filter: blur(4px) !important;
             }
             body.sc-vertical .video-js .vjs-control-bar {
-                bottom: 43vh !important; /* sit just above the chat panel */
-                right: 150px !important;
-                left: 0 !important;
+                bottom: calc(42vh + 15px) !important;
+                right: 160px !important;
+                left: 4px !important;
             }
+
+            /* Individual control buttons — match pill button style */
+            .video-js .vjs-control {
+                color: rgba(255,255,255,0.55) !important;
+                transition: color 0.3s ease, background 0.3s ease !important;
+                border-radius: 999px !important;
+            }
+            .video-js .vjs-control:hover {
+                color: white !important;
+                background: rgba(255,255,255,0.12) !important;
+            }
+
+            /* Progress / seek bar */
+            .video-js .vjs-progress-control {
+                border-radius: 999px !important;
+                overflow: visible !important;
+            }
+            .video-js .vjs-progress-holder {
+                background: rgba(255,255,255,0.15) !important;
+                border-radius: 999px !important;
+                height: 4px !important;
+                transition: height 0.15s !important;
+            }
+            .video-js .vjs-progress-holder:hover { height: 6px !important; }
+            .video-js .vjs-play-progress {
+                background: rgba(255,255,255,0.75) !important;
+                border-radius: 999px !important;
+            }
+            .video-js .vjs-play-progress::before {
+                color: white !important;
+                font-size: 10px !important;
+                top: -3px !important;
+            }
+            .video-js .vjs-load-progress {
+                background: rgba(255,255,255,0.1) !important;
+                border-radius: 999px !important;
+            }
+
+            /* Volume slider */
+            .video-js .vjs-volume-bar {
+                background: rgba(255,255,255,0.15) !important;
+                border-radius: 999px !important;
+            }
+            .video-js .vjs-volume-level {
+                background: rgba(255,255,255,0.75) !important;
+                border-radius: 999px !important;
+            }
+            .video-js .vjs-volume-level::before {
+                color: white !important;
+                font-size: 10px !important;
+            }
+
+            /* Time display */
+            .video-js .vjs-time-control {
+                color: rgba(255,255,255,0.55) !important;
+                font-size: 11px !important;
+                line-height: 32px !important;
+                padding: 0 4px !important;
+                min-width: 0 !important;
+            }
+
+            /* Big play button — pill style */
             .video-js .vjs-big-play-button {
                 top: 50% !important;
                 left: 50% !important;
                 transform: translate(-50%, -50%) !important;
                 margin: 0 !important;
+                background: rgba(255,255,255,0.08) !important;
+                border: 1px solid rgba(255,255,255,0.2) !important;
+                border-radius: 999px !important;
+                width: 60px !important;
+                height: 60px !important;
+                line-height: 60px !important;
+                font-size: 24px !important;
+                color: rgba(255,255,255,0.8) !important;
+                transition: background 0.3s ease, color 0.3s ease !important;
+                backdrop-filter: blur(4px) !important;
             }
+            .video-js .vjs-big-play-button:hover {
+                background: rgba(255,255,255,0.18) !important;
+                color: white !important;
+            }
+            .video-js:hover .vjs-big-play-button { opacity: 1 !important; }
 
             /* ===== MOTD — keep hidden, we extract images ourselves ===== */
             #motdrow { display: none !important; }
@@ -1583,18 +2066,61 @@
 
 
             /* ===== FLOATING BUTTONS (body-level, always visible) ===== */
+            #sc-desync-btn {
+                position: fixed !important;
+                z-index: 20002 !important;
+                background: rgba(255,255,255,0.08) !important;
+                color: rgba(255,255,255,0.55) !important;
+                border: none !important;
+                border-radius: 50% !important;
+                width: 28px !important; height: 28px !important;
+                padding: 0 !important;
+                font-size: 15px !important;
+                cursor: pointer !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                transition: color 0.3s ease, background 0.3s ease !important;
+            }
+            #sc-desync-btn:hover {
+                color: white !important;
+                background: rgba(255,255,255,0.22) !important;
+            }
+            #sc-desync-btn.sc-desync-active {
+                color: #ffcc44 !important;
+                background: rgba(255,200,50,0.18) !important;
+            }
+            body.sc-horizontal #sc-desync-btn {
+                bottom: 6px !important;
+                right: calc(20vw + 38px) !important;
+            }
+            body.sc-vertical #sc-desync-btn {
+                bottom: 43vh !important;
+                right: 46px !important;
+            }
+
             #fs-toggle-btn, #sc-emote-proxy {
                 position: fixed !important;
                 z-index: 20002 !important;
-                background: rgba(0,0,0,0.7) !important;
-                color: white !important;
-                border: 1px solid rgba(255,255,255,0.3) !important;
-                border-radius: 4px !important;
-                padding: 3px 10px !important;
-                font-size: 16px !important;
+                background: rgba(255,255,255,0.08) !important;
+                color: rgba(255,255,255,0.55) !important;
+                border: none !important;
+                border-radius: 50% !important;
+                width: 28px !important;
+                height: 28px !important;
+                padding: 0 !important;
+                font-size: 15px !important;
                 cursor: pointer !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                transition: color 0.3s ease, background 0.3s ease !important;
             }
-            #fs-toggle-btn:focus { outline: 2px solid white !important; }
+            #fs-toggle-btn:hover, #sc-emote-proxy:hover {
+                color: white !important;
+                background: rgba(255,255,255,0.22) !important;
+            }
+            #fs-toggle-btn:focus { outline: none !important; }
 
             /* ===== HORIZONTAL LAYOUT (widescreen) ===== */
             body.sc-horizontal #videowrap {
@@ -1607,19 +2133,19 @@
                 width: 80vw !important; height: 100vh !important;
             }
             body.sc-horizontal #chatwrap {
-                position: fixed !important; top: 0 !important; right: 0 !important;
-                width: 19vw !important; height: 100vh !important;
+                position: fixed !important; top: 28px !important; right: 0 !important;
+                width: 19vw !important; height: calc(100vh - 28px) !important;
                 z-index: 9999 !important; background: rgba(0,0,0,0.7) !important;
                 overflow: hidden !important; padding: 0 5px 0 0 !important;
                 display: flex !important; flex-direction: column !important;
             }
             body.sc-horizontal #leftcontrols { display: none !important; }
             /* Horizontal: buttons bottom-right of video */
-            body.sc-horizontal #fs-toggle-btn {
-                bottom: 8px !important; right: calc(20vw + 8px) !important;
-            }
             body.sc-horizontal #sc-emote-proxy {
-                bottom: 8px !important; right: calc(20vw + 58px) !important;
+                bottom: 6px !important; right: calc(20vw + 6px) !important;
+            }
+            body.sc-horizontal #fs-toggle-btn {
+                bottom: 6px !important; right: calc(20vw + 70px) !important;
             }
 
             /* ===== VERTICAL LAYOUT (portrait monitor) ===== */
@@ -1627,33 +2153,46 @@
                 position: fixed !important; top: 0 !important; left: 0 !important;
                 width: 100vw !important; height: 55vh !important;
                 z-index: 9999 !important; background: black !important;
+                border: none !important; outline: none !important;
+                box-shadow: none !important;
             }
             body.sc-vertical #videowrap .embed-responsive,
             body.sc-vertical #ytapiplayer {
                 width: 100vw !important; height: 55vh !important;
+                border: none !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            body.sc-vertical .video-js {
+                margin: 0 !important;
+                padding: 0 !important;
+                left: 0 !important;
+            }
+            body.sc-vertical .vjs-tech {
+                left: 0 !important;
+                margin: 0 !important;
             }
             body.sc-vertical #chatwrap {
                 position: fixed !important; bottom: 0 !important; left: 0 !important;
-                width: 100vw !important; height: 42vh !important;
+                width: 100vw !important; height: calc(42vh - 28px) !important;
                 z-index: 9999 !important; background: rgba(0,0,0,0.85) !important;
                 overflow: hidden !important; padding: 0 5px !important;
                 display: flex !important; flex-direction: column !important;
             }
             body.sc-vertical #messagebuffer { font-size: 15px !important; }
+
             /* Vertical: all buttons in one right-pinned row flush on top of the chat panel.
                leftcontrols hides its own internal layout; we show a proxy row instead. */
             body.sc-vertical #leftcontrols { display: none !important; }
 
             /* fs + emote buttons: right-pinned, sitting exactly on the chat top edge */
-            body.sc-vertical #fs-toggle-btn {
-                bottom: 43vh !important;
-                right: 50px !important; left: auto !important;
-                border-radius: 4px 4px 0 0 !important;
-            }
             body.sc-vertical #sc-emote-proxy {
                 bottom: 43vh !important;
-                right: 0 !important; left: auto !important;
-                border-radius: 4px 4px 0 0 !important;
+                right: 8px !important; left: auto !important;
+            }
+            body.sc-vertical #fs-toggle-btn {
+                bottom: 43vh !important;
+                right: 84px !important; left: auto !important;
             }
 
             /* ===== SHARED CHAT ELEMENTS ===== */
@@ -1750,23 +2289,31 @@
             #sc-settings-btn {
                 position: fixed !important;
                 z-index: 20002 !important;
-                background: rgba(0,0,0,0.7) !important;
-                color: rgba(255,255,255,0.6) !important;
-                border: 1px solid rgba(255,255,255,0.2) !important;
-                border-radius: 4px !important;
-                padding: 3px 8px !important;
-                font-size: 14px !important;
+                background: rgba(255,255,255,0.08) !important;
+                color: rgba(255,255,255,0.55) !important;
+                border: none !important;
+                border-radius: 50% !important;
+                width: 28px !important;
+                height: 28px !important;
+                padding: 0 !important;
+                font-size: 13px !important;
                 cursor: pointer !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                transition: color 0.3s ease, background 0.3s ease !important;
                 line-height: 1 !important;
             }
-            #sc-settings-btn:hover { color: white !important; }
+            #sc-settings-btn:hover {
+                color: white !important;
+                background: rgba(255,255,255,0.22) !important;
+            }
 
             body.sc-horizontal #sc-settings-btn {
-                bottom: 8px !important; right: calc(20vw + 108px) !important;
+                bottom: 6px !important; right: calc(20vw + 102px) !important;
             }
             body.sc-vertical #sc-settings-btn {
-                bottom: 43vh !important; right: 96px !important;
-                border-radius: 4px 4px 0 0 !important;
+                bottom: 43vh !important; right: 122px !important;
             }
 
             /* ===== SETTINGS MODAL ===== */
@@ -1862,6 +2409,56 @@
                 cursor: pointer !important; font-size: 13px !important; font-weight: 600 !important;
             }
             #sc-settings-save:hover { background: rgba(192,176,255,0.35) !important; }
+
+
+            /* Poll panel */
+            #sc-poll-panel {
+                position: fixed !important;
+                top: 28px !important;
+                right: 5px !important;
+                width: calc(19vw - 5px) !important;
+                z-index: 19000 !important;
+                background: rgba(10,10,20,0.95) !important;
+                border: 1px solid rgba(255,255,255,0.12) !important;
+                border-radius: 8px !important;
+                padding: 12px 14px !important;
+                max-width: 100% !important;
+                color: rgba(255,255,255,0.88) !important;
+                font-size: 13px !important;
+                line-height: 1.5 !important;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.7) !important;
+                font-family: system-ui, sans-serif !important;
+            }
+            body.sc-vertical #sc-poll-panel {
+                right: 0 !important;
+                top: auto !important;
+                bottom: calc(42vh + 42px) !important;
+                max-width: 98vw !important;
+            }
+            .sc-poll-header {
+                font-weight: 600 !important;
+                font-size: 14px !important;
+                color: #f0c040 !important;
+                margin-bottom: 8px !important;
+                padding-bottom: 6px !important;
+                border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+            }
+            .sc-poll-option {
+                margin-bottom: 6px !important;
+                color: rgba(255,255,255,0.82) !important;
+                font-size: 13px !important;
+            }
+            .sc-poll-option a {
+                color: #7eb8f7 !important;
+                word-break: break-all !important;
+            }
+            .sc-poll-meta {
+                margin-top: 8px !important;
+                font-size: 11px !important;
+                color: rgba(255,255,255,0.35) !important;
+                text-align: right !important;
+            }
+
             #sc-settings-status {
                 font-size: 12px !important; color: #90ffa0 !important;
                 text-align: center !important; min-height: 16px !important;
