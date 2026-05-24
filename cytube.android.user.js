@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      3.4.1
 // @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, vertical monitor support
-// @match        https://cytu.be/r/420Grindhouse
+// @match        https://cytu.be/r/*
 // @match        https://cytu.be/r/testing
 // @grant        GM_xmlhttpRequest
 // @connect      doesthedogdie.com
