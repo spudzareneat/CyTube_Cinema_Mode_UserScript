@@ -673,6 +673,44 @@
         injectCSS();
         buildSheet();
 
+        // Physically move video above chat — CSS order doesn't work reliably
+        // since CyTube's columns may not be direct flex children
+        const reorder = () => {
+            const video = document.getElementById('videowrap')
+                || document.querySelector('[id*="video"]');
+            const chat  = document.getElementById('chatwrap')
+                || document.querySelector('[id*="chat"]');
+            if (!video || !chat) return false;
+
+            // Find the common parent
+            const videoParent = video.parentElement;
+            const chatParent  = chat.parentElement;
+
+            if (videoParent === chatParent) {
+                // Same parent — just move video before chat
+                videoParent.insertBefore(video, chat);
+            } else {
+                // Different parents (Bootstrap cols) — move both cols
+                const videoCol = videoParent;
+                const chatCol  = chatParent;
+                const commonParent = videoCol.parentElement;
+                if (commonParent) {
+                    // Ensure video col comes first
+                    const firstChild = commonParent.firstElementChild;
+                    if (firstChild !== videoCol) {
+                        commonParent.insertBefore(videoCol, chatCol);
+                    }
+                }
+            }
+            return true;
+        };
+
+        if (!reorder()) {
+            // DOM not ready yet — watch for it
+            const obs = new MutationObserver(() => { if (reorder()) obs.disconnect(); });
+            obs.observe(document.body, { childList: true, subtree: true });
+        }
+
         if (!hasKey(LS_TMDB)) setTimeout(openSettings, 1500);
 
         const boot = new MutationObserver(() => {
