@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.0.0
 // @description  Mobile-optimised layout for 420Grindhouse: chat slides with keyboard, touch-friendly controls, movie info
-// @match        https://cytu.be/r/420Grindhouse
+// @match        https://cytu.be/r/*
 // @match        https://cytu.be/r/testing
 // @grant        GM_xmlhttpRequest
 // @connect      doesthedogdie.com
