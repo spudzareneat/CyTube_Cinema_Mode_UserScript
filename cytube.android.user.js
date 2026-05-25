@@ -124,11 +124,21 @@
                 align-items: flex-end !important;
                 padding: 6px 8px !important;
                 gap: 8px !important;
-                background: rgba(0,0,0,0.4) !important;
+                background: rgba(0,0,0,0.95) !important;
                 border-top: 1px solid rgba(255,255,255,0.1) !important;
-                position: sticky !important;
+                position: fixed !important;
                 bottom: 0 !important;
-                z-index: 100 !important;
+                left: 0 !important;
+                right: 0 !important;
+                z-index: 1000 !important;
+                /* Move up with keyboard using JS-set CSS var */
+                transform: translateY(calc(-1 * var(--sc-kb-offset, 0px))) !important;
+                transition: transform 0.2s ease !important;
+                will-change: transform !important;
+            }
+            /* Shrink messagebuffer to make room for input row */
+            #messagebuffer {
+                padding-bottom: 60px !important;
             }
             #sc-chat-textarea {
                 flex: 1 !important;
@@ -394,67 +404,63 @@
     }
 
     /* ==========================================================
-       KEYBOARD HANDLING — lock scroll, shrink chat, protect video
+       KEYBOARD HANDLING
+       Strategy: fixed input row moves up via CSS var,
+       messagebuffer shrinks so video stays visible.
     ========================================================== */
     function initKeyboard() {
         const buf = document.getElementById('messagebuffer');
         let keyboardOpen = false;
-        let scrollY = 0;
 
-        const lockScroll = () => {
-            scrollY = window.scrollY;
-            document.body.style.position   = 'fixed';
-            document.body.style.top        = `-${scrollY}px`;
-            document.body.style.left       = '0';
-            document.body.style.right      = '0';
-            document.body.style.overflowY  = 'hidden';
-        };
+        const update = () => {
+            if (!window.visualViewport) return;
 
-        const unlockScroll = () => {
-            document.body.style.position   = '';
-            document.body.style.top        = '';
-            document.body.style.left       = '';
-            document.body.style.right      = '';
-            document.body.style.overflowY  = '';
-            window.scrollTo(0, scrollY);
-        };
+            const vvH  = window.visualViewport.height;
+            const winH = window.innerHeight;
+            const kbH  = Math.max(0, winH - vvH);
+            const isOpen = kbH > 120;
 
-        const openKeyboard = () => {
-            if (keyboardOpen) return;
-            keyboardOpen = true;
-            lockScroll();
-            if (buf) {
-                buf.style.transition = 'max-height 0.2s ease';
-                buf.style.maxHeight  = '64px';
-                buf.style.overflowY  = 'hidden';
-                setTimeout(() => buf.scrollTop = buf.scrollHeight, 50);
+            // Always scroll body back to top — prevents page jumping
+            window.scrollTo(0, 0);
+            document.documentElement.scrollTop = 0;
+            document.body.scrollTop = 0;
+
+            if (isOpen && !keyboardOpen) {
+                keyboardOpen = true;
+                // Lift the fixed input row above keyboard
+                document.documentElement.style.setProperty('--sc-kb-offset', kbH + 'px');
+                // Shrink messagebuffer to ~3 lines so video stays visible
+                if (buf) {
+                    buf.style.maxHeight  = '64px';
+                    buf.style.overflowY  = 'hidden';
+                    setTimeout(() => { buf.scrollTop = buf.scrollHeight; }, 50);
+                }
+            } else if (!isOpen && keyboardOpen) {
+                keyboardOpen = false;
+                document.documentElement.style.setProperty('--sc-kb-offset', '0px');
+                if (buf) {
+                    buf.style.maxHeight = '';
+                    buf.style.overflowY = '';
+                }
             }
         };
 
-        const closeKeyboard = () => {
-            if (!keyboardOpen) return;
-            keyboardOpen = false;
-            unlockScroll();
-            if (buf) {
-                buf.style.transition = 'max-height 0.2s ease';
-                buf.style.maxHeight  = '';
-                buf.style.overflowY  = '';
-            }
-        };
-
-        // visualViewport is the most reliable signal
         if (window.visualViewport) {
-            window.visualViewport.addEventListener('resize', () => {
-                const kh = window.innerHeight - window.visualViewport.height;
-                if (kh > 120) openKeyboard(); else closeKeyboard();
-            }, { passive: true });
+            window.visualViewport.addEventListener('resize', update, { passive: true });
+            window.visualViewport.addEventListener('scroll', () => window.scrollTo(0, 0), { passive: true });
         }
 
-        // Fallback: focus/blur on our textarea
+        // Continuously scroll back to top while keyboard is open
         const ta = document.getElementById('sc-chat-textarea');
         if (ta) {
-            ta.addEventListener('focus', () => setTimeout(openKeyboard, 200));
-            ta.addEventListener('blur',  () => setTimeout(closeKeyboard, 200));
+            ta.addEventListener('focus', () => {
+                const prevent = () => { window.scrollTo(0, 0); };
+                window.addEventListener('scroll', prevent, { passive: true });
+                setTimeout(() => { update(); window.removeEventListener('scroll', prevent); }, 500);
+            });
+            ta.addEventListener('blur', () => {
+                setTimeout(update, 300);
+            });
         }
     }
 
