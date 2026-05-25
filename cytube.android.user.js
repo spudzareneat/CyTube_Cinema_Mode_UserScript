@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.1.0
 // @description  Mobile-optimised layout for 420Grindhouse
-// @match        https://cytu.be/r/*
+// @match        https://cytu.be/r/420Grindhouse*
 // @match        https://cytu.be/r/testing*
 // @grant        GM_xmlhttpRequest
 // @connect      api.themoviedb.org
@@ -37,37 +37,64 @@
     function injectCSS() {
         const style = document.createElement('style');
         style.textContent = `
-            /* Hide chrome we don't need */
+            /* ── Kill horizontal scroll + fix viewport ───────── */
+            *, *::before, *::after { box-sizing: border-box !important; }
+            html, body {
+                width: 100vw !important; max-width: 100vw !important;
+                overflow-x: hidden !important;
+                margin: 0 !important; padding: 0 !important;
+                background: #000 !important;
+            }
+            /* Kill Bootstrap grid min-widths */
+            .container, .container-fluid, .row, [class*="col-"] {
+                max-width: 100vw !important; min-width: 0 !important;
+                padding-left: 0 !important; padding-right: 0 !important;
+                margin-left: 0 !important; margin-right: 0 !important;
+                width: 100% !important; float: none !important;
+            }
+            #main-row { display: flex !important; flex-direction: column !important; }
+
+            /* ── Hide chrome ─────────────────────────────────── */
             nav.navbar, #drinkbarwrap, #announcements, #playlistrow,
             #resizewrap, footer, #userlisttoggle, #rightcontrols,
             #leftcontrols, #motdrow, #resize-video-smaller,
-            #resize-video-larger { display: none !important; }
+            #resize-video-larger, #announcements { display: none !important; }
 
             #userlist {
                 visibility: hidden !important; position: absolute !important;
-                pointer-events: none !important;
+                pointer-events: none !important; height: auto !important;
             }
 
-            body { overflow-x: hidden !important; }
+            /* ── Video on top ────────────────────────────────── */
+            #videowrap-col, #videocol, [id*="video"][class*="col"],
+            #videowrap { order: 0 !important; }
+            #chatwrap-col, #chatcol, [id*="chat"][class*="col"],
+            #chatwrap { order: 1 !important; }
 
-            /* Make the video area fill width */
+            #videowrap {
+                width: 100vw !important; max-width: 100vw !important;
+                display: block !important;
+            }
+            #videowrap .embed-responsive {
+                width: 100vw !important; max-width: 100vw !important;
+            }
+
+            /* ── Title bar ───────────────────────────────────── */
             #videowrap-header {
-                font-size: 13px !important;
-                padding: 2px 8px !important;
-                white-space: nowrap !important;
-                overflow: hidden !important;
+                font-size: 13px !important; padding: 2px 8px !important;
+                white-space: nowrap !important; overflow: hidden !important;
                 text-overflow: ellipsis !important;
-                max-width: 100vw !important;
+                max-width: 100vw !important; width: 100vw !important;
+                background: rgba(0,0,0,0.6) !important;
             }
-            #videowrap-header b { display: none !important; }
+            #videowrap-header b,
+            #videowrap-header .pull-left > span:first-child { display: none !important; }
 
-            /* Chat — remove Bootstrap padding, fill width */
+            /* ── Chat fills remaining space ──────────────────── */
             #chatwrap {
-                width: 100vw !important;
-                max-width: 100vw !important;
-                padding: 0 !important;
-                margin: 0 !important;
-                box-sizing: border-box !important;
+                width: 100vw !important; max-width: 100vw !important;
+                padding: 0 !important; margin: 0 !important;
+                display: flex !important; flex-direction: column !important;
             }
 
             #messagebuffer {
