@@ -4,7 +4,7 @@
 // @version      1.0.0
 // @description  Mobile-optimised layout for 420Grindhouse: chat slides with keyboard, touch-friendly controls, movie info
 // @match        https://cytu.be/r/*
-// @match        https://cytu.be/r/testing
+// @match        https://cytu.be/r/testing*
 // @grant        GM_xmlhttpRequest
 // @connect      doesthedogdie.com
 // @connect      api.themoviedb.org
@@ -17,8 +17,15 @@
 (function () {
     'use strict';
 
-    // ── Only run on touch devices ─────────────────────────────────────────────
-    if (!('ontouchstart' in window) && !navigator.maxTouchPoints) return;
+    // Mark body immediately so CSS selectors work before load
+    document.documentElement.classList.add('sc-mobile');
+
+    // ── Only run on mobile/tablet devices ───────────────────────────────────────
+    // Primary signal: screen width under 1024px (tablets/phones)
+    // Secondary: touch capability
+    const isMobile = window.screen.width < 1024 || window.screen.height < 1024;
+    const isTouch  = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    if (!isMobile || !isTouch) return;
 
     /* ==========================================================
        CONSTANTS + SHARED STATE
@@ -182,6 +189,9 @@
     function injectCSS() {
         const style = document.createElement('style');
         style.textContent = `
+            /* High specificity mobile overrides */
+            .sc-mobile #chatwrap { top: calc(var(--video-vh, 42vh) + 36px) !important; }
+
             /* ── Reset CyTube chrome ─────────────────────────────── */
             nav.navbar, #motdrow, #drinkbarwrap, #announcements,
             #playlistrow, #resizewrap, footer, #userlisttoggle,
@@ -226,6 +236,18 @@
             #videowrap-header.sc-bar-dim { opacity: 0 !important; }
             #videowrap-header b, #videowrap-header .pull-left > span:first-child,
             #videowrap-header .label { display: none !important; }
+
+            /* Hide CyTube's own controls that we replace */
+            #usercount { display: none !important; }
+            .timestamp { display: none !important; }
+            #chatline { position: absolute !important; top: -9999px !important; opacity: 0 !important; pointer-events: none !important; }
+            #pollwrap { display: none !important; }
+            #sc-chat-input-row ~ * { display: none !important; }
+
+            /* Override CyTube's default chat layout */
+            #chatwrap > *:not(#messagebuffer):not(#sc-chat-input-row):not(#sc-chat-header) {
+                display: none !important;
+            }
 
             /* ── Top gradient ────────────────────────────────────── */
             #sc-top-bar {
@@ -1155,6 +1177,13 @@
 
     window.addEventListener('load', () => {
         injectCSS();
+        // Trigger video.js resize after our CSS repositions the container
+        setTimeout(() => {
+            const vjs = window.videojs?.getPlayers?.();
+            if (vjs) Object.values(vjs).forEach(p => { try { p.trigger('resize'); } catch(e) {} });
+            // Also fire a window resize event which video.js listens to
+            window.dispatchEvent(new Event('resize'));
+        }, 500);
         getKillCountDb();
         installChatTextarea();
         initTopBar();
