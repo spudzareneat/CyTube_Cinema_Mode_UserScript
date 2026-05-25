@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.1.0
 // @description  Mobile-optimised layout for 420Grindhouse
-// @match        https://cytu.be/r/420Grindhouse*
+// @match        https://cytu.be/r/*
 // @match        https://cytu.be/r/testing*
 // @grant        GM_xmlhttpRequest
 // @connect      api.themoviedb.org
