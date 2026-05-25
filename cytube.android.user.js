@@ -394,20 +394,66 @@
     }
 
     /* ==========================================================
-       KEYBOARD SLIDE
+       KEYBOARD HANDLING — shrink chat, protect video
     ========================================================== */
     function initKeyboard() {
         if (!window.visualViewport) return;
-        const update = () => {
-            const kh = Math.max(0, window.innerHeight - window.visualViewport.height);
-            document.documentElement.style.setProperty('--kb', kh + 'px');
-            // Scroll chat to bottom when keyboard opens
-            if (kh > 100) {
-                const buf = document.getElementById('messagebuffer');
-                if (buf) setTimeout(() => buf.scrollTop = buf.scrollHeight, 100);
+
+        const chatwrap = document.getElementById('chatwrap');
+        const buf      = document.getElementById('messagebuffer');
+        if (!chatwrap) return;
+
+        let normalHeight = null; // chatwrap natural height
+        let keyboardOpen = false;
+
+        const onViewportChange = () => {
+            const visibleH  = window.visualViewport.height;
+            const totalH    = window.innerHeight;
+            const keyboardH = Math.max(0, totalH - visibleH);
+            const isOpen    = keyboardH > 120; // threshold — real keyboard vs tiny resize
+
+            if (isOpen && !keyboardOpen) {
+                // Keyboard just opened
+                keyboardOpen = true;
+
+                // Save natural height before we shrink it
+                if (!normalHeight) normalHeight = chatwrap.offsetHeight;
+
+                // Shrink messagebuffer to show only ~3 lines of chat
+                // The chat input row stays visible; only message area shrinks
+                if (buf) {
+                    buf.style.transition = 'max-height 0.25s ease';
+                    buf.style.maxHeight  = '72px'; // ~3 lines at 15px + padding
+                    buf.style.overflow   = 'hidden';
+                    // Scroll to bottom so latest messages are visible
+                    setTimeout(() => buf.scrollTop = buf.scrollHeight, 50);
+                }
+
+            } else if (!isOpen && keyboardOpen) {
+                // Keyboard just closed — restore
+                keyboardOpen = false;
+                if (buf) {
+                    buf.style.transition = 'max-height 0.25s ease';
+                    buf.style.maxHeight  = '';
+                    buf.style.overflow   = '';
+                }
             }
         };
-        window.visualViewport.addEventListener('resize', update, { passive: true });
+
+        window.visualViewport.addEventListener('resize', onViewportChange, { passive: true });
+
+        // Also handle via focusin/focusout as fallback for browsers
+        // that don't fire visualViewport resize reliably
+        document.addEventListener('focusin', e => {
+            if (e.target.id === 'sc-chat-textarea') {
+                setTimeout(onViewportChange, 300); // wait for keyboard animation
+            }
+        });
+        document.addEventListener('focusout', e => {
+            if (e.target.id === 'sc-chat-textarea') {
+                setTimeout(onViewportChange, 300);
+            }
+        });
     }
 
     /* ==========================================================
