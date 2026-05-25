@@ -35,6 +35,11 @@
        MINIMAL CSS — only what's necessary, don't touch video
     ========================================================== */
     function injectCSS() {
+        // Prevent zoom on input focus and fix viewport
+        let meta = document.querySelector('meta[name="viewport"]');
+        if (!meta) { meta = document.createElement('meta'); meta.name = 'viewport'; document.head.appendChild(meta); }
+        meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
+
         const style = document.createElement('style');
         style.textContent = `
             /* ── Kill horizontal scroll + fix viewport ───────── */
@@ -673,40 +678,50 @@
         injectCSS();
         buildSheet();
 
-        // Physically move video above chat — CSS order doesn't work reliably
-        // since CyTube's columns may not be direct flex children
+        // Debug DOM structure then reorder
+        const debugAndReorder = () => {
+            const video = document.getElementById('videowrap');
+            const chat  = document.getElementById('chatwrap');
+            console.log('[Mobile] videowrap:', video?.id, 'parent:', video?.parentElement?.id || video?.parentElement?.className?.slice(0,30));
+            console.log('[Mobile] chatwrap:', chat?.id, 'parent:', chat?.parentElement?.id || chat?.parentElement?.className?.slice(0,30));
+            console.log('[Mobile] same parent:', video?.parentElement === chat?.parentElement);
+            if (video?.parentElement) {
+                const siblings = [...video.parentElement.children].map(c => c.id || c.className?.slice(0,20));
+                console.log('[Mobile] siblings:', siblings);
+            }
+            return false; // keep observing for now
+        };
+
         const reorder = () => {
-            const video = document.getElementById('videowrap')
-                || document.querySelector('[id*="video"]');
-            const chat  = document.getElementById('chatwrap')
-                || document.querySelector('[id*="chat"]');
+            const video = document.getElementById('videowrap');
+            const chat  = document.getElementById('chatwrap');
             if (!video || !chat) return false;
 
-            // Find the common parent
             const videoParent = video.parentElement;
             const chatParent  = chat.parentElement;
 
             if (videoParent === chatParent) {
-                // Same parent — just move video before chat
                 videoParent.insertBefore(video, chat);
+                console.log('[Mobile] Reordered — same parent');
             } else {
-                // Different parents (Bootstrap cols) — move both cols
                 const videoCol = videoParent;
                 const chatCol  = chatParent;
                 const commonParent = videoCol.parentElement;
+                console.log('[Mobile] Different parents — videoCol:', videoCol?.id || videoCol?.className?.slice(0,30), 'commonParent:', commonParent?.id || commonParent?.className?.slice(0,30));
                 if (commonParent) {
-                    // Ensure video col comes first
-                    const firstChild = commonParent.firstElementChild;
-                    if (firstChild !== videoCol) {
-                        commonParent.insertBefore(videoCol, chatCol);
-                    }
+                    commonParent.insertBefore(videoCol, chatCol);
+                    console.log('[Mobile] Reordered cols');
                 }
             }
             return true;
         };
 
+        setTimeout(() => {
+            debugAndReorder();
+            reorder();
+        }, 1000);
+
         if (!reorder()) {
-            // DOM not ready yet — watch for it
             const obs = new MutationObserver(() => { if (reorder()) obs.disconnect(); });
             obs.observe(document.body, { childList: true, subtree: true });
         }
