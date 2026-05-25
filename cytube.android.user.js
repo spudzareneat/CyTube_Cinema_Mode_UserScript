@@ -3,8 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.1.0
 // @description  Mobile-optimised layout for 420Grindhouse
-// @match        https://cytu.be/r/420Grindhouse*
-// @match        https://cytu.be/r/testing*
+// @match        https://cytu.be/r/*
 // @grant        GM_xmlhttpRequest
 // @connect      api.themoviedb.org
 // @connect      en.wikipedia.org
@@ -38,7 +37,13 @@
         // Prevent zoom on input focus and fix viewport
         let meta = document.querySelector('meta[name="viewport"]');
         if (!meta) { meta = document.createElement('meta'); meta.name = 'viewport'; document.head.appendChild(meta); }
-        meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
+        meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover';
+
+        // iOS/Android: prevent zoom on any input focus by temporarily
+        // setting maximum-scale back if browser resets it
+        document.addEventListener('touchstart', () => {
+            meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
+        }, { passive: true });
 
         const style = document.createElement('style');
         style.textContent = `
@@ -132,6 +137,7 @@
                 border-radius: 18px !important;
                 color: white !important;
                 font-size: 16px !important;
+                transform: translateZ(0) !important; /* prevent zoom layer creation */
                 padding: 8px 14px !important;
                 resize: none !important;
                 min-height: 38px !important;
