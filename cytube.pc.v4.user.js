@@ -6,7 +6,6 @@
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
 // @grant        GM_xmlhttpRequest
-// @connect      doesthedogdie.com
 // @connect      api.themoviedb.org
 // @connect      en.wikipedia.org
 // @connect      raw.githubusercontent.com
@@ -23,7 +22,6 @@
        Keys are never hard-coded; the settings modal handles first-run.
     ========================================================== */
     const LS_TMDB        = 'sc_tmdb_key';
-    const LS_DTDD        = 'sc_dtdd_key';
     const LS_SPELLCHECK  = 'sc_spellcheck';
     const LS_CHAT_FONT   = 'sc_chat_fontsize';
     const LS_MOVIE_LINKS = 'sc_movie_links';
@@ -762,121 +760,6 @@
     }
 
 
-    // ── DoesTheDogDie: category/keyword filter ───────────────────────────────────
-    // We read topic names directly from the API response (topic.name field)
-    // rather than hardcoding IDs which change. We match against keywords
-    // relevant for cult/exploitation/horror film chat.
-    // Each entry: [matchString, emoji, displayLabel]
-    // matchString is tested against topic.name (lowercase)
-    const DTDD_FILTERS = [
-        ['dog dies',          '🐕', 'Dog dies'],
-        ['cat dies',          '🐱', 'Cat dies'],
-        ['animal',            '🐾', 'Animal cruelty'],
-        ['jump scare',        '😱', 'Jump scares'],
-        ['sex scene',         '🔞', 'Sex scene'],
-        ['nudity',            '🔞', 'Nudity'],
-        ['rape',              '⚠️', 'Sexual violence'],
-        ['suicide',           '💀', 'Suicide'],
-        ['needle',            '💉', 'Needles'],
-        ['spider',            '🕷', 'Spiders'],
-        ['decapitat',         '🩸', 'Decapitation'],
-        ['explod',            '💥', 'Explosions'],
-        ['torture',           '⚠️', 'Torture'],
-        ['child',             '⚠️', 'Child in peril'],
-        ['pregnancy',         '🤰', 'Pregnancy'],
-        ['clown',             '🤡', 'Clowns'],
-        ['vomit',             '🤢', 'Vomiting'],
-        ['eye',               '👁', 'Eye trauma'],
-    ];
-
-    // GM_xmlhttpRequest wrapped as a Promise — bypasses CORS restrictions
-    function gmFetch(url, headers = {}) {
-        return new Promise((resolve, reject) => {
-            GM_xmlhttpRequest({
-                method: 'GET',
-                url,
-                headers: { 'Accept': 'application/json', ...headers },
-                onload: r => {
-                    if (r.status >= 200 && r.status < 300) {
-                        try { resolve(JSON.parse(r.responseText)); }
-                        catch (e) { reject(e); }
-                    } else {
-                        reject(new Error(`HTTP ${r.status}`));
-                    }
-                },
-                onerror: reject,
-            });
-        });
-    }
-
-    async function getDtddStats(tmdbId, movieTitle, tmdbResult_year) {
-        if (!hasKey(LS_DTDD) || !tmdbId || !movieTitle) return null;
-        const key = getKey(LS_DTDD);
-        try {
-            // DTDD search takes a text query, not a numeric ID
-            const searchData = await gmFetch(
-                `https://www.doesthedogdie.com/dddsearch?q=${encodeURIComponent(movieTitle)}`,
-                { 'X-API-KEY': key }
-            );
-
-            // DTDD search results don't include tmdbId — match by normalised title + year instead
-            const normalise = s => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-            const targetTitle = normalise(movieTitle);
-            const targetYear  = tmdbResult_year ? String(tmdbResult_year) : null;
-
-            let match = null;
-
-            // 1st pass: exact normalised title + year match
-            if (targetYear) {
-                match = (searchData.items || []).find(i =>
-                    normalise(i.name) === targetTitle &&
-                    i.release_date && String(i.release_date).startsWith(targetYear)
-                );
-            }
-            // 2nd pass: exact normalised title only
-            if (!match) {
-                match = (searchData.items || []).find(i => normalise(i.name) === targetTitle);
-            }
-            // 3rd pass: first result whose normalised title contains our title (partial)
-            if (!match) {
-                match = (searchData.items || []).find(i => normalise(i.name).includes(targetTitle));
-            }
-
-            if (!match) {
-                return null;
-            }
-
-            const detail = await gmFetch(
-                `https://www.doesthedogdie.com/media/${match.id}`,
-                { 'X-API-KEY': key }
-            );
-
-            // Build stats from topic names rather than brittle hardcoded IDs.
-            // Use a Set to avoid duplicate labels (e.g. both 'nudity' and 'sex scene' → '🔞')
-            const seenLabels = new Set();
-            const stats = [];
-
-            for (const stat of (detail.topicItemStats || [])) {
-                const yesSum = stat.yesSum ?? 0;
-                if (yesSum < 1) continue;
-                const topicName = (stat.topic?.name ?? '').toLowerCase();
-                if (!topicName) continue;
-
-                for (const [keyword, emoji, label] of DTDD_FILTERS) {
-                    if (topicName.includes(keyword) && !seenLabels.has(label)) {
-                        seenLabels.add(label);
-                        stats.push(`${emoji} ${label}`);
-                        break;
-                    }
-                }
-            }
-            return stats.length ? stats : null;
-        } catch (e) {
-            console.error('[CyTube SC] DtDD error:', e);
-            return null;
-        }
-    }
-
     /* ==========================================================
        IMDb GraphQL — parent guide + trivia (free, no API key)
     ========================================================== */
@@ -1011,9 +894,6 @@
             if (count !== undefined && count !== null) killCount = count;
         }
 
-        // ── DoesTheDogDie ────────────────────────────────────────────────────────
-        const dtddStats = await getDtddStats(tmdbResult?.tmdbId, tmdbResult?.title || title, tmdbResult?.year || year);
-
         // ── IMDb Parent Guide ─────────────────────────────────────────────────────
         const parentalGuide = await fetchImdbParentalGuide(tmdbResult?.imdbId);
 
@@ -1024,7 +904,6 @@
                 wiki:       wikiUrl,
             },
             killCount,
-            dtddStats,
             parentalGuide,
             imdbId:     tmdbResult?.imdbId   || null,
             cleanTitle: tmdbResult?.title    || null,
@@ -1153,7 +1032,7 @@
             titleEl.parentElement.insertBefore(linkRow, titleEl.nextSibling);
         }
 
-        lookupMovie(title, year).then(({ links, killCount, dtddStats, parentalGuide, imdbId, cleanTitle, cleanYear, rating, runtime, genres, poster, backdrop, overview }) => {
+        lookupMovie(title, year).then(({ links, killCount, parentalGuide, imdbId, cleanTitle, cleanYear, rating, runtime, genres, poster, backdrop, overview }) => {
             if (isYt && !cleanTitle) {
                 const r = document.getElementById('sc-movie-links');
                 if (r) r.remove();
@@ -1221,7 +1100,6 @@
             if (rating !== null) statParts.push(`⭐ ${rating}`);
             if (runtime)         statParts.push(`${runtime} min`);
             if (killCount !== null) statParts.push(`💀 ${killCount} kills`);
-            if (dtddStats && dtddStats.length) statParts.push(...dtddStats);
             if (parentalGuide && parentalGuide.length) {
                 const SEV = { Severe: '🔴', Moderate: '🟡', Mild: '🟢', None: '' };
                 parentalGuide.forEach(({ category, severity }) => {
@@ -1290,41 +1168,51 @@
     }
 
     /* ==========================================================
-       TRIVIA PANEL
+       TRIVIA CARD
     ========================================================== */
 
-    let _triviaPanelOpen = false;
+    function _escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-    async function toggleTriviaPanel() {
-        const existing = document.getElementById('sc-trivia-panel');
-        if (existing) { existing.remove(); _triviaPanelOpen = false; return; }
+    function showTriviaCard() {
         if (!_currentImdbId) return;
-        _triviaPanelOpen = true;
-
-        const panel = document.createElement('div');
-        panel.id = 'sc-trivia-panel';
-        panel.innerHTML = '<div class="sc-trivia-loading">Loading trivia…</div>';
-        document.body.appendChild(panel);
-
-        const items = await fetchImdbTrivia(_currentImdbId);
-        if (!document.getElementById('sc-trivia-panel')) return; // closed while loading
-        if (!items || !items.length) {
-            panel.innerHTML = '<div class="sc-trivia-loading">No trivia found.</div>';
-            return;
+        let card = document.getElementById('sc-trivia-card');
+        if (!card) {
+            card = document.createElement('div');
+            card.id = 'sc-trivia-card';
+            card.innerHTML = `
+                <div id="sc-trivia-panel">
+                    <div id="sc-trivia-head">
+                        <span id="sc-trivia-title">Trivia</span>
+                        <button id="sc-trivia-close" type="button">✕</button>
+                    </div>
+                    <div id="sc-trivia-list"></div>
+                </div>`;
+            document.body.appendChild(card);
+            card.addEventListener('click', e => { if (e.target === card) hideTriviaCard(); });
+            card.querySelector('#sc-trivia-close').addEventListener('click', hideTriviaCard);
         }
-        panel.innerHTML = items.map(t => `<div class="sc-trivia-item">${t}</div>`).join('');
+        card.querySelector('#sc-trivia-title').textContent =
+            'Trivia' + (_npData && _npData.cleanTitle ? ' — ' + _npData.cleanTitle : '');
+        const list = card.querySelector('#sc-trivia-list');
+        list.innerHTML = '<div class="sc-trivia-item">Loading…</div>';
+        card.classList.add('sc-show');
+        fetchImdbTrivia(_currentImdbId).then(items => {
+            if (!document.getElementById('sc-trivia-card')) return;
+            if (!items || !items.length) { list.innerHTML = '<div class="sc-trivia-item">No trivia found.</div>'; return; }
+            list.innerHTML = items.map(t => `<div class="sc-trivia-item">${_escHtml(t)}</div>`).join('');
+            list.scrollTop = 0;
+        });
+    }
 
-        // Keyboard T or Escape closes
-        const keyClose = (e) => {
-            if (e.key === 'Escape' || e.key === 't' || e.key === 'T') {
-                const t = e.target;
-                if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) return;
-                panel.remove();
-                _triviaPanelOpen = false;
-                document.removeEventListener('keydown', keyClose);
-            }
-        };
-        document.addEventListener('keydown', keyClose);
+    function hideTriviaCard() {
+        const card = document.getElementById('sc-trivia-card');
+        if (card) card.classList.remove('sc-show');
+    }
+
+    function toggleTriviaPanel() {
+        const card = document.getElementById('sc-trivia-card');
+        if (card && card.classList.contains('sc-show')) hideTriviaCard();
+        else showTriviaCard();
     }
 
     // 'T' = trivia, 'I' = movie info card — from anywhere when not typing
@@ -1397,93 +1285,97 @@
         if (old) old.remove();
 
         const tmdbVal  = getKey(LS_TMDB);
-        const dtddVal  = getKey(LS_DTDD);
-        const firstRun = !tmdbVal && !dtddVal;
+        const firstRun = !localStorage.getItem('sc_onboarded');
+        try { localStorage.setItem('sc_onboarded', '1'); } catch (e) {}
         const fontSize = getChatFontSize();
 
         const overlay = document.createElement('div');
         overlay.id = 'sc-settings-overlay';
         overlay.innerHTML = `
             <div id="sc-settings-modal">
-                <div id="sc-settings-title">⚙ CyTube Script Settings</div>
-                ${firstRun ? '<div class="sc-settings-intro">First time setup — enter your API keys below. Both are optional but unlock extra features. You can update them any time via the ⚙ button.</div>' : ''}
+                <div id="sc-settings-title">⚙ Grindhouse Settings</div>
+                ${firstRun ? '<div class="sc-settings-intro">First-time setup — everything here is optional. Enable TMDB for richer movie info. Reopen any time with the ⚙ button.</div>' : ''}
 
-                <div class="sc-settings-group">
-                    <label class="sc-settings-label">
-                        TMDB API Key
-                        <span class="sc-settings-note">Unlocks: IMDb/Letterboxd links, rating, runtime, kill counts</span>
+                <div class="sc-settings-group sc-settings-divider">
+                    <label class="sc-settings-toggle-label">
+                        <span class="sc-toggle-row">
+                            <input type="checkbox" id="sc-input-tmdb-enable" ${tmdbVal ? 'checked' : ''} />
+                            <span class="sc-toggle-text">Enable TMDB features</span>
+                        </span>
+                        <span class="sc-settings-note">Movie posters, ratings, runtime, IMDb/Letterboxd links, trivia</span>
                     </label>
-                    <div style="display:flex;gap:6px;align-items:center">
-                        <input id="sc-input-tmdb" class="sc-settings-input" type="text"
-                            placeholder="Paste TMDB v3 key…" value="${tmdbVal}" spellcheck="false" style="flex:1" />
-                        <button id="sc-test-tmdb" class="sc-settings-test" type="button">Test</button>
+                    <div id="sc-tmdb-fields" class="${tmdbVal ? '' : 'sc-hidden'}">
+                        <div class="sc-settings-input-row">
+                            <input id="sc-input-tmdb" class="sc-settings-input" type="text"
+                                placeholder="Paste TMDB v3 key…" value="${tmdbVal}" spellcheck="false" />
+                            <button id="sc-test-tmdb" class="sc-settings-test" type="button">Test</button>
+                        </div>
+                        <span id="sc-test-tmdb-status" class="sc-settings-test-status"></span>
+                        <a class="sc-settings-link" href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">
+                            Get a free TMDB key ↗
+                        </a>
                     </div>
-                    <span id="sc-test-tmdb-status" class="sc-settings-test-status"></span>
-                    <a class="sc-settings-link" href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">
-                        Get a free TMDB key ↗
-                    </a>
-                </div>
-
-                <div class="sc-settings-group">
-                    <label class="sc-settings-label">
-                        DoesTheDogDie API Key
-                        <span class="sc-settings-note">Unlocks: content warnings (dogs, jump scares, etc.)</span>
-                    </label>
-                    <input id="sc-input-dtdd" class="sc-settings-input" type="text"
-                        placeholder="Paste DTDD key…" value="${dtddVal}" spellcheck="false" />
-                    <a class="sc-settings-link" href="https://www.doesthedogdie.com/profile" target="_blank" rel="noopener">
-                        Get a free DTDD key ↗
-                    </a>
                 </div>
 
                 <div class="sc-settings-group sc-settings-toggle-group">
                     <label class="sc-settings-toggle-label">
-                        <input type="checkbox" id="sc-input-spellcheck" ${spellCheckEnabled() ? 'checked' : ''} />
-                        <span>Grammar &amp; spell check popup</span>
+                        <span class="sc-toggle-row">
+                            <input type="checkbox" id="sc-input-spellcheck" ${spellCheckEnabled() ? 'checked' : ''} />
+                            <span class="sc-toggle-text">Grammar &amp; spell check popup</span>
+                        </span>
                         <span class="sc-settings-note">When off, messages send immediately without review</span>
                     </label>
                 </div>
 
                 <div class="sc-settings-group sc-settings-toggle-group">
                     <label class="sc-settings-toggle-label">
-                        <input type="checkbox" id="sc-input-movielinks" ${movieLinksEnabled() ? 'checked' : ''} />
-                        <span>Show movie links (IMDb, Letterboxd, Wikipedia)</span>
-                        <span class="sc-settings-note">When off, stats bar still shows but link badges are hidden</span>
+                        <span class="sc-toggle-row">
+                            <input type="checkbox" id="sc-input-movielinks" ${movieLinksEnabled() ? 'checked' : ''} />
+                            <span class="sc-toggle-text">Show movie links (IMDb / Letterboxd / Wiki)</span>
+                        </span>
+                        <span class="sc-settings-note">Adds clickable badge icons next to the title</span>
                     </label>
                 </div>
 
-                <div class="sc-settings-group">
+                <div class="sc-settings-group sc-settings-toggle-group">
                     <label class="sc-settings-label">
                         Chat font size: <span id="sc-font-val">${fontSize}px</span>
+                        <span class="sc-settings-note">Applies to message buffer and chat input</span>
                     </label>
-                    <input id="sc-input-fontsize" type="range" min="10" max="32" value="${fontSize}"
-                        style="width:100%;accent-color:#c0b0ff" />
+                    <input id="sc-input-fontsize" class="sc-settings-range" type="range" min="10" max="32" value="${fontSize}" />
+                    <div class="sc-font-sample" id="sc-font-sample" style="font-size:${fontSize}px">
+                        The quick brown fox jumps over the lazy dog.
+                    </div>
                 </div>
 
                 <div id="sc-settings-actions">
-                    ${!firstRun ? '<button id="sc-settings-cancel">Cancel</button>' : ''}
+                    <button id="sc-settings-cancel">Cancel</button>
                     <button id="sc-settings-save">Save</button>
                 </div>
                 <div id="sc-settings-status"></div>
             </div>`;
 
         document.body.appendChild(overlay);
+        overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+        document.getElementById('sc-settings-cancel').addEventListener('click', () => overlay.remove());
 
-        if (!firstRun) {
-            overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
-            document.getElementById('sc-settings-cancel').addEventListener('click', () => overlay.remove());
-        }
+        // TMDB toggle shows/hides key fields
+        const tmdbToggle = document.getElementById('sc-input-tmdb-enable');
+        const tmdbFields = document.getElementById('sc-tmdb-fields');
+        tmdbToggle.addEventListener('change', () => tmdbFields.classList.toggle('sc-hidden', !tmdbToggle.checked));
 
         // Font size live preview
-        const fontInput = document.getElementById('sc-input-fontsize');
-        const fontVal   = document.getElementById('sc-font-val');
+        const fontInput  = document.getElementById('sc-input-fontsize');
+        const fontVal    = document.getElementById('sc-font-val');
+        const fontSample = document.getElementById('sc-font-sample');
         fontInput.addEventListener('input', () => {
             const px = parseInt(fontInput.value, 10);
             fontVal.textContent = px + 'px';
+            fontSample.style.fontSize = px + 'px';
             applyChatFontSize(px);
         });
 
-        // TMDB key test button
+        // TMDB test button
         const testBtn    = document.getElementById('sc-test-tmdb');
         const testStatus = document.getElementById('sc-test-tmdb-status');
         testBtn.addEventListener('click', async () => {
@@ -1493,25 +1385,23 @@
             testStatus.textContent = 'Checking…'; testStatus.className = 'sc-settings-test-status sc-test-pending';
             const result = await validateTmdbKey(key);
             testBtn.disabled = false;
-            if (result === 'valid')   { testStatus.textContent = '✓ Valid key';          testStatus.className = 'sc-settings-test-status sc-test-ok'; }
-            else if (result === 'invalid') { testStatus.textContent = '✗ Invalid key';   testStatus.className = 'sc-settings-test-status sc-test-bad'; }
+            if (result === 'valid')        { testStatus.textContent = '✓ Valid key';           testStatus.className = 'sc-settings-test-status sc-test-ok'; }
+            else if (result === 'invalid') { testStatus.textContent = '✗ Invalid key';         testStatus.className = 'sc-settings-test-status sc-test-bad'; }
             else                           { testStatus.textContent = '⚠ Couldn\'t reach API'; testStatus.className = 'sc-settings-test-status sc-test-bad'; }
         });
 
         document.getElementById('sc-settings-save').addEventListener('click', () => {
-            const tmdb      = document.getElementById('sc-input-tmdb').value.trim();
-            const dtdd      = document.getElementById('sc-input-dtdd').value.trim();
-            const spell     = document.getElementById('sc-input-spellcheck').checked;
-            const links     = document.getElementById('sc-input-movielinks').checked;
-            const fontPx    = parseInt(fontInput.value, 10);
+            const tmdb   = tmdbToggle.checked ? document.getElementById('sc-input-tmdb').value.trim() : '';
+            const spell  = document.getElementById('sc-input-spellcheck').checked;
+            const links  = document.getElementById('sc-input-movielinks').checked;
+            const fontPx = parseInt(fontInput.value, 10);
             setKey(LS_TMDB,        tmdb);
-            setKey(LS_DTDD,        dtdd);
             setKey(LS_SPELLCHECK,  spell ? 'on' : 'off');
             setKey(LS_MOVIE_LINKS, links ? 'on' : 'off');
             setKey(LS_CHAT_FONT,   String(fontPx));
             applyChatFontSize(fontPx);
             movieLinkCache = {};
-            lastMovieTitle = '';      // force re-lookup for current title with new key
+            lastMovieTitle = '';
             triggerTitleInject();
             const status = document.getElementById('sc-settings-status');
             if (status) status.textContent = '✓ Saved';
@@ -2008,7 +1898,7 @@
         applyChatFontSize(getChatFontSize());
 
         // First-run settings modal
-        if (!hasKey(LS_TMDB) && !hasKey(LS_DTDD)) {
+        if (!hasKey(LS_TMDB)) {
             setTimeout(openSettingsModal, 1200);
         }
 
@@ -2745,67 +2635,58 @@
                 color: white !important;
                 box-shadow: 0 16px 48px rgba(0,0,0,0.8) !important;
                 display: flex !important; flex-direction: column !important; gap: 16px !important;
+                max-height: 90vh !important; overflow-y: auto !important;
             }
-            #sc-settings-title {
-                font-size: 17px !important; font-weight: 700 !important;
-                color: #c0b0ff !important;
-            }
+            #sc-settings-title { font-size: 17px !important; font-weight: 700 !important; color: #c0b0ff !important; }
             .sc-settings-intro {
                 font-size: 13px !important; color: rgba(255,255,255,0.6) !important;
                 line-height: 1.5 !important;
                 background: rgba(255,255,255,0.04) !important;
                 border-radius: 6px !important; padding: 8px 10px !important;
             }
-            .sc-settings-group {
-                display: flex !important; flex-direction: column !important; gap: 5px !important;
-            }
+            .sc-settings-group { display: flex !important; flex-direction: column !important; gap: 5px !important; }
             .sc-settings-label {
                 font-size: 13px !important; font-weight: 600 !important;
                 color: rgba(255,255,255,0.85) !important;
                 display: flex !important; flex-direction: column !important; gap: 2px !important;
             }
-            .sc-settings-note {
-                font-weight: 400 !important; font-size: 11px !important;
-                color: rgba(255,255,255,0.4) !important;
-            }
+            .sc-settings-note { font-weight: 400 !important; font-size: 11px !important; color: rgba(255,255,255,0.4) !important; }
             .sc-settings-input {
                 background: rgba(255,255,255,0.07) !important;
                 border: 1px solid rgba(255,255,255,0.2) !important;
-                border-radius: 6px !important;
-                color: white !important;
-                padding: 8px 10px !important;
-                font-size: 13px !important;
-                font-family: monospace !important;
-                outline: none !important;
+                border-radius: 6px !important; color: white !important;
+                padding: 8px 10px !important; font-size: 13px !important;
+                font-family: monospace !important; outline: none !important;
                 width: 100% !important; box-sizing: border-box !important;
             }
-            .sc-settings-input:focus {
-                border-color: rgba(192,176,255,0.6) !important;
-                background: rgba(255,255,255,0.1) !important;
-            }
-            .sc-settings-link {
-                font-size: 11px !important; color: rgba(192,176,255,0.7) !important;
-                text-decoration: none !important; align-self: flex-start !important;
-            }
+            .sc-settings-input:focus { border-color: rgba(192,176,255,0.6) !important; background: rgba(255,255,255,0.1) !important; }
+            .sc-settings-input-row { display: flex !important; gap: 8px !important; align-items: stretch !important; }
+            .sc-settings-input-row .sc-settings-input { flex: 1 !important; }
+            .sc-settings-link { font-size: 11px !important; color: rgba(192,176,255,0.7) !important; text-decoration: none !important; align-self: flex-start !important; }
             .sc-settings-link:hover { color: #c0b0ff !important; text-decoration: underline !important; }
-            .sc-settings-toggle-group { border-top: 1px solid rgba(255,255,255,0.08) !important; padding-top: 12px !important; }
+            .sc-settings-toggle-group, .sc-settings-divider { border-top: 1px solid rgba(255,255,255,0.08) !important; padding-top: 12px !important; }
             .sc-settings-toggle-label {
-                display: flex !important; flex-direction: column !important; gap: 3px !important;
+                display: flex !important; flex-direction: column !important; gap: 4px !important;
                 cursor: pointer !important; font-size: 13px !important;
                 font-weight: 600 !important; color: rgba(255,255,255,0.85) !important;
             }
-            .sc-settings-toggle-label input[type="checkbox"] {
-                width: 16px !important; height: 16px !important;
-                margin: 0 8px 0 0 !important; cursor: pointer !important;
-                accent-color: #c0b0ff !important;
+            .sc-toggle-row { display: flex !important; align-items: center !important; gap: 9px !important; }
+            .sc-toggle-row input[type="checkbox"] {
+                width: 17px !important; height: 17px !important; margin: 0 !important;
+                flex: 0 0 auto !important; cursor: pointer !important; accent-color: #c0b0ff !important;
             }
-            .sc-settings-toggle-label > span:first-of-type {
-                display: flex !important; align-items: center !important;
+            .sc-toggle-text { line-height: 1.2 !important; }
+            #sc-tmdb-fields { display: flex !important; flex-direction: column !important; gap: 6px !important; margin: 8px 0 0 26px !important; }
+            #sc-tmdb-fields.sc-hidden { display: none !important; }
+            .sc-settings-range { width: 100% !important; accent-color: #c0b0ff !important; cursor: pointer !important; }
+            .sc-font-sample {
+                margin-top: 6px !important; padding: 8px 12px !important;
+                background: rgba(255,255,255,0.05) !important;
+                border: 1px solid rgba(255,255,255,0.1) !important;
+                border-radius: 6px !important; color: rgba(255,255,255,0.88) !important;
+                line-height: 1.4 !important;
             }
-            #sc-settings-actions {
-                display: flex !important; gap: 10px !important; justify-content: flex-end !important;
-                margin-top: 4px !important;
-            }
+            #sc-settings-actions { display: flex !important; gap: 10px !important; justify-content: flex-end !important; margin-top: 4px !important; }
             #sc-settings-cancel {
                 background: rgba(255,255,255,0.08) !important; color: #aaa !important;
                 border: 1px solid rgba(255,255,255,0.15) !important;
@@ -2820,6 +2701,7 @@
                 cursor: pointer !important; font-size: 13px !important; font-weight: 600 !important;
             }
             #sc-settings-save:hover { background: rgba(192,176,255,0.35) !important; }
+            #sc-settings-status { font-size: 12px !important; color: #7dffa0 !important; text-align: right !important; min-height: 14px !important; }
 
 
             /* Poll panel */
@@ -2968,51 +2850,63 @@
             #sc-trivia-btn:hover { color: rgba(255,255,255,0.9) !important; }
             body.sc-vertical #sc-trivia-btn { right: 4px !important; top: 4px !important; }
 
-            /* ===== TRIVIA PANEL ===== */
+            /* ===== TRIVIA CARD ===== */
+            #sc-trivia-card {
+                position: fixed !important; inset: 0 !important; z-index: 21800 !important;
+                background: rgba(0,0,0,0.62) !important; backdrop-filter: blur(3px) !important;
+                display: none !important; align-items: center !important; justify-content: center !important;
+                font-family: 'Inter','Roboto',system-ui,sans-serif !important;
+            }
+            #sc-trivia-card.sc-show { display: flex !important; }
             #sc-trivia-panel {
-                position: fixed !important;
-                top: 24px !important; left: 0 !important;
-                width: 78vw !important;
-                max-height: 60vh !important;
-                overflow-y: auto !important;
-                z-index: 19500 !important;
-                background: rgba(10,8,20,0.97) !important;
-                border-bottom: 1px solid rgba(255,255,255,0.1) !important;
-                padding: 12px 16px !important;
+                width: min(820px, 86vw) !important; max-height: 82vh !important;
+                background: rgba(14,10,18,0.97) !important;
+                border: 1px solid rgba(255,255,255,0.14) !important;
+                border-radius: 14px !important; overflow: hidden !important;
+                display: flex !important; flex-direction: column !important;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.7) !important;
+            }
+            #sc-trivia-head {
+                display: flex !important; align-items: center !important; justify-content: space-between !important;
+                padding: 16px 20px !important; border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+                flex-shrink: 0 !important;
+            }
+            #sc-trivia-title { font-size: 18px !important; font-weight: 800 !important; color: var(--np-accent,#ff5b73) !important; }
+            #sc-trivia-close {
+                background: rgba(255,255,255,0.1) !important; border: none !important; color: #fff !important;
+                width: 32px !important; height: 32px !important; border-radius: 50% !important;
+                cursor: pointer !important; font-size: 14px !important; flex-shrink: 0 !important;
+            }
+            #sc-trivia-close:hover { background: rgba(255,255,255,0.2) !important; }
+            #sc-trivia-list {
+                overflow-y: auto !important; padding: 4px 20px 20px !important;
                 scrollbar-width: thin !important;
-                scrollbar-color: rgba(255,255,255,0.15) transparent !important;
+                scrollbar-color: rgba(255,255,255,0.28) transparent !important;
             }
+            #sc-trivia-list::-webkit-scrollbar { width: 10px !important; }
+            #sc-trivia-list::-webkit-scrollbar-track { background: rgba(255,255,255,0.05) !important; border-radius: 10px !important; }
+            #sc-trivia-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.28) !important; border-radius: 10px !important; border: 2px solid transparent !important; background-clip: padding-box !important; }
+            #sc-trivia-list::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.45) !important; background-clip: padding-box !important; }
             .sc-trivia-item {
-                font-size: 13px !important;
-                color: rgba(255,255,255,0.82) !important;
-                line-height: 1.55 !important;
-                padding: 8px 0 !important;
-                border-bottom: 1px solid rgba(255,255,255,0.06) !important;
-            }
-            .sc-trivia-item:last-child { border-bottom: none !important; }
-            .sc-trivia-loading {
-                font-size: 12px !important;
-                color: rgba(255,255,255,0.4) !important;
-                padding: 8px 0 !important;
+                color: rgba(255,255,255,0.86) !important; font-size: 14px !important; line-height: 1.5 !important;
+                padding: 12px 0 !important; border-bottom: 1px solid rgba(255,255,255,0.07) !important;
             }
 
             /* ===== SETTINGS TEST BUTTON ===== */
             .sc-settings-test {
-                background: rgba(255,255,255,0.07) !important;
-                border: 1px solid rgba(255,255,255,0.2) !important;
-                color: rgba(255,255,255,0.7) !important;
-                border-radius: 6px !important;
-                padding: 6px 12px !important;
-                font-size: 12px !important;
-                cursor: pointer !important;
-                white-space: nowrap !important;
                 flex-shrink: 0 !important;
+                background: rgba(192,176,255,0.15) !important;
+                color: #c0b0ff !important;
+                border: 1px solid rgba(192,176,255,0.35) !important;
+                border-radius: 6px !important;
+                padding: 0 16px !important; font-size: 13px !important; font-weight: 600 !important;
+                cursor: pointer !important;
             }
-            .sc-settings-test:hover { background: rgba(255,255,255,0.14) !important; }
-            .sc-settings-test-status { font-size: 11px !important; min-height: 14px !important; }
-            .sc-test-ok  { color: #90ffa0 !important; }
-            .sc-test-bad { color: #ff8888 !important; }
-            .sc-test-pending { color: rgba(255,255,255,0.5) !important; }
+            .sc-settings-test:disabled { opacity: 0.5 !important; cursor: default !important; }
+            .sc-settings-test-status { font-size: 12px !important; min-height: 14px !important; }
+            .sc-test-ok      { color: #7dffa0 !important; }
+            .sc-test-bad     { color: #ff8080 !important; }
+            .sc-test-pending { color: rgba(255,255,255,0.55) !important; }
         `;
         document.head.appendChild(style);
     });
