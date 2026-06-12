@@ -597,11 +597,10 @@
     function relocateEmoteButton() {
         const existing = document.getElementById('sc-emote-proxy');
         if (existing) {
-            console.log('[SC] sc-emote-proxy already exists:', existing.textContent, '| style:', existing.getAttribute('style'), '| computedDisplay:', getComputedStyle(existing).display);
+            if (existing.textContent.trim() !== '📼') existing.textContent = '📼';
             return;
         }
         const original = document.getElementById('emotelistbtn');
-        console.log('[SC] relocateEmoteButton — emotelistbtn found:', !!original, '| body classes:', document.body?.className);
         if (!original) return;
 
         const proxy = document.createElement('button');
@@ -616,7 +615,6 @@
         });
 
         document.body.appendChild(proxy);
-        console.log('[SC] sc-emote-proxy created ✓');
     }
 
     const applyInputMode = () => {
