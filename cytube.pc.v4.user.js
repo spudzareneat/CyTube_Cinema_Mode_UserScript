@@ -1170,9 +1170,11 @@
 
     function _escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+    let _triviaOutsideClick = null;
+
     function showTriviaCard() {
         if (!_currentImdbId) return;
-        hideTriviaCard(); // close any existing before reopening
+        hideTriviaCard(); // clears any existing panel + listener
         const panel = document.createElement('div');
         panel.id = 'sc-trivia-panel';
         panel.innerHTML = `
@@ -1184,12 +1186,11 @@
         document.body.appendChild(panel);
         panel.querySelector('#sc-trivia-close').addEventListener('click', hideTriviaCard);
 
-        // Click outside closes
-        const outsideClick = (e) => {
+        _triviaOutsideClick = (e) => {
             const btn = document.getElementById('sc-trivia-btn');
-            if (!panel.contains(e.target) && e.target !== btn) { hideTriviaCard(); document.removeEventListener('click', outsideClick, true); }
+            if (!panel.contains(e.target) && e.target !== btn) hideTriviaCard();
         };
-        setTimeout(() => document.addEventListener('click', outsideClick, true), 0);
+        setTimeout(() => document.addEventListener('click', _triviaOutsideClick, true), 0);
 
         fetchImdbTrivia(_currentImdbId).then(items => {
             const list = panel.querySelector('#sc-trivia-list');
@@ -1203,6 +1204,10 @@
     function hideTriviaCard() {
         const p = document.getElementById('sc-trivia-panel');
         if (p) p.remove();
+        if (_triviaOutsideClick) {
+            document.removeEventListener('click', _triviaOutsideClick, true);
+            _triviaOutsideClick = null;
+        }
     }
 
     function toggleTriviaPanel() {
@@ -2413,7 +2418,7 @@
                 justify-content: center !important;
                 transition: color 0.3s ease, background 0.3s ease !important;
             }
-            #sc-emote-proxy svg { width: 16px !important; height: 16px !important; display: block !important; }
+            #sc-emote-proxy svg { width: 20px !important; height: auto !important; display: block !important; }
             #fs-toggle-btn:hover, #sc-emote-proxy:hover {
                 color: white !important;
                 background: rgba(255,255,255,0.22) !important;
@@ -2440,7 +2445,7 @@
             body.sc-horizontal #leftcontrols { display: none !important; }
             /* Horizontal: buttons bottom-right of video */
             body.sc-horizontal #sc-emote-proxy {
-                bottom: 6px !important; right: calc(20vw + 6px) !important;
+                bottom: 6px !important; right: 8px !important;
             }
             body.sc-horizontal #fs-toggle-btn {
                 bottom: 6px !important; right: calc(20vw + 70px) !important;
@@ -2483,14 +2488,15 @@
                leftcontrols hides its own internal layout; we show a proxy row instead. */
             body.sc-vertical #leftcontrols { display: none !important; }
 
-            /* fs + emote buttons: right-pinned, sitting exactly on the chat top edge */
+            /* emote button: inside the textarea area, bottom-right corner */
             body.sc-vertical #sc-emote-proxy {
-                bottom: 43vh !important;
+                bottom: 8px !important;
                 right: 8px !important; left: auto !important;
             }
+            /* fs button: sits in the gap between video and chat */
             body.sc-vertical #fs-toggle-btn {
                 bottom: 43vh !important;
-                right: 84px !important; left: auto !important;
+                right: 8px !important; left: auto !important;
             }
 
             /* ===== SHARED CHAT ELEMENTS ===== */
@@ -2503,7 +2509,7 @@
                 width: 100% !important; min-height: 44px !important; max-height: 120px !important;
                 background: rgba(255,255,255,0.1) !important; color: white !important;
                 border: 1px solid rgba(255,255,255,0.3) !important; border-radius: 4px !important;
-                padding: 6px 8px !important; font-size: 14px !important; font-family: inherit !important;
+                padding: 6px 38px 6px 8px !important; font-size: 14px !important; font-family: inherit !important;
                 resize: none !important; overflow-y: auto !important;
                 box-sizing: border-box !important; line-height: 1.4 !important;
                 outline: none !important; transition: border-color 0.2s !important; flex-shrink: 0 !important;
