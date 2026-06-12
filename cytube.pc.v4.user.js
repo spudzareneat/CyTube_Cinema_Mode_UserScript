@@ -976,6 +976,9 @@
                     rating:   detail.vote_average  ? Math.round(detail.vote_average * 10) / 10 : null,
                     runtime:  detail.runtime || null,
                     genres:   (detail.genres || []).map(g => g.name),
+                    poster:   detail.poster_path   ? `https://image.tmdb.org/t/p/w342${detail.poster_path}` : null,
+                    backdrop: detail.backdrop_path ? `https://image.tmdb.org/t/p/w780${detail.backdrop_path}` : null,
+                    overview: detail.overview || null,
                 };
             } catch (e) {}
         })() : Promise.resolve();
@@ -1028,6 +1031,9 @@
             rating:     tmdbResult?.rating   ?? null,
             runtime:    tmdbResult?.runtime  || null,
             genres:     tmdbResult?.genres   || [],
+            poster:     tmdbResult?.poster   || null,
+            backdrop:   tmdbResult?.backdrop || null,
+            overview:   tmdbResult?.overview || null,
         };
 
         movieLinkCache[cacheKey] = result;
@@ -1049,6 +1055,70 @@
     }
 
     let _currentImdbId = null;
+    let _npData        = null;
+    let _npHideTimer   = null;
+
+    const NP_PG_SHORT = {
+        'Sex & Nudity': 'Sex/Nudity', 'Violence & Gore': 'Violence',
+        'Profanity': 'Profanity', 'Alcohol, Drugs & Smoking': 'Drugs',
+        'Frightening & Intense Scenes': 'Frightening',
+    };
+
+    function showNowPlayingCard(data, opts = {}) {
+        if (!data || (!data.cleanTitle && !data.backdrop)) return;
+        let card = document.getElementById('sc-np-card');
+        if (!card) {
+            card = document.createElement('div');
+            card.id = 'sc-np-card';
+            card.innerHTML = `
+                <div id="sc-np-backdrop"></div>
+                <div id="sc-np-scrim"></div>
+                <div id="sc-np-content">
+                    <img id="sc-np-poster" alt="" />
+                    <div id="sc-np-info">
+                        <div id="sc-np-eyebrow">Now Playing</div>
+                        <div id="sc-np-title"></div>
+                        <div id="sc-np-meta"></div>
+                        <div id="sc-np-overview"></div>
+                        <div id="sc-np-chips"></div>
+                    </div>
+                </div>`;
+            document.body.appendChild(card);
+            card.addEventListener('click', hideNowPlayingCard);
+        }
+        const title = data.cleanTitle || '';
+        const year  = data.cleanYear ? ` (${data.cleanYear})` : '';
+        card.querySelector('#sc-np-backdrop').style.backgroundImage = data.backdrop ? `url(${data.backdrop})` : 'none';
+        const poster = card.querySelector('#sc-np-poster');
+        if (data.poster) { poster.src = data.poster; poster.style.display = ''; }
+        else poster.style.display = 'none';
+        card.querySelector('#sc-np-title').textContent = title + year;
+        card.querySelector('#sc-np-overview').textContent = data.overview || '';
+        const metaParts = [];
+        if (data.rating)  metaParts.push(`⭐ ${data.rating}`);
+        if (data.runtime) metaParts.push(`${Math.floor(data.runtime / 60)}h ${data.runtime % 60}m`);
+        if (data.genres && data.genres.length) metaParts.push(data.genres.slice(0, 3).join(' · '));
+        card.querySelector('#sc-np-meta').textContent = metaParts.join('     ');
+        const chipHtml = [];
+        (data.parentalGuide || []).forEach(pg => {
+            const sev = String(pg.severity || '').toLowerCase();
+            const label = NP_PG_SHORT[pg.category] || pg.category;
+            chipHtml.push(`<span class="sc-np-chip sc-sev-${sev}">${label}: ${pg.severity}</span>`);
+        });
+        if (data.killCount !== null && data.killCount !== undefined) {
+            chipHtml.push(`<span class="sc-np-chip">💀 ${data.killCount} kills</span>`);
+        }
+        card.querySelector('#sc-np-chips').innerHTML = chipHtml.join('');
+        card.classList.add('sc-np-visible');
+        clearTimeout(_npHideTimer);
+        if (opts.autoHide) _npHideTimer = setTimeout(hideNowPlayingCard, 7000);
+    }
+
+    function hideNowPlayingCard() {
+        const card = document.getElementById('sc-np-card');
+        if (card) card.classList.remove('sc-np-visible');
+        clearTimeout(_npHideTimer);
+    }
 
     function injectMovieLinks(titleEl) {
         const rawTitle = titleEl.textContent.trim()
@@ -1082,7 +1152,7 @@
             titleEl.parentElement.insertBefore(linkRow, titleEl.nextSibling);
         }
 
-        lookupMovie(title, year).then(({ links, killCount, dtddStats, parentalGuide, imdbId, cleanTitle, cleanYear, rating, runtime }) => {
+        lookupMovie(title, year).then(({ links, killCount, dtddStats, parentalGuide, imdbId, cleanTitle, cleanYear, rating, runtime, poster, backdrop, overview }) => {
             if (isYt && !cleanTitle) {
                 const r = document.getElementById('sc-movie-links');
                 if (r) r.remove();
@@ -1094,13 +1164,23 @@
             }
 
             _currentImdbId = imdbId || null;
+            _npData = { cleanTitle, cleanYear, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, killCount, imdbId };
 
-            // Update title with clean TMDB title
+            // Update title with clean TMDB title, wrapped in a clickable span
             if (cleanTitle && titleEl) {
                 const newText = cleanTitle + (cleanYear ? ` (${cleanYear})` : '');
-                const textNode = [...titleEl.childNodes].find(n => n.nodeType === 3 && n.textContent.trim());
-                if (textNode) textNode.textContent = newText;
-                else if (titleEl.firstChild) titleEl.firstChild.textContent = newText;
+                let span = document.getElementById('sc-title-text');
+                if (!span) {
+                    span = document.createElement('span');
+                    span.id = 'sc-title-text';
+                    span.style.cursor = 'pointer';
+                    span.title = 'Movie info (I)';
+                    span.addEventListener('click', (e) => { e.stopPropagation(); showNowPlayingCard(_npData, { autoHide: false }); });
+                    const textNode = [...titleEl.childNodes].find(n => n.nodeType === 3 && n.textContent.trim());
+                    if (textNode) textNode.parentNode.replaceChild(span, textNode);
+                    else titleEl.insertBefore(span, titleEl.firstChild);
+                }
+                span.textContent = newText;
             }
 
             // Icon links row
@@ -1246,12 +1326,16 @@
         document.addEventListener('keydown', keyClose);
     }
 
-    // 'T' key toggles trivia from anywhere (when not typing)
+    // 'T' = trivia, 'I' = movie info card — from anywhere when not typing
     document.addEventListener('keydown', (e) => {
-        if (e.key !== 't' && e.key !== 'T') return;
         const t = e.target;
         if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;
-        toggleTriviaPanel();
+        if (e.key === 't' || e.key === 'T') { toggleTriviaPanel(); return; }
+        if (e.key === 'i' || e.key === 'I') {
+            const card = document.getElementById('sc-np-card');
+            if (card && card.classList.contains('sc-np-visible')) hideNowPlayingCard();
+            else if (_npData) showNowPlayingCard(_npData, { autoHide: false });
+        }
     });
 
     /* ==========================================================
@@ -1467,6 +1551,7 @@
             document.getElementById('videowrap-header'),
             document.getElementById('sc-poster-toggle'),
             document.getElementById('sc-movie-links'),
+            document.getElementById('sc-trivia-btn'),
         ].filter(Boolean);
 
         const dim = () => {
@@ -2789,6 +2874,73 @@
                 text-align: center !important; min-height: 16px !important;
             }
 
+            /* ===== NOW PLAYING CARD ===== */
+            :root { --np-accent: #ff5b73; }
+            #sc-np-card {
+                position: fixed !important; inset: 0 !important;
+                z-index: 21000 !important;
+                background: #000 !important;
+                opacity: 0 !important; pointer-events: none !important;
+                transition: opacity 0.5s ease !important;
+                overflow: hidden !important;
+                font-family: system-ui, sans-serif !important;
+            }
+            #sc-np-card.sc-np-visible { opacity: 1 !important; pointer-events: auto !important; }
+            #sc-np-backdrop {
+                position: absolute !important; inset: 0 !important;
+                background-size: cover !important; background-position: center !important;
+                transform: scale(1.05) !important;
+                filter: saturate(1.1) !important;
+            }
+            #sc-np-scrim {
+                position: absolute !important; inset: 0 !important;
+                background:
+                    linear-gradient(90deg, rgba(8,3,6,0.97) 0%, rgba(8,3,6,0.82) 40%, rgba(8,3,6,0.45) 100%),
+                    linear-gradient(0deg, rgba(8,3,6,0.95) 0%, rgba(8,3,6,0) 45%) !important;
+            }
+            #sc-np-content {
+                position: absolute !important;
+                left: 6% !important; bottom: 12% !important; right: 6% !important;
+                display: flex !important; gap: 32px !important; align-items: flex-end !important;
+            }
+            #sc-np-poster {
+                width: 180px !important; border-radius: 10px !important;
+                box-shadow: 0 16px 48px rgba(0,0,0,0.8) !important;
+                flex-shrink: 0 !important;
+            }
+            #sc-np-info { color: #fff !important; max-width: 60% !important; }
+            #sc-np-eyebrow {
+                font-size: 12px !important; font-weight: 700 !important;
+                letter-spacing: 0.18em !important; text-transform: uppercase !important;
+                color: var(--np-accent, #ff5b73) !important; margin-bottom: 10px !important;
+            }
+            #sc-np-title {
+                font-size: 40px !important; font-weight: 800 !important; line-height: 1.05 !important;
+                text-shadow: 0 2px 16px rgba(0,0,0,0.8) !important; margin-bottom: 14px !important;
+            }
+            #sc-np-meta {
+                font-size: 15px !important; color: rgba(255,255,255,0.82) !important;
+                margin-bottom: 16px !important; font-weight: 500 !important;
+            }
+            #sc-np-overview {
+                font-size: 14px !important; line-height: 1.5 !important;
+                color: rgba(255,255,255,0.72) !important; margin-bottom: 16px !important;
+                display: -webkit-box !important; -webkit-line-clamp: 3 !important;
+                -webkit-box-orient: vertical !important; overflow: hidden !important;
+            }
+            #sc-np-chips { display: flex !important; flex-wrap: wrap !important; gap: 8px !important; }
+            .sc-np-chip {
+                font-size: 12px !important; color: rgba(255,255,255,0.9) !important;
+                background: rgba(255,255,255,0.12) !important;
+                border: 1px solid rgba(255,255,255,0.18) !important;
+                border-radius: 999px !important; padding: 4px 11px !important;
+                backdrop-filter: blur(4px) !important;
+            }
+            .sc-np-chip.sc-sev-none     { background: rgba(120,120,130,0.30) !important; border-color: rgba(160,160,170,0.4) !important; }
+            .sc-np-chip.sc-sev-mild     { background: rgba(60,160,80,0.32)  !important; border-color: rgba(90,200,110,0.5) !important; color: #c9ffd4 !important; }
+            .sc-np-chip.sc-sev-moderate { background: rgba(200,150,40,0.34)  !important; border-color: rgba(230,180,60,0.55) !important; color: #ffe9b8 !important; }
+            .sc-np-chip.sc-sev-severe   { background: rgba(200,60,50,0.38)   !important; border-color: rgba(235,90,80,0.6) !important; color: #ffd2cc !important; }
+
             /* ===== TRIVIA BUTTON ===== */
             #sc-trivia-btn {
                 position: fixed !important;
@@ -2799,18 +2951,21 @@
                 border: none !important;
                 color: rgba(255,255,255,0.55) !important;
                 font-size: 10px !important;
-                font-weight: 700 !important;
-                letter-spacing: 0.06em !important;
-                text-transform: uppercase !important;
+                font-weight: normal !important;
+                letter-spacing: normal !important;
+                text-transform: none !important;
                 cursor: pointer !important;
                 padding: 2px 8px !important;
                 height: 20px !important;
                 display: flex !important;
                 align-items: center !important;
-                transition: color 0.2s !important;
+                transition: opacity 1.5s ease, color 0.2s ease !important;
+                opacity: 1 !important;
+                pointer-events: auto !important;
             }
+            #sc-trivia-btn.sc-bar-dim { opacity: 0 !important; pointer-events: none !important; }
             #sc-trivia-btn:hover { color: rgba(255,255,255,0.9) !important; }
-            body.sc-vertical #sc-trivia-btn { display: none !important; }
+            body.sc-vertical #sc-trivia-btn { right: 4px !important; top: 4px !important; }
 
             /* ===== TRIVIA PANEL ===== */
             #sc-trivia-panel {
