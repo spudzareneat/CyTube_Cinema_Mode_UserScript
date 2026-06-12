@@ -890,6 +890,7 @@
                 url,
                 headers: {
                     'Accept': 'application/graphql+json, application/json',
+                    'Content-Type': 'application/json',
                     'x-imdb-client-name': 'imdb-web-next-localized',
                     'x-imdb-user-language': 'en-US',
                     'x-imdb-user-country': 'US',
