@@ -600,7 +600,7 @@
 
         const proxy = document.createElement('button');
         proxy.id = 'sc-emote-proxy';
-        proxy.innerHTML = _VHS_SVG;
+        proxy.textContent = '📼';
         proxy.title = 'Emotes';
         proxy.setAttribute('aria-label', 'Emote Picker');
 
@@ -1444,6 +1444,7 @@
             document.getElementById('sc-poster-toggle'),
             document.getElementById('sc-movie-links'),
             document.getElementById('sc-trivia-btn'),
+            document.getElementById('fs-toggle-btn'),
         ].filter(Boolean);
 
         const dim = () => {
@@ -2418,7 +2419,8 @@
                 justify-content: center !important;
                 transition: color 0.3s ease, background 0.3s ease !important;
             }
-            #sc-emote-proxy svg { width: 20px !important; height: auto !important; display: block !important; }
+            #sc-emote-proxy { font-size: 18px !important; line-height: 1 !important; }
+            #fs-toggle-btn.sc-bar-dim { opacity: 0 !important; pointer-events: none !important; }
             #fs-toggle-btn:hover, #sc-emote-proxy:hover {
                 color: white !important;
                 background: rgba(255,255,255,0.22) !important;
