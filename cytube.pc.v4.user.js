@@ -597,6 +597,7 @@
     function relocateEmoteButton() {
         if (document.getElementById('sc-emote-proxy')) return;
         const original = document.getElementById('emotelistbtn');
+        console.log('[SC] relocateEmoteButton — emotelistbtn found:', !!original, '| body classes:', document.body?.className);
         if (!original) return;
 
         const proxy = document.createElement('button');
@@ -611,7 +612,7 @@
         });
 
         document.body.appendChild(proxy);
-
+        console.log('[SC] sc-emote-proxy created ✓');
     }
 
     const applyInputMode = () => {
