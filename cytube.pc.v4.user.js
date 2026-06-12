@@ -1152,7 +1152,7 @@
             titleEl.parentElement.insertBefore(linkRow, titleEl.nextSibling);
         }
 
-        lookupMovie(title, year).then(({ links, killCount, dtddStats, parentalGuide, imdbId, cleanTitle, cleanYear, rating, runtime, poster, backdrop, overview }) => {
+        lookupMovie(title, year).then(({ links, killCount, dtddStats, parentalGuide, imdbId, cleanTitle, cleanYear, rating, runtime, genres, poster, backdrop, overview }) => {
             if (isYt && !cleanTitle) {
                 const r = document.getElementById('sc-movie-links');
                 if (r) r.remove();
