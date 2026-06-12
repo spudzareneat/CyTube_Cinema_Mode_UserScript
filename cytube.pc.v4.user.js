@@ -597,7 +597,7 @@
     function relocateEmoteButton() {
         const existing = document.getElementById('sc-emote-proxy');
         if (existing) {
-            if (existing.textContent.trim() !== '📼') existing.textContent = '📼';
+            if (!existing.querySelector('svg')) existing.innerHTML = _VHS_SVG;
             return;
         }
         const original = document.getElementById('emotelistbtn');
@@ -605,7 +605,7 @@
 
         const proxy = document.createElement('button');
         proxy.id = 'sc-emote-proxy';
-        proxy.textContent = '📼';
+        proxy.innerHTML = _VHS_SVG;
         proxy.title = 'Emotes';
         proxy.setAttribute('aria-label', 'Emote Picker');
 
@@ -1449,6 +1449,7 @@
             document.getElementById('sc-movie-links'),
             document.getElementById('sc-trivia-btn'),
             document.getElementById('fs-toggle-btn'),
+            document.getElementById('sc-settings-btn'),
         ].filter(Boolean);
 
         const dim = () => {
@@ -2411,20 +2412,22 @@
                 z-index: 20002 !important;
                 background: rgba(255,255,255,0.08) !important;
                 color: rgba(255,255,255,0.55) !important;
-                border: none !important;
+                border: 1px solid rgba(255,255,255,0.18) !important;
                 border-radius: 50% !important;
-                width: 28px !important;
-                height: 28px !important;
-                padding: 0 !important;
-                font-size: 15px !important;
+                width: 28px !important; height: 28px !important;
+                padding: 0 !important; font-size: 15px !important;
                 cursor: pointer !important;
-                display: flex !important;
-                align-items: center !important;
-                justify-content: center !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
                 transition: color 0.3s ease, background 0.3s ease !important;
             }
-            #sc-emote-proxy { font-size: 18px !important; line-height: 1 !important; }
-            #fs-toggle-btn.sc-bar-dim { opacity: 0 !important; pointer-events: none !important; }
+            /* Gap buttons slide out to the right on idle */
+            #fs-toggle-btn {
+                transition: color 0.3s ease, background 0.3s ease, transform 0.3s ease, opacity 0.3s ease !important;
+            }
+            #fs-toggle-btn.sc-bar-dim {
+                transform: translateX(60px) !important; opacity: 0 !important; pointer-events: none !important;
+            }
+            #sc-emote-proxy svg { width: 20px !important; height: auto !important; display: block !important; }
             #fs-toggle-btn:hover, #sc-emote-proxy:hover {
                 color: white !important;
                 background: rgba(255,255,255,0.22) !important;
@@ -2601,29 +2604,28 @@
                 z-index: 20002 !important;
                 background: rgba(255,255,255,0.08) !important;
                 color: rgba(255,255,255,0.55) !important;
-                border: none !important;
+                border: 1px solid rgba(255,255,255,0.18) !important;
                 border-radius: 50% !important;
-                width: 28px !important;
-                height: 28px !important;
-                padding: 0 !important;
-                font-size: 13px !important;
+                width: 28px !important; height: 28px !important;
+                padding: 0 !important; font-size: 13px !important;
                 cursor: pointer !important;
-                display: flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-                transition: color 0.3s ease, background 0.3s ease !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
                 line-height: 1 !important;
+                transition: color 0.3s ease, background 0.3s ease, transform 0.3s ease, opacity 0.3s ease !important;
             }
             #sc-settings-btn:hover {
                 color: white !important;
                 background: rgba(255,255,255,0.22) !important;
             }
+            #sc-settings-btn.sc-bar-dim {
+                transform: translateX(60px) !important; opacity: 0 !important; pointer-events: none !important;
+            }
 
             body.sc-horizontal #sc-settings-btn {
-                bottom: 6px !important; right: calc(20vw + 102px) !important;
+                bottom: 6px !important; right: calc(20vw + 44px) !important;
             }
             body.sc-vertical #sc-settings-btn {
-                bottom: 43vh !important; right: 122px !important;
+                bottom: 43vh !important; right: 44px !important;
             }
 
             /* ===== SETTINGS MODAL ===== */
