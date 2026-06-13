@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube Fullscreen Video with Overlay Chat
 // @namespace    http://tampermonkey.net/
-// @version      4.0.2
+// @version      4.0.3
 // @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, vertical monitor support
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -16,7 +16,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.pc.v4 v4.0.2 loaded');
+    console.log('[SC] cytube.pc.v4 v4.0.3 loaded');
 
     /* ==========================================================
        API KEYS — stored in localStorage, managed via settings modal.
@@ -1449,6 +1449,7 @@
             document.getElementById('sc-movie-links'),
             document.getElementById('sc-trivia-btn'),
             document.getElementById('fs-toggle-btn'),
+            document.getElementById('sc-desync-btn'),
             document.getElementById('sc-settings-btn'),
         ].filter(Boolean);
 
@@ -2379,7 +2380,7 @@
                 z-index: 20002 !important;
                 background: rgba(255,255,255,0.08) !important;
                 color: rgba(255,255,255,0.55) !important;
-                border: none !important;
+                border: 1px solid rgba(255,255,255,0.18) !important;
                 border-radius: 50% !important;
                 width: 28px !important; height: 28px !important;
                 padding: 0 !important;
@@ -2388,7 +2389,10 @@
                 display: flex !important;
                 align-items: center !important;
                 justify-content: center !important;
-                transition: color 0.3s ease, background 0.3s ease !important;
+                transition: color 0.3s ease, background 0.3s ease, transform 0.3s ease, opacity 0.3s ease !important;
+            }
+            #sc-desync-btn.sc-bar-dim {
+                transform: translateX(60px) !important; opacity: 0 !important; pointer-events: none !important;
             }
             #sc-desync-btn:hover {
                 color: white !important;
@@ -2400,11 +2404,11 @@
             }
             body.sc-horizontal #sc-desync-btn {
                 bottom: 6px !important;
-                right: calc(20vw + 38px) !important;
+                right: calc(20vw + 44px) !important;
             }
             body.sc-vertical #sc-desync-btn {
                 bottom: 43vh !important;
-                right: 46px !important;
+                right: 44px !important;
             }
 
             #fs-toggle-btn, #sc-emote-proxy {
@@ -2622,10 +2626,10 @@
             }
 
             body.sc-horizontal #sc-settings-btn {
-                bottom: 6px !important; right: calc(20vw + 44px) !important;
+                bottom: 6px !important; right: calc(20vw + 80px) !important;
             }
             body.sc-vertical #sc-settings-btn {
-                bottom: 43vh !important; right: 44px !important;
+                bottom: 43vh !important; right: 80px !important;
             }
 
             /* ===== SETTINGS MODAL ===== */
