@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube Fullscreen Video with Overlay Chat
 // @namespace    http://tampermonkey.net/
-// @version      4.0.6
+// @version      4.0.7
 // @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, vertical monitor support
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -16,7 +16,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.pc.v4 v4.0.6 loaded');
+    console.log('[SC] cytube.pc.v4 v4.0.7 loaded');
 
     /* ==========================================================
        API KEYS — stored in localStorage, managed via settings modal.
@@ -1242,6 +1242,10 @@
         return Math.abs(h);
     }
     function usernameToColor(u) {
+        // Own username gets a fixed standout colour rather than the hash.
+        if (window.CLIENT && window.CLIENT.name && u === window.CLIENT.name) {
+            return 'hsl(197, 90%, 78%)'; // baby blue
+        }
         // Golden angle multiplication spreads hues maximally apart so
         // no two nearby hash values share a similar colour.
         const hue = (hashString(u) * 137.508) % 360;
