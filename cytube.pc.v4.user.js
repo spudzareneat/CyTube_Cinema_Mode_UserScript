@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube Fullscreen Video with Overlay Chat
 // @namespace    http://tampermonkey.net/
-// @version      4.0.3
+// @version      4.0.4
 // @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, vertical monitor support
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -16,7 +16,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.pc.v4 v4.0.3 loaded');
+    console.log('[SC] cytube.pc.v4 v4.0.4 loaded');
 
     /* ==========================================================
        API KEYS — stored in localStorage, managed via settings modal.
@@ -1448,9 +1448,6 @@
             document.getElementById('sc-poster-toggle'),
             document.getElementById('sc-movie-links'),
             document.getElementById('sc-trivia-btn'),
-            document.getElementById('fs-toggle-btn'),
-            document.getElementById('sc-desync-btn'),
-            document.getElementById('sc-settings-btn'),
         ].filter(Boolean);
 
         const dim = () => {
@@ -1494,6 +1491,41 @@
                 wake();
             }
         });
+    }
+
+    function initGapButtonDim() {
+        const GAP_IDS = ['fs-toggle-btn', 'sc-desync-btn', 'sc-settings-btn'];
+        let gapTimer = null;
+
+        const gapShow = () => {
+            clearTimeout(gapTimer);
+            GAP_IDS.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.remove('sc-bar-dim');
+            });
+            gapTimer = setTimeout(gapHide, 2500);
+        };
+
+        const gapHide = () => {
+            GAP_IDS.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.add('sc-bar-dim');
+            });
+        };
+
+        document.addEventListener('mousemove', (e) => {
+            const vw = document.getElementById('videowrap');
+            if (!vw) return;
+            const r = vw.getBoundingClientRect();
+            const overVideo = e.clientX >= r.left && e.clientX <= r.right &&
+                              e.clientY >= r.top  && e.clientY <= r.bottom;
+            // Also keep visible when hovering the buttons themselves
+            const overBtn = GAP_IDS.some(id => e.target.closest && e.target.closest('#' + id));
+            if (overVideo || overBtn) gapShow();
+        });
+
+        // Start visible, hide after 4s of no video-area activity
+        gapTimer = setTimeout(gapHide, 4000);
     }
 
     function initPosterStrip() {
@@ -1899,6 +1931,7 @@
         watchMovieTitle();
         initMediaWatcher();
         initTopBar();
+        initGapButtonDim();
         initDesyncButton();
         initChatHeader();
         initUserCount();
