@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube Fullscreen Video with Overlay Chat
 // @namespace    http://tampermonkey.net/
-// @version      4.0.4
+// @version      4.0.5
 // @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, vertical monitor support
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -16,7 +16,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.pc.v4 v4.0.4 loaded');
+    console.log('[SC] cytube.pc.v4 v4.0.5 loaded');
 
     /* ==========================================================
        API KEYS — stored in localStorage, managed via settings modal.
@@ -1237,13 +1237,15 @@
     ========================================================== */
 
     function hashString(str) {
-        let h = 0;
-        for (let i = 0; i < str.length; i++) { h = str.charCodeAt(i) + ((h << 5) - h); h |= 0; }
+        let h = 5381;
+        for (let i = 0; i < str.length; i++) { h = ((h << 5) + h) ^ str.charCodeAt(i); h |= 0; }
         return Math.abs(h);
     }
     function usernameToColor(u) {
-        const h = hashString(u);
-        return `hsl(${h % 360}, ${75 + (h % 15)}%, ${60 + (h % 10)}%)`;
+        // Golden angle multiplication spreads hues maximally apart so
+        // no two nearby hash values share a similar colour.
+        const hue = (hashString(u) * 137.508) % 360;
+        return `hsl(${hue.toFixed(1)}, 78%, 66%)`;
     }
     function applyUserColors() {
         document.querySelectorAll('#messagebuffer [class*="chat-msg-"]').forEach(el => {
