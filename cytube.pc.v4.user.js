@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube Fullscreen Video with Overlay Chat
 // @namespace    http://tampermonkey.net/
-// @version      4.0.7
+// @version      4.0.8
 // @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, vertical monitor support
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -16,7 +16,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.pc.v4 v4.0.7 loaded');
+    console.log('[SC] cytube.pc.v4 v4.0.8 loaded');
 
     /* ==========================================================
        API KEYS — stored in localStorage, managed via settings modal.
@@ -2571,6 +2571,13 @@
                 background: rgba(255,255,255,0.15) !important;
             }
             #sc-chat-textarea::placeholder { color: rgba(255,255,255,0.4) !important; }
+            #sc-chat-textarea {
+                scrollbar-width: thin !important;
+                scrollbar-color: #000 transparent !important;
+            }
+            #sc-chat-textarea::-webkit-scrollbar { width: 6px !important; }
+            #sc-chat-textarea::-webkit-scrollbar-track { background: transparent !important; }
+            #sc-chat-textarea::-webkit-scrollbar-thumb { background: #000 !important; border-radius: 6px !important; }
             #sc-checking {
                 font-size: 11px !important; color: rgba(255,255,200,0.6) !important;
                 padding: 2px 4px !important; flex-shrink: 0 !important;
