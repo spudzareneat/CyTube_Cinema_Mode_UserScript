@@ -1,33 +1,47 @@
 // ==UserScript==
 // @name         CyTube Fullscreen Video with Overlay Chat
 // @namespace    http://tampermonkey.net/
-// @version      3.4.0
-// @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, vertical monitor support
+// @version      4.0.8
+// @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, vertical monitor support
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
 // @grant        GM_xmlhttpRequest
-// @connect      doesthedogdie.com
 // @connect      api.themoviedb.org
 // @connect      en.wikipedia.org
 // @connect      raw.githubusercontent.com
 // @connect      api.languagetool.org
+// @connect      caching.graphql.imdb.com
 // @run-at       document-start
 // ==/UserScript==
 
 (function () {
     'use strict';
+    console.log('[SC] cytube.pc v4.0.8 loaded');
 
     /* ==========================================================
        API KEYS — stored in localStorage, managed via settings modal.
        Keys are never hard-coded; the settings modal handles first-run.
     ========================================================== */
-    const LS_TMDB       = 'sc_tmdb_key';
-    const LS_DTDD       = 'sc_dtdd_key';
-    const LS_SPELLCHECK = 'sc_spellcheck'; // 'off' to disable, anything else = enabled
+    const LS_TMDB        = 'sc_tmdb_key';
+    const LS_SPELLCHECK  = 'sc_spellcheck';
+    const LS_CHAT_FONT   = 'sc_chat_fontsize';
+    const LS_MOVIE_LINKS = 'sc_movie_links';
     const getKey   = id => localStorage.getItem(id) || '';
     const setKey   = (id, v) => localStorage.setItem(id, v.trim());
     const hasKey   = id => !!getKey(id);
-    const spellCheckEnabled = () => getKey(LS_SPELLCHECK) !== 'off';
+    const spellCheckEnabled  = () => getKey(LS_SPELLCHECK)  !== 'off';
+    const movieLinksEnabled  = () => getKey(LS_MOVIE_LINKS) !== 'off';
+
+    function getChatFontSize() {
+        const v = parseInt(getKey(LS_CHAT_FONT), 10);
+        return (Number.isFinite(v) && v >= 10 && v <= 32) ? v : 14;
+    }
+    function applyChatFontSize(px) {
+        const buf = document.getElementById('messagebuffer');
+        if (buf) buf.style.setProperty('font-size', px + 'px', 'important');
+        const ta = document.getElementById('sc-chat-textarea');
+        if (ta) ta.style.setProperty('font-size', px + 'px', 'important');
+    }
 
     /* ==========================================================
        MONITOR / ORIENTATION DETECTION
@@ -37,8 +51,14 @@
         return window.screen.height > window.screen.width;
     }
     function applyMonitorLayout() {
-        document.body.classList.toggle('sc-vertical', isVerticalMonitor());
-        document.body.classList.toggle('sc-horizontal', !isVerticalMonitor());
+        const wasVert = document.body.classList.contains('sc-vertical');
+        const isVert  = isVerticalMonitor();
+        document.body.classList.toggle('sc-vertical',   isVert);
+        document.body.classList.toggle('sc-horizontal', !isVert);
+        if (wasVert !== isVert) {
+            const buf = document.getElementById('messagebuffer');
+            if (buf) setTimeout(() => { buf.scrollTop = buf.scrollHeight; }, 200);
+        }
     }
     function startMonitorWatcher() {
         applyMonitorLayout();
@@ -572,14 +592,20 @@
        and forward clicks to the original so CyTube's picker still opens.
     ========================================================== */
 
+    const _VHS_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 5628 3728" fill="currentColor" aria-hidden="true"><g transform="matrix(1.3333333,0,0,-1.3333333,0,3728)"><g transform="scale(0.1)"><g transform="scale(2.31715)"><path d="m 16300,9657.36 v -335.45 c -157.2,180.66 -390.4,294.66 -648.5,294.66 H 2567.81 c -260.88,0 -494.75,-115.91 -651.51,-298.23 v 339.02 c 0,353.34 291.56,640.74 649.98,640.74 H 15650 c 358.5,0 650,-287.4 650,-640.74"/></g><g transform="scale(1.06574)"><path d="m 11418,14609.4 h 187.4 V 16300 c -2170.61,-146.3 -3886.11,-1953.4 -3886.11,-4161.2 0,-2207.82 1715.5,-4015.03 3886.11,-4161.31 v 1924.59 c -132.5,17.26 -261.1,46.72 -384.9,86.79 -79.8,26.13 -165.5,-18.86 -189.4,-99.46 l -34.2,-114.57 c -29.3,-98.71 -147.7,-138.87 -231.1,-78.26 l -763.8,555.02 c -83.41,60.6 -81.81,185.5 3.1,244.1 l 98.6,68 c 69.3,47.7 85.5,143.1 36.1,211 -260.06,357.1 -413.47,796.9 -413.47,1272.5 v 1.6 c 0,83.3 -68.31,150.7 -151.73,148.6 l -121.51,-3.1 c -103.15,-2.5 -177.72,97.6 -145.84,195.6 l 291.75,898 c 31.81,98.1 151.07,135.2 232.89,72.5 l 95.24,-72.8 c 66.71,-51.1 162.37,-37.3 211.77,30.6 265.9,366 643.9,645.2 1083.3,787.6 79.8,25.9 122.4,112.7 94.5,191.8 l -39.7,112.8 c -34.3,97.1 37.8,199 141,199"/></g><g transform="scale(2.08529)"><path d="m 14313.8,8330.5 v -864 h 95.9 c 52.6,0 89.5,-52.03 71.9,-101.72 l -20.2,-57.59 c -14.3,-40.47 7.4,-84.83 48.2,-98.07 224.6,-72.79 417.8,-215.46 553.8,-402.53 25.2,-34.67 74,-41.72 108.2,-15.63 l 48.6,37.26 c 41.8,31.98 102.8,12.99 119.1,-37.12 l 149.1,-458.88 c 16.3,-50.11 -21.9,-101.33 -74.6,-100.04 l -62.1,1.63 c -42.6,1.01 -77.6,-33.37 -77.5,-76 v -0.82 c 0,-243.04 -78.5,-467.75 -211.3,-650.32 -25.3,-34.67 -17,-83.49 18.4,-107.85 l 50.5,-34.76 c 43.3,-29.88 44.1,-93.76 1.5,-124.74 l -390.4,-283.6 c -42.6,-31.03 -103.1,-10.5 -118.1,39.99 l -17.4,58.51 c -12.3,41.19 -56.1,64.16 -96.9,50.88 -63.2,-20.53 -129,-35.58 -196.7,-44.41 v -983.6 c 1109.4,74.76 1986.2,998.37 1986.2,2126.75 0,1128.34 -876.8,2051.9 -1986.2,2126.66"/></g><g transform="scale(2.31715)"><path d="m 15169.1,3729.71 c 0,-505.24 -409.6,-914.79 -914.8,-914.79 h -1098.8 c -277.4,0 -502.4,224.93 -502.4,502.38 v 4531.45 c 0,277.42 225,502.4 502.4,502.4 h 1098.9 c 487.9,0 886.5,-381.98 913.3,-863.17 0.9,-17.09 1.4,-34.26 1.4,-51.57 z m -3232.9,-341.07 c 0,-340.98 -276.4,-617.4 -617.4,-617.4 H 6900.45 c -340.98,0 -617.4,276.42 -617.4,617.4 v 4388.71 c 0,340.99 276.42,617.41 617.4,617.41 h 4418.35 c 341,0 617.4,-276.42 617.4,-617.41 z M 5566.1,3317.3 c 0,-277.45 -224.93,-502.38 -502.39,-502.38 H 3964.9 c -505.22,0 -914.78,409.55 -914.78,914.79 v 3706.7 c 0,505.18 409.56,914.74 914.73,914.74 h 1098.86 c 264.47,0 481.2,-204.38 500.96,-463.77 0.95,-12.76 1.43,-25.62 1.43,-38.63 z m 10732.5,5385.84 c -24.1,387.6 -346.1,694.52 -739.8,694.52 H 2660.51 c -409.41,0 -741.25,-331.89 -741.25,-741.25 V 2509.63 c 0,-409.38 331.84,-741.21 741.25,-741.21 H 15558.8 c 409.4,0 741.2,331.83 741.2,741.21 v 6146.78 c 0,15.73 -0.5,31.3 -1.4,46.73"/></g></g></g></svg>';
+
     function relocateEmoteButton() {
-        if (document.getElementById('sc-emote-proxy')) return;
+        const existing = document.getElementById('sc-emote-proxy');
+        if (existing) {
+            if (!existing.querySelector('svg')) existing.innerHTML = _VHS_SVG;
+            return;
+        }
         const original = document.getElementById('emotelistbtn');
         if (!original) return;
 
         const proxy = document.createElement('button');
         proxy.id = 'sc-emote-proxy';
-        proxy.textContent = '▦';
+        proxy.innerHTML = _VHS_SVG;
         proxy.title = 'Emotes';
         proxy.setAttribute('aria-label', 'Emote Picker');
 
@@ -589,12 +615,6 @@
         });
 
         document.body.appendChild(proxy);
-
-        // Style the original emotelistbtn to look like our proxy too
-        if (!original.dataset.pickerApplied) {
-            original.textContent = '▦';
-            original.dataset.pickerApplied = 'true';
-        }
     }
 
     const applyInputMode = () => {
@@ -633,6 +653,63 @@
         s = s.replace(/\s+/g, ' ').trim();
 
         return { title: s, year };
+    }
+
+    /* ==========================================================
+       YOUTUBE TITLE CLEANING
+       Aggressively strips noise from YT "full movie" titles so TMDB
+       can find the actual film name.
+    ========================================================== */
+
+    const YT_NOISE = [
+        'full movie', 'full length movie', 'full length feature', 'full length film', 'full length',
+        'complete movie', 'complete film', 'the complete movie', 'entire movie',
+        'free movie', 'free film', 'free online', 'free to watch', 'watch online', 'watch free',
+        'watch now', 'online free', 'free with ads', 'with ads', 'no ads', 'ad free',
+        'official movie', 'official film', 'official', 'exclusive', 'premiere', 'world premiere',
+        'remastered', 'restored', 'colou?ri[sz]ed', 'subtitle[sd]?', 'subbed', 'dubbed', 'eng sub',
+        'hd', 'fhd', 'uhd', '4k', '2k', '1080p', '720p', '480p', 'high definition',
+        'blu-?ray', 'dvd', 'web-?dl', 'uncut', 'extended', 'director.?s cut', 'special edition',
+        'classic movie', 'classic film', 'cult classic', 'b-?movie', 'feature film', 'feature',
+        'cinema', 'blockbuster', 'must watch', 'in english', 'english movie',
+    ];
+    const YT_GENRES = ['action', 'thriller', 'horror', 'comedy', 'drama', 'sci-?fi', 'science fiction',
+        'western', 'romance', 'crime', 'mystery', 'adventure', 'fantasy', 'war', 'noir', 'slasher',
+        'martial arts', 'kung fu', 'documentary', 'family', 'musical', 'animation'];
+
+    function parseYouTubeTitle(raw) {
+        let s = ' ' + raw + ' ';
+        let year = null;
+        const ym = s.match(/\b(19\d{2}|20\d{2})\b/);
+        if (ym) year = ym[1];
+        s = s.replace(/[\[({][^\])}]*[\])}]/g, ' ');
+        if (year) s = s.replace(new RegExp('\\b' + year + '\\b', 'g'), ' ');
+        [...YT_NOISE, ...YT_GENRES].forEach(n => {
+            s = s.replace(new RegExp('\\b' + n + '\\b', 'gi'), ' ');
+        });
+        s = s.replace(/[^\w\s&':!.,-]/g, ' ');
+        const segs = s.split(/\s[|–—•:_-]+\s/)
+            .map(x => x.replace(/\s+/g, ' ').trim())
+            .filter(x => x.length >= 2);
+        let title = segs.sort((a, b) =>
+            (b.match(/[a-z]/gi) || []).length - (a.match(/[a-z]/gi) || []).length
+        )[0] || s;
+        title = title.replace(/\s+/g, ' ').replace(/^[\s'":.,-]+|[\s'":.,-]+$/g, '').trim();
+        return { title, year };
+    }
+
+    // Current media duration/type — updated by the changeMedia socket event.
+    let currentMediaSeconds = 0;
+    let currentMediaType    = '';
+    function parseTimeToSeconds(t) {
+        const parts = String(t).trim().split(':').map(Number);
+        if (!parts.length || parts.some(isNaN)) return 0;
+        return parts.reduce((acc, v) => acc * 60 + v, 0);
+    }
+    function getCurrentMediaSeconds() {
+        if (currentMediaSeconds > 0) return currentMediaSeconds;
+        const el = document.querySelector('#queue .queue_active .qe_time, #queue .queue_entry.active .qe_time');
+        return el ? parseTimeToSeconds(el.textContent) : 0;
     }
 
     /* ==========================================================
@@ -684,40 +761,24 @@
     }
 
 
-    // ── DoesTheDogDie: category/keyword filter ───────────────────────────────────
-    // We read topic names directly from the API response (topic.name field)
-    // rather than hardcoding IDs which change. We match against keywords
-    // relevant for cult/exploitation/horror film chat.
-    // Each entry: [matchString, emoji, displayLabel]
-    // matchString is tested against topic.name (lowercase)
-    const DTDD_FILTERS = [
-        ['dog dies',          '🐕', 'Dog dies'],
-        ['cat dies',          '🐱', 'Cat dies'],
-        ['animal',            '🐾', 'Animal cruelty'],
-        ['jump scare',        '😱', 'Jump scares'],
-        ['sex scene',         '🔞', 'Sex scene'],
-        ['nudity',            '🔞', 'Nudity'],
-        ['rape',              '⚠️', 'Sexual violence'],
-        ['suicide',           '💀', 'Suicide'],
-        ['needle',            '💉', 'Needles'],
-        ['spider',            '🕷', 'Spiders'],
-        ['decapitat',         '🩸', 'Decapitation'],
-        ['explod',            '💥', 'Explosions'],
-        ['torture',           '⚠️', 'Torture'],
-        ['child',             '⚠️', 'Child in peril'],
-        ['pregnancy',         '🤰', 'Pregnancy'],
-        ['clown',             '🤡', 'Clowns'],
-        ['vomit',             '🤢', 'Vomiting'],
-        ['eye',               '👁', 'Eye trauma'],
-    ];
+    /* ==========================================================
+       IMDb GraphQL — parent guide + trivia (free, no API key)
+    ========================================================== */
 
-    // GM_xmlhttpRequest wrapped as a Promise — bypasses CORS restrictions
-    function gmFetch(url, headers = {}) {
+    const IMDB_GQL = 'https://caching.graphql.imdb.com/';
+
+    function imdbGmFetch(url) {
         return new Promise((resolve, reject) => {
             GM_xmlhttpRequest({
                 method: 'GET',
                 url,
-                headers: { 'Accept': 'application/json', ...headers },
+                headers: {
+                    'Accept': 'application/graphql+json, application/json',
+                    'Content-Type': 'application/json',
+                    'x-imdb-client-name': 'imdb-web-next-localized',
+                    'x-imdb-user-language': 'en-US',
+                    'x-imdb-user-country': 'US',
+                },
                 onload: r => {
                     if (r.status >= 200 && r.status < 300) {
                         try { resolve(JSON.parse(r.responseText)); }
@@ -731,72 +792,39 @@
         });
     }
 
-    async function getDtddStats(tmdbId, movieTitle, tmdbResult_year) {
-        if (!hasKey(LS_DTDD) || !tmdbId || !movieTitle) return null;
-        const key = getKey(LS_DTDD);
+    async function imdbQuery(operationName, query, variables) {
+        const url = IMDB_GQL +
+            '?operationName=' + encodeURIComponent(operationName) +
+            '&query='         + encodeURIComponent(query) +
+            '&variables='     + encodeURIComponent(JSON.stringify(variables));
+        return imdbGmFetch(url);
+    }
+
+    async function fetchImdbParentalGuide(tconst) {
+        if (!tconst) return null;
+        const q = 'query GHGuide($id: ID!){ title(id:$id){ parentsGuide{ categories{ category{ text } severity{ text } } } } }';
         try {
-            // DTDD search takes a text query, not a numeric ID
-            const searchData = await gmFetch(
-                `https://www.doesthedogdie.com/dddsearch?q=${encodeURIComponent(movieTitle)}`,
-                { 'X-API-KEY': key }
-            );
+            const data = await imdbQuery('GHGuide', q, { id: tconst });
+            const cats = data?.data?.title?.parentsGuide?.categories;
+            if (!cats) return null;
+            return cats
+                .map(c => ({ category: c.category?.text, severity: c.severity?.text }))
+                .filter(c => c.category && c.severity);
+        } catch (e) { return null; }
+    }
 
-            // DTDD search results don't include tmdbId — match by normalised title + year instead
-            const normalise = s => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-            const targetTitle = normalise(movieTitle);
-            const targetYear  = tmdbResult_year ? String(tmdbResult_year) : null;
-
-            let match = null;
-
-            // 1st pass: exact normalised title + year match
-            if (targetYear) {
-                match = (searchData.items || []).find(i =>
-                    normalise(i.name) === targetTitle &&
-                    i.release_date && String(i.release_date).startsWith(targetYear)
-                );
-            }
-            // 2nd pass: exact normalised title only
-            if (!match) {
-                match = (searchData.items || []).find(i => normalise(i.name) === targetTitle);
-            }
-            // 3rd pass: first result whose normalised title contains our title (partial)
-            if (!match) {
-                match = (searchData.items || []).find(i => normalise(i.name).includes(targetTitle));
-            }
-
-            if (!match) {
-                return null;
-            }
-
-            const detail = await gmFetch(
-                `https://www.doesthedogdie.com/media/${match.id}`,
-                { 'X-API-KEY': key }
-            );
-
-            // Build stats from topic names rather than brittle hardcoded IDs.
-            // Use a Set to avoid duplicate labels (e.g. both 'nudity' and 'sex scene' → '🔞')
-            const seenLabels = new Set();
-            const stats = [];
-
-            for (const stat of (detail.topicItemStats || [])) {
-                const yesSum = stat.yesSum ?? 0;
-                if (yesSum < 1) continue;
-                const topicName = (stat.topic?.name ?? '').toLowerCase();
-                if (!topicName) continue;
-
-                for (const [keyword, emoji, label] of DTDD_FILTERS) {
-                    if (topicName.includes(keyword) && !seenLabels.has(label)) {
-                        seenLabels.add(label);
-                        stats.push(`${emoji} ${label}`);
-                        break;
-                    }
-                }
-            }
-            return stats.length ? stats : null;
-        } catch (e) {
-            console.error('[CyTube SC] DtDD error:', e);
-            return null;
-        }
+    const _triviaCache = {};
+    async function fetchImdbTrivia(tconst) {
+        if (!tconst) return null;
+        if (_triviaCache[tconst]) return _triviaCache[tconst];
+        const q = 'query GHTrivia($id: ID!){ title(id:$id){ trivia(first: 30){ edges{ node{ text{ plainText } } } } } }';
+        try {
+            const data = await imdbQuery('GHTrivia', q, { id: tconst });
+            const edges = data?.data?.title?.trivia?.edges || [];
+            const items = edges.map(e => e?.node?.text?.plainText).filter(Boolean);
+            _triviaCache[tconst] = items;
+            return items;
+        } catch (e) { return null; }
     }
 
     async function lookupMovie(title, year) {
@@ -826,10 +854,16 @@
                 if (!detailRes.ok) return;
                 const detail = await detailRes.json();
                 tmdbResult = {
-                    tmdbId: best.id,
-                    imdbId: detail.imdb_id || detail.external_ids?.imdb_id || null,
-                    title:  detail.title,
-                    year:   detail.release_date ? detail.release_date.slice(0, 4) : year,
+                    tmdbId:   best.id,
+                    imdbId:   detail.imdb_id || detail.external_ids?.imdb_id || null,
+                    title:    detail.title,
+                    year:     detail.release_date ? detail.release_date.slice(0, 4) : year,
+                    rating:   detail.vote_average  ? Math.round(detail.vote_average * 10) / 10 : null,
+                    runtime:  detail.runtime || null,
+                    genres:   (detail.genres || []).map(g => g.name),
+                    poster:   detail.poster_path   ? `https://image.tmdb.org/t/p/w342${detail.poster_path}` : null,
+                    backdrop: detail.backdrop_path ? `https://image.tmdb.org/t/p/w780${detail.backdrop_path}` : null,
+                    overview: detail.overview || null,
                 };
             } catch (e) {}
         })() : Promise.resolve();
@@ -861,8 +895,8 @@
             if (count !== undefined && count !== null) killCount = count;
         }
 
-        // ── DoesTheDogDie ────────────────────────────────────────────────────────
-        const dtddStats = await getDtddStats(tmdbResult?.tmdbId, tmdbResult?.title || title, tmdbResult?.year || year);
+        // ── IMDb Parent Guide ─────────────────────────────────────────────────────
+        const parentalGuide = await fetchImdbParentalGuide(tmdbResult?.imdbId);
 
         const result = {
             links: {
@@ -871,9 +905,16 @@
                 wiki:       wikiUrl,
             },
             killCount,
-            dtddStats,
-            cleanTitle: tmdbResult?.title  || null,
-            cleanYear:  tmdbResult?.year   || null,
+            parentalGuide,
+            imdbId:     tmdbResult?.imdbId   || null,
+            cleanTitle: tmdbResult?.title    || null,
+            cleanYear:  tmdbResult?.year     || null,
+            rating:     tmdbResult?.rating   ?? null,
+            runtime:    tmdbResult?.runtime  || null,
+            genres:     tmdbResult?.genres   || [],
+            poster:     tmdbResult?.poster   || null,
+            backdrop:   tmdbResult?.backdrop || null,
+            overview:   tmdbResult?.overview || null,
         };
 
         movieLinkCache[cacheKey] = result;
@@ -894,6 +935,72 @@
         return false;
     }
 
+    let _currentImdbId = null;
+    let _npData        = null;
+    let _npHideTimer   = null;
+
+    const NP_PG_SHORT = {
+        'Sex & Nudity': 'Sex/Nudity', 'Violence & Gore': 'Violence',
+        'Profanity': 'Profanity', 'Alcohol, Drugs & Smoking': 'Drugs',
+        'Frightening & Intense Scenes': 'Frightening',
+    };
+
+    function showNowPlayingCard(data, opts = {}) {
+        if (!data || (!data.cleanTitle && !data.backdrop)) return;
+        let card = document.getElementById('sc-np-card');
+        if (!card) {
+            card = document.createElement('div');
+            card.id = 'sc-np-card';
+            card.innerHTML = `
+                <div id="sc-np-backdrop"></div>
+                <div id="sc-np-scrim"></div>
+                <div id="sc-np-content">
+                    <img id="sc-np-poster" alt="" />
+                    <div id="sc-np-info">
+                        <div id="sc-np-eyebrow">Now Playing</div>
+                        <div id="sc-np-title"></div>
+                        <div id="sc-np-meta"></div>
+                        <div id="sc-np-overview"></div>
+                        <div id="sc-np-chips"></div>
+                    </div>
+                </div>`;
+            document.body.appendChild(card);
+            card.addEventListener('click', hideNowPlayingCard);
+        }
+        const title = data.cleanTitle || '';
+        const year  = data.cleanYear ? ` (${data.cleanYear})` : '';
+        card.querySelector('#sc-np-backdrop').style.backgroundImage = data.backdrop ? `url(${data.backdrop})` : 'none';
+        const poster = card.querySelector('#sc-np-poster');
+        if (data.poster) { poster.src = data.poster; poster.style.display = ''; }
+        else poster.style.display = 'none';
+        card.querySelector('#sc-np-title').textContent = title + year;
+        card.querySelector('#sc-np-overview').textContent = data.overview || '';
+        const metaParts = [];
+        if (data.rating)  metaParts.push(`⭐ ${data.rating}`);
+        if (data.runtime) metaParts.push(`${Math.floor(data.runtime / 60)}h ${data.runtime % 60}m`);
+        if (data.genres && data.genres.length) metaParts.push(data.genres.slice(0, 3).join(' · '));
+        card.querySelector('#sc-np-meta').textContent = metaParts.join('     ');
+        const chipHtml = [];
+        (data.parentalGuide || []).forEach(pg => {
+            const sev = String(pg.severity || '').toLowerCase();
+            const label = NP_PG_SHORT[pg.category] || pg.category;
+            chipHtml.push(`<span class="sc-np-chip sc-sev-${sev}">${label}: ${pg.severity}</span>`);
+        });
+        if (data.killCount !== null && data.killCount !== undefined) {
+            chipHtml.push(`<span class="sc-np-chip">💀 ${data.killCount} kills</span>`);
+        }
+        card.querySelector('#sc-np-chips').innerHTML = chipHtml.join('');
+        card.classList.add('sc-np-visible');
+        clearTimeout(_npHideTimer);
+        if (opts.autoHide) _npHideTimer = setTimeout(hideNowPlayingCard, 7000);
+    }
+
+    function hideNowPlayingCard() {
+        const card = document.getElementById('sc-np-card');
+        if (card) card.classList.remove('sc-np-visible');
+        clearTimeout(_npHideTimer);
+    }
+
     function injectMovieLinks(titleEl) {
         const rawTitle = titleEl.textContent.trim()
             .replace(/^currently\s+playing[:\s]*/i, '')
@@ -901,112 +1008,248 @@
 
         if (!rawTitle || rawTitle === lastMovieTitle || rawTitle.length < 2) return;
         lastMovieTitle = rawTitle;
+        _currentImdbId = null;
 
-        // Clean up any previous links/stats
-        ['sc-movie-links', 'sc-movie-stats'].forEach(id => {
+        // Clean up previous links/stats/trivia button
+        ['sc-movie-links', 'sc-movie-stats', 'sc-trivia-btn'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.remove();
         });
 
-        // Skip all lookups for YouTube — these are bumpers/intros, never real films
-        if (isYouTubeMedia()) {
-            return;
+        const isYt = isYouTubeMedia();
+        let ytSeconds = 0;
+        if (isYt) {
+            ytSeconds = getCurrentMediaSeconds();
+            if (ytSeconds < 3600) return; // short YouTube clip — skip
         }
 
-        const { title, year } = parseMovieFilename(rawTitle);
-        if (!title) return;
+        const { title, year } = isYt ? parseYouTubeTitle(rawTitle) : parseMovieFilename(rawTitle);
+        if (!title || title.length < 2) return;
 
-        // Loading placeholder inline with title
-        const linkRow = document.createElement('span');
-        linkRow.id = 'sc-movie-links';
-        linkRow.innerHTML = '<span class="sc-movie-loading">…</span>';
-        titleEl.parentElement.insertBefore(linkRow, titleEl.nextSibling);
+        if (movieLinksEnabled()) {
+            const linkRow = document.createElement('span');
+            linkRow.id = 'sc-movie-links';
+            linkRow.innerHTML = '<span class="sc-movie-loading">…</span>';
+            titleEl.parentElement.insertBefore(linkRow, titleEl.nextSibling);
+        }
 
-        lookupMovie(title, year).then(({ links, killCount, dtddStats, cleanTitle, cleanYear }) => {
-            // Update the title element with the clean TMDB title if available
-            if (cleanTitle && titleEl) {
-                // No prefix — "Currently Playing:" label is hidden via CSS
-                const newText = cleanTitle + (cleanYear ? ` (${cleanYear})` : '');
-                // Only replace the text node, not the child elements (links etc.)
-                const textNode = [...titleEl.childNodes].find(n => n.nodeType === 3 && n.textContent.trim());
-                if (textNode) textNode.textContent = newText;
-                else titleEl.firstChild && (titleEl.firstChild.textContent = newText);
+        lookupMovie(title, year).then(({ links, killCount, parentalGuide, imdbId, cleanTitle, cleanYear, rating, runtime, genres, poster, backdrop, overview }) => {
+            if (isYt && !cleanTitle) {
+                const r = document.getElementById('sc-movie-links');
+                if (r) r.remove();
+                return;
             }
-            // ── Icon links row ────────────────────────────────────────────────
-            const currentRow = document.getElementById('sc-movie-links');
-            if (!currentRow) return;
-            currentRow.innerHTML = '';
+            if (isYt && runtime && ytSeconds) {
+                const diff = Math.abs(runtime - ytSeconds / 60);
+                if (diff > 30) { const r = document.getElementById('sc-movie-links'); if (r) r.remove(); return; }
+            }
 
-            // LINK_DEFS defined at module level
+            _currentImdbId = imdbId || null;
+            _npData = { cleanTitle, cleanYear, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, killCount, imdbId };
 
-            let anyLink = false;
-            LINK_DEFS.forEach(({ key, label, color, fg, char }) => {
-                const url = links[key];
-                if (!url) return;
-                anyLink = true;
-                const a = document.createElement('a');
-                a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
-                a.title = `${label}: "${title}"${year ? ` (${year})` : ''}`;
-                a.className = 'sc-movie-link';
-                a.style.background = color;
-                a.style.color = fg;
-                a.textContent = char;
-                currentRow.appendChild(a);
-            });
-            if (!anyLink) currentRow.remove();
+            // Update title with clean TMDB title, wrapped in a clickable span
+            if (cleanTitle && titleEl) {
+                const newText = cleanTitle + (cleanYear ? ` (${cleanYear})` : '');
+                let span = document.getElementById('sc-title-text');
+                if (!span) {
+                    span = document.createElement('span');
+                    span.id = 'sc-title-text';
+                    span.style.cursor = 'pointer';
+                    span.title = 'Movie info (I)';
+                    span.addEventListener('click', (e) => { e.stopPropagation(); showNowPlayingCard(_npData, { autoHide: false }); });
+                    const textNode = [...titleEl.childNodes].find(n => n.nodeType === 3 && n.textContent.trim());
+                    if (textNode) textNode.parentNode.replaceChild(span, textNode);
+                    else titleEl.insertBefore(span, titleEl.firstChild);
+                }
+                span.textContent = newText;
+            }
 
-            // ── Stats bar (kill count + DtDD) ─────────────────────────────────
-            // Stats go in a fixed floating bar over the bottom of the video,
-            // not inside #videowrap-header which is too small to contain a div.
+            // Icon links row
+            if (movieLinksEnabled()) {
+                const currentRow = document.getElementById('sc-movie-links');
+                if (currentRow) {
+                    currentRow.innerHTML = '';
+                    let anyLink = false;
+                    LINK_DEFS.forEach(({ key, label, color, fg, char }) => {
+                        const url = links[key];
+                        if (!url) return;
+                        anyLink = true;
+                        const a = document.createElement('a');
+                        a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+                        a.title = `${label}: "${cleanTitle || title}"${cleanYear ? ` (${cleanYear})` : ''}`;
+                        a.className = 'sc-movie-link';
+                        a.style.background = color; a.style.color = fg;
+                        a.textContent = char;
+                        currentRow.appendChild(a);
+                    });
+                    if (!anyLink) currentRow.remove();
+                }
+            }
+
+            // Trivia button — only when we have an IMDb ID
+            if (imdbId) {
+                const tb = document.createElement('button');
+                tb.id = 'sc-trivia-btn';
+                tb.textContent = 'Trivia';
+                tb.title = 'IMDb trivia (press T)';
+                tb.addEventListener('click', toggleTriviaPanel);
+                document.body.appendChild(tb);
+            }
+
+            // Stats bar — rating, runtime, kill count, DtDD, parent guide
             const statParts = [];
-            if (killCount !== null) statParts.push(`💀 ${killCount} on-screen kills`);
-            if (dtddStats && dtddStats.length) statParts.push(...dtddStats);
+            if (rating !== null) statParts.push(`⭐ ${rating}`);
+            if (runtime)         statParts.push(`${runtime} min`);
+            if (killCount !== null) statParts.push(`💀 ${killCount} kills`);
+            if (parentalGuide && parentalGuide.length) {
+                const SEV = { Severe: '🔴', Moderate: '🟡', Mild: '🟢', None: '' };
+                parentalGuide.forEach(({ category, severity }) => {
+                    const dot = SEV[severity] || '';
+                    if (dot) statParts.push(`${dot} ${category}`);
+                });
+            }
 
             const old = document.getElementById('sc-movie-stats');
             if (old) old.remove();
-
             if (statParts.length) {
                 const statsEl = document.createElement('div');
                 statsEl.id = 'sc-movie-stats';
                 statsEl.textContent = statParts.join('  ·  ');
                 document.body.appendChild(statsEl);
-                // Auto-hide after 12 seconds so it doesn't clutter the screen
                 setTimeout(() => { if (statsEl.parentNode) statsEl.remove(); }, 12000);
             }
         });
     }
 
-    function watchMovieTitle() {
-        const tryInject = () => {
-            for (const el of [
-                document.getElementById('currenttitle'),
-                document.querySelector('#videowrap-header .pull-left'),
-                document.querySelector('#videowrap-header span'),
-                document.querySelector('.video-title'),
-            ]) {
-                if (el && el.textContent.trim()) { injectMovieLinks(el); return; }
-            }
-        };
-
-        tryInject();
-
-        const header = document.getElementById('videowrap-header');
-        if (header) new MutationObserver(tryInject).observe(header, { childList: true, subtree: true, characterData: true });
-        new MutationObserver(tryInject).observe(document.body, { childList: true, subtree: false });
+    function triggerTitleInject() {
+        for (const el of [
+            document.getElementById('currenttitle'),
+            document.querySelector('#videowrap-header .pull-left'),
+            document.querySelector('#videowrap-header span'),
+            document.querySelector('.video-title'),
+        ]) {
+            if (el && el.textContent.trim()) { injectMovieLinks(el); return; }
+        }
     }
+
+    let _titleObsAttached = false;
+    function attachHeaderObserver() {
+        if (_titleObsAttached) return;
+        const header = document.getElementById('videowrap-header');
+        if (!header) return;
+        _titleObsAttached = true;
+        new MutationObserver(triggerTitleInject).observe(header, { childList: true, subtree: true, characterData: true });
+    }
+
+    function watchMovieTitle() {
+        triggerTitleInject();
+        attachHeaderObserver();
+        // Poll for ~20s on cold load in case header isn't ready yet
+        let tries = 0;
+        const poll = setInterval(() => {
+            attachHeaderObserver();
+            triggerTitleInject();
+            if (++tries >= 14) clearInterval(poll);
+        }, 1500);
+    }
+
+    function initMediaWatcher() {
+        const tryBind = () => {
+            if (typeof socket === 'undefined' || !socket) return;
+            socket.on('changeMedia', (data) => {
+                try {
+                    currentMediaSeconds = (data && typeof data.seconds === 'number') ? data.seconds : 0;
+                    currentMediaType    = (data && data.type) ? data.type : '';
+                    setTimeout(triggerTitleInject, 350);
+                } catch (e) {}
+            });
+        };
+        // socket may not be ready at document-start; try at load then again after a short delay
+        window.addEventListener('load', () => { tryBind(); setTimeout(tryBind, 2000); });
+    }
+
+    /* ==========================================================
+       TRIVIA CARD
+    ========================================================== */
+
+    function _escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    let _triviaOutsideClick = null;
+
+    function showTriviaCard() {
+        if (!_currentImdbId) return;
+        hideTriviaCard(); // clears any existing panel + listener
+        const panel = document.createElement('div');
+        panel.id = 'sc-trivia-panel';
+        panel.innerHTML = `
+            <div id="sc-trivia-head">
+                <span id="sc-trivia-title">${_escHtml(_npData && _npData.cleanTitle ? _npData.cleanTitle + ' — Trivia' : 'Trivia')}</span>
+                <button id="sc-trivia-close" type="button">✕</button>
+            </div>
+            <div id="sc-trivia-list"><div class="sc-trivia-item">Loading…</div></div>`;
+        document.body.appendChild(panel);
+        panel.querySelector('#sc-trivia-close').addEventListener('click', hideTriviaCard);
+
+        _triviaOutsideClick = (e) => {
+            const btn = document.getElementById('sc-trivia-btn');
+            if (!panel.contains(e.target) && e.target !== btn) hideTriviaCard();
+        };
+        setTimeout(() => document.addEventListener('click', _triviaOutsideClick, true), 0);
+
+        fetchImdbTrivia(_currentImdbId).then(items => {
+            const list = panel.querySelector('#sc-trivia-list');
+            if (!list) return;
+            if (!items || !items.length) { list.innerHTML = '<div class="sc-trivia-item">No trivia found.</div>'; return; }
+            list.innerHTML = items.map(t => `<div class="sc-trivia-item">${_escHtml(t)}</div>`).join('');
+            list.scrollTop = 0;
+        });
+    }
+
+    function hideTriviaCard() {
+        const p = document.getElementById('sc-trivia-panel');
+        if (p) p.remove();
+        if (_triviaOutsideClick) {
+            document.removeEventListener('click', _triviaOutsideClick, true);
+            _triviaOutsideClick = null;
+        }
+    }
+
+    function toggleTriviaPanel() {
+        if (document.getElementById('sc-trivia-panel')) hideTriviaCard();
+        else showTriviaCard();
+    }
+
+    // 'T' = trivia, 'I' = movie info card — from anywhere when not typing
+    document.addEventListener('keydown', (e) => {
+        const t = e.target;
+        if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;
+        if (e.key === 't' || e.key === 'T') { toggleTriviaPanel(); return; }
+        if (e.key === 'Escape') { hideTriviaCard(); hideNowPlayingCard(); return; }
+        if (e.key === 'i' || e.key === 'I') {
+            const card = document.getElementById('sc-np-card');
+            if (card && card.classList.contains('sc-np-visible')) hideNowPlayingCard();
+            else if (_npData) showNowPlayingCard(_npData, { autoHide: false });
+        }
+    });
 
     /* ==========================================================
        USER COLOR SYSTEM
     ========================================================== */
 
     function hashString(str) {
-        let h = 0;
-        for (let i = 0; i < str.length; i++) { h = str.charCodeAt(i) + ((h << 5) - h); h |= 0; }
+        let h = 5381;
+        for (let i = 0; i < str.length; i++) { h = ((h << 5) + h) ^ str.charCodeAt(i); h |= 0; }
         return Math.abs(h);
     }
     function usernameToColor(u) {
-        const h = hashString(u);
-        return `hsl(${h % 360}, ${75 + (h % 15)}%, ${60 + (h % 10)}%)`;
+        // Own username gets a fixed standout colour rather than the hash.
+        if (window.CLIENT && window.CLIENT.name && u === window.CLIENT.name) {
+            return 'hsl(197, 90%, 78%)'; // baby blue
+        }
+        // Golden angle multiplication spreads hues maximally apart so
+        // no two nearby hash values share a similar colour.
+        const hue = (hashString(u) * 137.508) % 360;
+        return `hsl(${hue.toFixed(1)}, 72%, 70%)`;
     }
     function applyUserColors() {
         document.querySelectorAll('#messagebuffer [class*="chat-msg-"]').forEach(el => {
@@ -1032,81 +1275,147 @@
        Re-openable via the ⚙ button added to the floating buttons.
     ========================================================== */
 
+    async function validateTmdbKey(key) {
+        try {
+            const res = await new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `https://api.themoviedb.org/3/configuration?api_key=${encodeURIComponent(key)}`,
+                    onload: r => resolve(r),
+                    onerror: reject,
+                });
+            });
+            if (res.status === 200) return 'valid';
+            if (res.status === 401) return 'invalid';
+            return 'error';
+        } catch (e) { return 'error'; }
+    }
+
     function openSettingsModal() {
         const old = document.getElementById('sc-settings-overlay');
         if (old) old.remove();
 
         const tmdbVal  = getKey(LS_TMDB);
-        const dtddVal  = getKey(LS_DTDD);
-        const firstRun = !tmdbVal && !dtddVal;
+        const firstRun = !localStorage.getItem('sc_onboarded');
+        try { localStorage.setItem('sc_onboarded', '1'); } catch (e) {}
+        const fontSize = getChatFontSize();
 
         const overlay = document.createElement('div');
         overlay.id = 'sc-settings-overlay';
         overlay.innerHTML = `
             <div id="sc-settings-modal">
-                <div id="sc-settings-title">⚙ CyTube Script Settings</div>
-                ${firstRun ? '<div class="sc-settings-intro">First time setup — enter your API keys below. Both are optional but unlock extra features. You can update them any time via the ⚙ button.</div>' : ''}
+                <div id="sc-settings-title">⚙ Grindhouse Settings</div>
+                ${firstRun ? '<div class="sc-settings-intro">First-time setup — everything here is optional. Enable TMDB for richer movie info. Reopen any time with the ⚙ button.</div>' : ''}
 
-                <div class="sc-settings-group">
-                    <label class="sc-settings-label">
-                        TMDB API Key
-                        <span class="sc-settings-note">Unlocks: IMDb/Letterboxd links, kill counts, DtDD stats</span>
+                <div class="sc-settings-group sc-settings-divider">
+                    <label class="sc-settings-toggle-label">
+                        <span class="sc-toggle-row">
+                            <input type="checkbox" id="sc-input-tmdb-enable" ${tmdbVal ? 'checked' : ''} />
+                            <span class="sc-toggle-text">Enable TMDB features</span>
+                        </span>
+                        <span class="sc-settings-note">Movie posters, ratings, runtime, IMDb/Letterboxd links, trivia</span>
                     </label>
-                    <input id="sc-input-tmdb" class="sc-settings-input" type="text"
-                        placeholder="Paste TMDB v3 key…" value="${tmdbVal}" spellcheck="false" />
-                    <a class="sc-settings-link" href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">
-                        Get a free TMDB key ↗
-                    </a>
-                </div>
-
-                <div class="sc-settings-group">
-                    <label class="sc-settings-label">
-                        DoesTheDogDie API Key
-                        <span class="sc-settings-note">Unlocks: content warnings (dogs, jump scares, etc.)</span>
-                    </label>
-                    <input id="sc-input-dtdd" class="sc-settings-input" type="text"
-                        placeholder="Paste DTDD key…" value="${dtddVal}" spellcheck="false" />
-                    <a class="sc-settings-link" href="https://www.doesthedogdie.com/profile" target="_blank" rel="noopener">
-                        Get a free DTDD key ↗
-                    </a>
+                    <div id="sc-tmdb-fields" class="${tmdbVal ? '' : 'sc-hidden'}">
+                        <div class="sc-settings-input-row">
+                            <input id="sc-input-tmdb" class="sc-settings-input" type="text"
+                                placeholder="Paste TMDB v3 key…" value="${tmdbVal}" spellcheck="false" />
+                            <button id="sc-test-tmdb" class="sc-settings-test" type="button">Test</button>
+                        </div>
+                        <span id="sc-test-tmdb-status" class="sc-settings-test-status"></span>
+                        <a class="sc-settings-link" href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">
+                            Get a free TMDB key ↗
+                        </a>
+                    </div>
                 </div>
 
                 <div class="sc-settings-group sc-settings-toggle-group">
                     <label class="sc-settings-toggle-label">
-                        <input type="checkbox" id="sc-input-spellcheck" ${spellCheckEnabled() ? 'checked' : ''} />
-                        <span>Grammar &amp; spell check popup</span>
+                        <span class="sc-toggle-row">
+                            <input type="checkbox" id="sc-input-spellcheck" ${spellCheckEnabled() ? 'checked' : ''} />
+                            <span class="sc-toggle-text">Grammar &amp; spell check popup</span>
+                        </span>
                         <span class="sc-settings-note">When off, messages send immediately without review</span>
                     </label>
                 </div>
 
+                <div class="sc-settings-group sc-settings-toggle-group">
+                    <label class="sc-settings-toggle-label">
+                        <span class="sc-toggle-row">
+                            <input type="checkbox" id="sc-input-movielinks" ${movieLinksEnabled() ? 'checked' : ''} />
+                            <span class="sc-toggle-text">Show movie links (IMDb / Letterboxd / Wiki)</span>
+                        </span>
+                        <span class="sc-settings-note">Adds clickable badge icons next to the title</span>
+                    </label>
+                </div>
+
+                <div class="sc-settings-group sc-settings-toggle-group">
+                    <label class="sc-settings-label">
+                        Chat font size: <span id="sc-font-val">${fontSize}px</span>
+                        <span class="sc-settings-note">Applies to message buffer and chat input</span>
+                    </label>
+                    <input id="sc-input-fontsize" class="sc-settings-range" type="range" min="10" max="32" value="${fontSize}" />
+                    <div class="sc-font-sample" id="sc-font-sample" style="font-size:${fontSize}px">
+                        The quick brown fox jumps over the lazy dog.
+                    </div>
+                </div>
+
                 <div id="sc-settings-actions">
-                    ${!firstRun ? '<button id="sc-settings-cancel">Cancel</button>' : ''}
+                    <button id="sc-settings-cancel">Cancel</button>
                     <button id="sc-settings-save">Save</button>
                 </div>
                 <div id="sc-settings-status"></div>
             </div>`;
 
         document.body.appendChild(overlay);
+        overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+        document.getElementById('sc-settings-cancel').addEventListener('click', () => overlay.remove());
 
-        // Close on backdrop (only if not first run — first run requires at least dismissing)
-        if (!firstRun) {
-            overlay.addEventListener('click', e => {
-                if (e.target === overlay) overlay.remove();
-            });
-            document.getElementById('sc-settings-cancel').addEventListener('click', () => overlay.remove());
-        }
+        // TMDB toggle shows/hides key fields
+        const tmdbToggle = document.getElementById('sc-input-tmdb-enable');
+        const tmdbFields = document.getElementById('sc-tmdb-fields');
+        tmdbToggle.addEventListener('change', () => tmdbFields.classList.toggle('sc-hidden', !tmdbToggle.checked));
+
+        // Font size live preview
+        const fontInput  = document.getElementById('sc-input-fontsize');
+        const fontVal    = document.getElementById('sc-font-val');
+        const fontSample = document.getElementById('sc-font-sample');
+        fontInput.addEventListener('input', () => {
+            const px = parseInt(fontInput.value, 10);
+            fontVal.textContent = px + 'px';
+            fontSample.style.fontSize = px + 'px';
+            applyChatFontSize(px);
+        });
+
+        // TMDB test button
+        const testBtn    = document.getElementById('sc-test-tmdb');
+        const testStatus = document.getElementById('sc-test-tmdb-status');
+        testBtn.addEventListener('click', async () => {
+            const key = document.getElementById('sc-input-tmdb').value.trim();
+            if (!key) { testStatus.textContent = 'Enter a key first'; testStatus.className = 'sc-settings-test-status sc-test-bad'; return; }
+            testBtn.disabled = true;
+            testStatus.textContent = 'Checking…'; testStatus.className = 'sc-settings-test-status sc-test-pending';
+            const result = await validateTmdbKey(key);
+            testBtn.disabled = false;
+            if (result === 'valid')        { testStatus.textContent = '✓ Valid key';           testStatus.className = 'sc-settings-test-status sc-test-ok'; }
+            else if (result === 'invalid') { testStatus.textContent = '✗ Invalid key';         testStatus.className = 'sc-settings-test-status sc-test-bad'; }
+            else                           { testStatus.textContent = '⚠ Couldn\'t reach API'; testStatus.className = 'sc-settings-test-status sc-test-bad'; }
+        });
 
         document.getElementById('sc-settings-save').addEventListener('click', () => {
-            const tmdb = document.getElementById('sc-input-tmdb').value.trim();
-            const dtdd = document.getElementById('sc-input-dtdd').value.trim();
-            const spellcheck = document.getElementById('sc-input-spellcheck').checked;
-            setKey(LS_TMDB, tmdb);
-            setKey(LS_DTDD, dtdd);
-            setKey(LS_SPELLCHECK, spellcheck ? 'on' : 'off');
-            // Clear movie cache so new keys take effect on next title
+            const tmdb   = tmdbToggle.checked ? document.getElementById('sc-input-tmdb').value.trim() : '';
+            const spell  = document.getElementById('sc-input-spellcheck').checked;
+            const links  = document.getElementById('sc-input-movielinks').checked;
+            const fontPx = parseInt(fontInput.value, 10);
+            setKey(LS_TMDB,        tmdb);
+            setKey(LS_SPELLCHECK,  spell ? 'on' : 'off');
+            setKey(LS_MOVIE_LINKS, links ? 'on' : 'off');
+            setKey(LS_CHAT_FONT,   String(fontPx));
+            applyChatFontSize(fontPx);
             movieLinkCache = {};
+            lastMovieTitle = '';
+            triggerTitleInject();
             const status = document.getElementById('sc-settings-status');
-            status.textContent = '✓ Saved';
+            if (status) status.textContent = '✓ Saved';
             setTimeout(() => overlay.remove(), 800);
         });
     }
@@ -1144,6 +1453,7 @@
             document.getElementById('videowrap-header'),
             document.getElementById('sc-poster-toggle'),
             document.getElementById('sc-movie-links'),
+            document.getElementById('sc-trivia-btn'),
         ].filter(Boolean);
 
         const dim = () => {
@@ -1187,6 +1497,41 @@
                 wake();
             }
         });
+    }
+
+    function initGapButtonDim() {
+        const GAP_IDS = ['fs-toggle-btn', 'sc-desync-btn', 'sc-settings-btn'];
+        let gapTimer = null;
+
+        const gapShow = () => {
+            clearTimeout(gapTimer);
+            GAP_IDS.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.remove('sc-bar-dim');
+            });
+            gapTimer = setTimeout(gapHide, 2500);
+        };
+
+        const gapHide = () => {
+            GAP_IDS.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.add('sc-bar-dim');
+            });
+        };
+
+        document.addEventListener('mousemove', (e) => {
+            const vw = document.getElementById('videowrap');
+            if (!vw) return;
+            const r = vw.getBoundingClientRect();
+            const overVideo = e.clientX >= r.left && e.clientX <= r.right &&
+                              e.clientY >= r.top  && e.clientY <= r.bottom;
+            // Also keep visible when hovering the buttons themselves
+            const overBtn = GAP_IDS.some(id => e.target.closest && e.target.closest('#' + id));
+            if (overVideo || overBtn) gapShow();
+        });
+
+        // Start visible, hide after 4s of no video-area activity
+        gapTimer = setTimeout(gapHide, 4000);
     }
 
     function initPosterStrip() {
@@ -1590,14 +1935,17 @@
         addFloatingButtons();
         addSettingsButton();
         watchMovieTitle();
+        initMediaWatcher();
         initTopBar();
+        initGapButtonDim();
         initDesyncButton();
         initChatHeader();
         initUserCount();
         initPollWatcher();
+        applyChatFontSize(getChatFontSize());
 
         // First-run settings modal
-        if (!hasKey(LS_TMDB) && !hasKey(LS_DTDD)) {
+        if (!hasKey(LS_TMDB)) {
             setTimeout(openSettingsModal, 1200);
         }
 
@@ -2071,7 +2419,7 @@
                 z-index: 20002 !important;
                 background: rgba(255,255,255,0.08) !important;
                 color: rgba(255,255,255,0.55) !important;
-                border: none !important;
+                border: 1px solid rgba(255,255,255,0.18) !important;
                 border-radius: 50% !important;
                 width: 28px !important; height: 28px !important;
                 padding: 0 !important;
@@ -2080,7 +2428,10 @@
                 display: flex !important;
                 align-items: center !important;
                 justify-content: center !important;
-                transition: color 0.3s ease, background 0.3s ease !important;
+                transition: color 0.3s ease, background 0.3s ease, transform 0.3s ease, opacity 0.3s ease !important;
+            }
+            #sc-desync-btn.sc-bar-dim {
+                transform: translateX(60px) !important; opacity: 0 !important; pointer-events: none !important;
             }
             #sc-desync-btn:hover {
                 color: white !important;
@@ -2092,11 +2443,11 @@
             }
             body.sc-horizontal #sc-desync-btn {
                 bottom: 6px !important;
-                right: calc(20vw + 38px) !important;
+                right: calc(20vw + 44px) !important;
             }
             body.sc-vertical #sc-desync-btn {
                 bottom: 43vh !important;
-                right: 46px !important;
+                right: 44px !important;
             }
 
             #fs-toggle-btn, #sc-emote-proxy {
@@ -2104,18 +2455,22 @@
                 z-index: 20002 !important;
                 background: rgba(255,255,255,0.08) !important;
                 color: rgba(255,255,255,0.55) !important;
-                border: none !important;
+                border: 1px solid rgba(255,255,255,0.18) !important;
                 border-radius: 50% !important;
-                width: 28px !important;
-                height: 28px !important;
-                padding: 0 !important;
-                font-size: 15px !important;
+                width: 28px !important; height: 28px !important;
+                padding: 0 !important; font-size: 15px !important;
                 cursor: pointer !important;
-                display: flex !important;
-                align-items: center !important;
-                justify-content: center !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
                 transition: color 0.3s ease, background 0.3s ease !important;
             }
+            /* Gap buttons slide out to the right on idle */
+            #fs-toggle-btn {
+                transition: color 0.3s ease, background 0.3s ease, transform 0.3s ease, opacity 0.3s ease !important;
+            }
+            #fs-toggle-btn.sc-bar-dim {
+                transform: translateX(60px) !important; opacity: 0 !important; pointer-events: none !important;
+            }
+            #sc-emote-proxy svg { width: 20px !important; height: auto !important; display: block !important; }
             #fs-toggle-btn:hover, #sc-emote-proxy:hover {
                 color: white !important;
                 background: rgba(255,255,255,0.22) !important;
@@ -2142,10 +2497,10 @@
             body.sc-horizontal #leftcontrols { display: none !important; }
             /* Horizontal: buttons bottom-right of video */
             body.sc-horizontal #sc-emote-proxy {
-                bottom: 6px !important; right: calc(20vw + 6px) !important;
+                bottom: 6px !important; right: 8px !important;
             }
             body.sc-horizontal #fs-toggle-btn {
-                bottom: 6px !important; right: calc(20vw + 70px) !important;
+                bottom: 6px !important; right: calc(20vw + 8px) !important;
             }
 
             /* ===== VERTICAL LAYOUT (portrait monitor) ===== */
@@ -2185,14 +2540,15 @@
                leftcontrols hides its own internal layout; we show a proxy row instead. */
             body.sc-vertical #leftcontrols { display: none !important; }
 
-            /* fs + emote buttons: right-pinned, sitting exactly on the chat top edge */
+            /* emote button: inside the textarea area, bottom-right corner */
             body.sc-vertical #sc-emote-proxy {
-                bottom: 43vh !important;
+                bottom: 8px !important;
                 right: 8px !important; left: auto !important;
             }
+            /* fs button: sits in the gap between video and chat */
             body.sc-vertical #fs-toggle-btn {
                 bottom: 43vh !important;
-                right: 84px !important; left: auto !important;
+                right: 8px !important; left: auto !important;
             }
 
             /* ===== SHARED CHAT ELEMENTS ===== */
@@ -2205,7 +2561,7 @@
                 width: 100% !important; min-height: 44px !important; max-height: 120px !important;
                 background: rgba(255,255,255,0.1) !important; color: white !important;
                 border: 1px solid rgba(255,255,255,0.3) !important; border-radius: 4px !important;
-                padding: 6px 8px !important; font-size: 14px !important; font-family: inherit !important;
+                padding: 6px 38px 6px 8px !important; font-size: 14px !important; font-family: inherit !important;
                 resize: none !important; overflow-y: auto !important;
                 box-sizing: border-box !important; line-height: 1.4 !important;
                 outline: none !important; transition: border-color 0.2s !important; flex-shrink: 0 !important;
@@ -2215,6 +2571,13 @@
                 background: rgba(255,255,255,0.15) !important;
             }
             #sc-chat-textarea::placeholder { color: rgba(255,255,255,0.4) !important; }
+            #sc-chat-textarea {
+                scrollbar-width: thin !important;
+                scrollbar-color: #000 transparent !important;
+            }
+            #sc-chat-textarea::-webkit-scrollbar { width: 6px !important; }
+            #sc-chat-textarea::-webkit-scrollbar-track { background: transparent !important; }
+            #sc-chat-textarea::-webkit-scrollbar-thumb { background: #000 !important; border-radius: 6px !important; }
             #sc-checking {
                 font-size: 11px !important; color: rgba(255,255,200,0.6) !important;
                 padding: 2px 4px !important; flex-shrink: 0 !important;
@@ -2291,29 +2654,28 @@
                 z-index: 20002 !important;
                 background: rgba(255,255,255,0.08) !important;
                 color: rgba(255,255,255,0.55) !important;
-                border: none !important;
+                border: 1px solid rgba(255,255,255,0.18) !important;
                 border-radius: 50% !important;
-                width: 28px !important;
-                height: 28px !important;
-                padding: 0 !important;
-                font-size: 13px !important;
+                width: 28px !important; height: 28px !important;
+                padding: 0 !important; font-size: 13px !important;
                 cursor: pointer !important;
-                display: flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-                transition: color 0.3s ease, background 0.3s ease !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
                 line-height: 1 !important;
+                transition: color 0.3s ease, background 0.3s ease, transform 0.3s ease, opacity 0.3s ease !important;
             }
             #sc-settings-btn:hover {
                 color: white !important;
                 background: rgba(255,255,255,0.22) !important;
             }
+            #sc-settings-btn.sc-bar-dim {
+                transform: translateX(60px) !important; opacity: 0 !important; pointer-events: none !important;
+            }
 
             body.sc-horizontal #sc-settings-btn {
-                bottom: 6px !important; right: calc(20vw + 102px) !important;
+                bottom: 6px !important; right: calc(20vw + 80px) !important;
             }
             body.sc-vertical #sc-settings-btn {
-                bottom: 43vh !important; right: 122px !important;
+                bottom: 43vh !important; right: 80px !important;
             }
 
             /* ===== SETTINGS MODAL ===== */
@@ -2334,67 +2696,58 @@
                 color: white !important;
                 box-shadow: 0 16px 48px rgba(0,0,0,0.8) !important;
                 display: flex !important; flex-direction: column !important; gap: 16px !important;
+                max-height: 90vh !important; overflow-y: auto !important;
             }
-            #sc-settings-title {
-                font-size: 17px !important; font-weight: 700 !important;
-                color: #c0b0ff !important;
-            }
+            #sc-settings-title { font-size: 17px !important; font-weight: 700 !important; color: #c0b0ff !important; }
             .sc-settings-intro {
                 font-size: 13px !important; color: rgba(255,255,255,0.6) !important;
                 line-height: 1.5 !important;
                 background: rgba(255,255,255,0.04) !important;
                 border-radius: 6px !important; padding: 8px 10px !important;
             }
-            .sc-settings-group {
-                display: flex !important; flex-direction: column !important; gap: 5px !important;
-            }
+            .sc-settings-group { display: flex !important; flex-direction: column !important; gap: 5px !important; }
             .sc-settings-label {
                 font-size: 13px !important; font-weight: 600 !important;
                 color: rgba(255,255,255,0.85) !important;
                 display: flex !important; flex-direction: column !important; gap: 2px !important;
             }
-            .sc-settings-note {
-                font-weight: 400 !important; font-size: 11px !important;
-                color: rgba(255,255,255,0.4) !important;
-            }
+            .sc-settings-note { font-weight: 400 !important; font-size: 11px !important; color: rgba(255,255,255,0.4) !important; }
             .sc-settings-input {
                 background: rgba(255,255,255,0.07) !important;
                 border: 1px solid rgba(255,255,255,0.2) !important;
-                border-radius: 6px !important;
-                color: white !important;
-                padding: 8px 10px !important;
-                font-size: 13px !important;
-                font-family: monospace !important;
-                outline: none !important;
+                border-radius: 6px !important; color: white !important;
+                padding: 8px 10px !important; font-size: 13px !important;
+                font-family: monospace !important; outline: none !important;
                 width: 100% !important; box-sizing: border-box !important;
             }
-            .sc-settings-input:focus {
-                border-color: rgba(192,176,255,0.6) !important;
-                background: rgba(255,255,255,0.1) !important;
-            }
-            .sc-settings-link {
-                font-size: 11px !important; color: rgba(192,176,255,0.7) !important;
-                text-decoration: none !important; align-self: flex-start !important;
-            }
+            .sc-settings-input:focus { border-color: rgba(192,176,255,0.6) !important; background: rgba(255,255,255,0.1) !important; }
+            .sc-settings-input-row { display: flex !important; gap: 8px !important; align-items: stretch !important; }
+            .sc-settings-input-row .sc-settings-input { flex: 1 !important; }
+            .sc-settings-link { font-size: 11px !important; color: rgba(192,176,255,0.7) !important; text-decoration: none !important; align-self: flex-start !important; }
             .sc-settings-link:hover { color: #c0b0ff !important; text-decoration: underline !important; }
-            .sc-settings-toggle-group { border-top: 1px solid rgba(255,255,255,0.08) !important; padding-top: 12px !important; }
+            .sc-settings-toggle-group, .sc-settings-divider { border-top: 1px solid rgba(255,255,255,0.08) !important; padding-top: 12px !important; }
             .sc-settings-toggle-label {
-                display: flex !important; flex-direction: column !important; gap: 3px !important;
+                display: flex !important; flex-direction: column !important; gap: 4px !important;
                 cursor: pointer !important; font-size: 13px !important;
                 font-weight: 600 !important; color: rgba(255,255,255,0.85) !important;
             }
-            .sc-settings-toggle-label input[type="checkbox"] {
-                width: 16px !important; height: 16px !important;
-                margin: 0 8px 0 0 !important; cursor: pointer !important;
-                accent-color: #c0b0ff !important;
+            .sc-toggle-row { display: flex !important; align-items: center !important; gap: 9px !important; }
+            .sc-toggle-row input[type="checkbox"] {
+                width: 17px !important; height: 17px !important; margin: 0 !important;
+                flex: 0 0 auto !important; cursor: pointer !important; accent-color: #c0b0ff !important;
             }
-            .sc-settings-toggle-label > span:first-of-type {
-                display: flex !important; align-items: center !important;
+            .sc-toggle-text { line-height: 1.2 !important; }
+            #sc-tmdb-fields { display: flex !important; flex-direction: column !important; gap: 6px !important; margin: 8px 0 0 26px !important; }
+            #sc-tmdb-fields.sc-hidden { display: none !important; }
+            .sc-settings-range { width: 100% !important; accent-color: #c0b0ff !important; cursor: pointer !important; }
+            .sc-font-sample {
+                margin-top: 6px !important; padding: 8px 12px !important;
+                background: rgba(255,255,255,0.05) !important;
+                border: 1px solid rgba(255,255,255,0.1) !important;
+                border-radius: 6px !important; color: rgba(255,255,255,0.88) !important;
+                line-height: 1.4 !important;
             }
-            #sc-settings-actions {
-                display: flex !important; gap: 10px !important; justify-content: flex-end !important;
-                margin-top: 4px !important;
-            }
+            #sc-settings-actions { display: flex !important; gap: 10px !important; justify-content: flex-end !important; margin-top: 4px !important; }
             #sc-settings-cancel {
                 background: rgba(255,255,255,0.08) !important; color: #aaa !important;
                 border: 1px solid rgba(255,255,255,0.15) !important;
@@ -2409,6 +2762,7 @@
                 cursor: pointer !important; font-size: 13px !important; font-weight: 600 !important;
             }
             #sc-settings-save:hover { background: rgba(192,176,255,0.35) !important; }
+            #sc-settings-status { font-size: 12px !important; color: #7dffa0 !important; text-align: right !important; min-height: 14px !important; }
 
 
             /* Poll panel */
@@ -2463,6 +2817,165 @@
                 font-size: 12px !important; color: #90ffa0 !important;
                 text-align: center !important; min-height: 16px !important;
             }
+
+            /* ===== NOW PLAYING CARD ===== */
+            :root { --np-accent: #ff5b73; }
+            #sc-np-card {
+                position: fixed !important; inset: 0 !important;
+                z-index: 21000 !important;
+                background: #000 !important;
+                opacity: 0 !important; pointer-events: none !important;
+                transition: opacity 0.5s ease !important;
+                overflow: hidden !important;
+                font-family: system-ui, sans-serif !important;
+            }
+            #sc-np-card.sc-np-visible { opacity: 1 !important; pointer-events: auto !important; }
+            #sc-np-backdrop {
+                position: absolute !important; inset: 0 !important;
+                background-size: cover !important; background-position: center !important;
+                transform: scale(1.05) !important;
+                filter: saturate(1.1) !important;
+            }
+            #sc-np-scrim {
+                position: absolute !important; inset: 0 !important;
+                background:
+                    linear-gradient(90deg, rgba(8,3,6,0.97) 0%, rgba(8,3,6,0.82) 40%, rgba(8,3,6,0.45) 100%),
+                    linear-gradient(0deg, rgba(8,3,6,0.95) 0%, rgba(8,3,6,0) 45%) !important;
+            }
+            #sc-np-content {
+                position: absolute !important;
+                left: 6% !important; bottom: 12% !important; right: 6% !important;
+                display: flex !important; gap: 32px !important; align-items: flex-end !important;
+            }
+            #sc-np-poster {
+                width: 180px !important; border-radius: 10px !important;
+                box-shadow: 0 16px 48px rgba(0,0,0,0.8) !important;
+                flex-shrink: 0 !important;
+            }
+            #sc-np-info { color: #fff !important; max-width: 60% !important; }
+            #sc-np-eyebrow {
+                font-size: 12px !important; font-weight: 700 !important;
+                letter-spacing: 0.18em !important; text-transform: uppercase !important;
+                color: var(--np-accent, #ff5b73) !important; margin-bottom: 10px !important;
+            }
+            #sc-np-title {
+                font-size: 40px !important; font-weight: 800 !important; line-height: 1.05 !important;
+                text-shadow: 0 2px 16px rgba(0,0,0,0.8) !important; margin-bottom: 14px !important;
+            }
+            #sc-np-meta {
+                font-size: 15px !important; color: rgba(255,255,255,0.82) !important;
+                margin-bottom: 16px !important; font-weight: 500 !important;
+            }
+            #sc-np-overview {
+                font-size: 14px !important; line-height: 1.5 !important;
+                color: rgba(255,255,255,0.72) !important; margin-bottom: 16px !important;
+                display: -webkit-box !important; -webkit-line-clamp: 3 !important;
+                -webkit-box-orient: vertical !important; overflow: hidden !important;
+            }
+            #sc-np-chips { display: flex !important; flex-wrap: wrap !important; gap: 8px !important; }
+            .sc-np-chip {
+                font-size: 12px !important; color: rgba(255,255,255,0.9) !important;
+                background: rgba(255,255,255,0.12) !important;
+                border: 1px solid rgba(255,255,255,0.18) !important;
+                border-radius: 999px !important; padding: 4px 11px !important;
+                backdrop-filter: blur(4px) !important;
+            }
+            .sc-np-chip.sc-sev-none     { background: rgba(120,120,130,0.30) !important; border-color: rgba(160,160,170,0.4) !important; }
+            .sc-np-chip.sc-sev-mild     { background: rgba(60,160,80,0.32)  !important; border-color: rgba(90,200,110,0.5) !important; color: #c9ffd4 !important; }
+            .sc-np-chip.sc-sev-moderate { background: rgba(200,150,40,0.34)  !important; border-color: rgba(230,180,60,0.55) !important; color: #ffe9b8 !important; }
+            .sc-np-chip.sc-sev-severe   { background: rgba(200,60,50,0.38)   !important; border-color: rgba(235,90,80,0.6) !important; color: #ffd2cc !important; }
+
+            /* ===== TRIVIA BUTTON ===== */
+            #sc-trivia-btn {
+                position: fixed !important;
+                z-index: 10003 !important;
+                top: 0 !important;
+                right: calc(20vw + 150px) !important;
+                background: transparent !important;
+                border: none !important;
+                border-radius: 0 !important;
+                color: rgba(255,255,255,0.55) !important;
+                font-size: 10px !important;
+                letter-spacing: 0.06em !important;
+                text-transform: uppercase !important;
+                white-space: nowrap !important;
+                line-height: 1 !important;
+                cursor: pointer !important;
+                padding: 2px 8px !important;
+                height: 20px !important;
+                display: flex !important;
+                align-items: center !important;
+                transition: opacity 1.5s ease, color 0.2s ease !important;
+                opacity: 1 !important;
+                pointer-events: auto !important;
+            }
+            #sc-trivia-btn.sc-bar-dim { opacity: 0 !important; pointer-events: none !important; }
+            #sc-trivia-btn:hover { color: rgba(255,255,255,0.9) !important; }
+            body.sc-vertical #sc-trivia-btn { right: 4px !important; top: 4px !important; }
+
+            /* ===== TRIVIA DROPDOWN ===== */
+            #sc-trivia-panel {
+                position: fixed !important;
+                top: 22px !important;
+                right: calc(20vw + 90px) !important;
+                width: 420px !important;
+                max-height: 62vh !important;
+                z-index: 21800 !important;
+                background: rgba(14,10,18,0.97) !important;
+                border: 1px solid rgba(255,255,255,0.14) !important;
+                border-radius: 10px !important;
+                overflow: hidden !important;
+                display: flex !important; flex-direction: column !important;
+                box-shadow: 0 12px 40px rgba(0,0,0,0.8) !important;
+                font-family: 'Inter','Roboto',system-ui,sans-serif !important;
+                animation: sc-trivia-in 0.18s ease !important;
+            }
+            @keyframes sc-trivia-in {
+                from { opacity: 0; transform: translateY(-6px); }
+                to   { opacity: 1; transform: translateY(0); }
+            }
+            #sc-trivia-head {
+                display: flex !important; align-items: center !important; justify-content: space-between !important;
+                padding: 12px 16px !important; border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+                flex-shrink: 0 !important;
+            }
+            #sc-trivia-title { font-size: 13px !important; font-weight: 700 !important; color: var(--np-accent,#ff5b73) !important; }
+            #sc-trivia-close {
+                background: rgba(255,255,255,0.1) !important; border: none !important; color: #fff !important;
+                width: 24px !important; height: 24px !important; border-radius: 50% !important;
+                cursor: pointer !important; font-size: 11px !important; flex-shrink: 0 !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
+            }
+            #sc-trivia-close:hover { background: rgba(255,255,255,0.2) !important; }
+            #sc-trivia-list {
+                overflow-y: auto !important; padding: 4px 16px 16px !important;
+                scrollbar-width: thin !important;
+                scrollbar-color: rgba(255,255,255,0.28) transparent !important;
+            }
+            #sc-trivia-list::-webkit-scrollbar { width: 6px !important; }
+            #sc-trivia-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.28) !important; border-radius: 6px !important; }
+            .sc-trivia-item {
+                color: rgba(255,255,255,0.86) !important; font-size: 13px !important; line-height: 1.5 !important;
+                padding: 10px 0 !important; border-bottom: 1px solid rgba(255,255,255,0.07) !important;
+            }
+            .sc-trivia-item:last-child { border-bottom: none !important; }
+            body.sc-vertical #sc-trivia-panel { right: 4px !important; width: min(420px, 95vw) !important; }
+
+            /* ===== SETTINGS TEST BUTTON ===== */
+            .sc-settings-test {
+                flex-shrink: 0 !important;
+                background: rgba(192,176,255,0.15) !important;
+                color: #c0b0ff !important;
+                border: 1px solid rgba(192,176,255,0.35) !important;
+                border-radius: 6px !important;
+                padding: 0 16px !important; font-size: 13px !important; font-weight: 600 !important;
+                cursor: pointer !important;
+            }
+            .sc-settings-test:disabled { opacity: 0.5 !important; cursor: default !important; }
+            .sc-settings-test-status { font-size: 12px !important; min-height: 14px !important; }
+            .sc-test-ok      { color: #7dffa0 !important; }
+            .sc-test-bad     { color: #ff8080 !important; }
+            .sc-test-pending { color: rgba(255,255,255,0.55) !important; }
         `;
         document.head.appendChild(style);
     });
