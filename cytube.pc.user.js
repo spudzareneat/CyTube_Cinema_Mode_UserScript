@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube Fullscreen Video with Overlay Chat
 // @namespace    http://tampermonkey.net/
-// @version      4.6.2
+// @version      4.6.3
 // @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, right-click chat-to-movie seek, scene-to-GIF capture + ImgBB upload, vertical monitor support
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -3426,13 +3426,18 @@
 
             /* emote button: inside the textarea area, bottom-right corner */
             body.sc-vertical #sc-emote-proxy {
-                bottom: 8px !important;
+                bottom: 18px !important;
                 right: 8px !important; left: auto !important;
             }
             /* fs button: sits in the gap between video and chat */
             body.sc-vertical #fs-toggle-btn {
                 bottom: 43vh !important;
                 right: 8px !important; left: auto !important;
+            }
+            /* movie stats tags: float just above the video scrubber (bottom of the
+               55vh video) instead of down at the very bottom of the screen */
+            body.sc-vertical #sc-movie-stats {
+                bottom: 45vh !important;
             }
 
             /* ===== SHARED CHAT ELEMENTS ===== */
