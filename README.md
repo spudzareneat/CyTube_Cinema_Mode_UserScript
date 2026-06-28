@@ -110,14 +110,39 @@ Every username in the chat buffer is assigned a consistent, deterministic color 
 
 ---
 
+### GIF Maker
+
+Capture any scene as an animated GIF, straight from the player — no external tools.
+
+- Click the **◉** floating button to open the GIF maker
+- **Lock in the start and end** of the clip with live preview thumbnails of each frame — use **⤓ Now** to grab the current playback position, or nudge each mark by ±0.5s
+- Live **duration** readout, plus **FPS** and **Width** controls to balance quality vs. size
+- **Shape** options force a consistent **4:3** output — *Crop* (center-crop) or *Bars* (letterbox), or keep the video's *Native* ratio. The preview thumbnails reframe to show exactly what you'll get
+- Animated spinners while frames are captured and the GIF is encoded (encoding runs in a Web Worker so the page never freezes)
+- When done: **⬇ Download** the GIF, or **☁ Upload** it to [ImgBB](https://imgbb.com/) and get a shareable direct link with a **⧉ Copy link** button — ready to paste into chat
+
+> Frame capture reads the video pixels directly, so it works on the channel's hosted movie files. YouTube and other iframe/streaming (HLS) sources can't be captured.
+
+<!-- Add screenshot here -->
+
+---
+
+### Chat-to-Movie Seek
+
+**Right-click any chat message** to jump the movie back to roughly when that message was posted (minus a 5-second lead-in). The script desyncs you from the group stream so you can rewatch the moment. Messages from a previous movie are detected and don't offer the option.
+
+---
+
 ### Floating Controls
 
-Three buttons are fixed to the screen at all times, positioned relative to the current layout mode:
+A row of buttons is fixed to the screen at all times, positioned relative to the current layout mode:
 
 | Button | Function |
 |--------|----------|
 | ⛶ | Toggle browser fullscreen |
 | ▦ | Open the CyTube emote picker |
+| ⟳ | Free watch — desync from the group stream, click again to re-sync |
+| ◉ | Open the GIF maker |
 | ⚙ | Open the script settings modal |
 
 ---
@@ -128,7 +153,9 @@ A settings panel for managing API keys and preferences. It opens automatically o
 
 - TMDB API key field (with a direct link to get one)
 - DoesTheDogDie API key field (with a direct link to get one)
+- ImgBB API key field for GIF uploads (with a direct link to get one)
 - Toggle to enable or disable the grammar/spell check popup
+- Chat font size slider
 
 <img width="357" height="355" alt="Screenshot 2026-05-18 191527" src="https://github.com/user-attachments/assets/69fa3a59-e05d-4237-8ce1-0a93ae9a8407" />
 
@@ -173,6 +200,13 @@ Unlocks content warnings (animal deaths, jump scares, nudity, etc.).
 3. Locate your API key in the profile settings
 4. Copy it and paste it into the settings modal
 
+#### ImgBB API Key
+Optional — enables the **☁ Upload** button in the GIF maker to host a GIF and give you a shareable link.
+
+1. Create a free account at [imgbb.com](https://imgbb.com/)
+2. Go to `https://api.imgbb.com/` and click **Add** / **Get API key**
+3. Copy the key and paste it into the settings modal (no app registration required)
+
 ---
 
 ## Supported Channels
@@ -196,3 +230,4 @@ This project was 100% vibe coded using [Claude](https://claude.ai) by Anthropic.
 | [LanguageTool](https://languagetool.org/) | Grammar and spell check | No |
 | [Wikipedia](https://en.wikipedia.org/) | Movie Wikipedia links | No |
 | [lklynet/Kill-Count](https://github.com/lklynet/Kill-Count) | On-screen kill counts | No |
+| [ImgBB](https://imgbb.com/) | GIF hosting / shareable links | Yes (free) |

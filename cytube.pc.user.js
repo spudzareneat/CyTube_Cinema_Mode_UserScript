@@ -1,22 +1,25 @@
 // ==UserScript==
 // @name         CyTube Fullscreen Video with Overlay Chat
 // @namespace    http://tampermonkey.net/
-// @version      4.0.8
-// @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, vertical monitor support
+// @version      4.6.1
+// @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, right-click chat-to-movie seek, scene-to-GIF capture + ImgBB upload, vertical monitor support
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
 // @grant        GM_xmlhttpRequest
+// @require      https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js
 // @connect      api.themoviedb.org
 // @connect      en.wikipedia.org
 // @connect      raw.githubusercontent.com
 // @connect      api.languagetool.org
 // @connect      caching.graphql.imdb.com
+// @connect      cdnjs.cloudflare.com
+// @connect      api.imgbb.com
 // @run-at       document-start
 // ==/UserScript==
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.pc v4.0.8 loaded');
+    console.log('[SC] cytube.pc v4.6.1 loaded');
 
     /* ==========================================================
        API KEYS — stored in localStorage, managed via settings modal.
@@ -26,6 +29,7 @@
     const LS_SPELLCHECK  = 'sc_spellcheck';
     const LS_CHAT_FONT   = 'sc_chat_fontsize';
     const LS_MOVIE_LINKS = 'sc_movie_links';
+    const LS_IMGBB       = 'sc_imgbb_key';
     const getKey   = id => localStorage.getItem(id) || '';
     const setKey   = (id, v) => localStorage.setItem(id, v.trim());
     const hasKey   = id => !!getKey(id);
@@ -498,8 +502,69 @@
     ========================================================== */
 
     /* ==========================================================
-       DESYNC BUTTON — temporarily pause CyTube's sync
+       DESYNC — temporarily pause CyTube's sync (shared state)
+       Used by the floating "free watch" button AND the chat
+       right-click "jump movie to this message" menu.
     ========================================================== */
+
+    const _desync = { active: false, saved: null, btn: null };
+
+    function _getMediaUpdateListeners() {
+        // Socket.IO v2/v3 stores listeners under _callbacks['$eventName']
+        // Socket.IO v4 stores them under _events or via listeners()
+        const key = '$mediaUpdate';
+        if (socket._callbacks?.[key]) return { store: '_callbacks', key };
+        if (socket._events?.mediaUpdate) return { store: '_events', key: 'mediaUpdate' };
+        return null;
+    }
+
+    function _freezeSync() {
+        const loc = _getMediaUpdateListeners();
+        if (!loc) {
+            console.warn('[CyTube SC] Could not find mediaUpdate listeners to freeze');
+            return;
+        }
+        if (loc.store === '_callbacks') {
+            _desync.saved = socket._callbacks[loc.key].slice();
+            socket._callbacks[loc.key] = [];
+        } else {
+            _desync.saved = socket._events[loc.key];
+            delete socket._events[loc.key];
+        }
+        console.log('[CyTube SC] Sync frozen — removed', _desync.saved?.length ?? 1, 'mediaUpdate listener(s)');
+    }
+
+    function _thawSync() {
+        if (!_desync.saved) return;
+        const loc = _getMediaUpdateListeners();
+        if (loc?.store === '_callbacks') {
+            socket._callbacks[loc.key] = _desync.saved;
+        } else {
+            socket._events = socket._events || {};
+            socket._events['mediaUpdate'] = _desync.saved;
+        }
+        _desync.saved = null;
+        console.log('[CyTube SC] Sync restored');
+        // Trigger immediate resync
+        if (typeof socket !== 'undefined' && socket) {
+            socket.emit('playerReady');
+        }
+    }
+
+    // Single entry point for changing desync state — keeps the button UI in sync
+    // whether the toggle came from the button or the chat seek menu.
+    function setDesynced(on) {
+        if (typeof socket === 'undefined' || !socket) return;
+        if (on === _desync.active) return;
+        _desync.active = on;
+        if (on) _freezeSync(); else _thawSync();
+        const btn = _desync.btn;
+        if (btn) {
+            btn.classList.toggle('sc-desync-active', on);
+            btn.title = on ? 'Free watch ON — click to re-sync'
+                           : 'Free watch — click to watch freely, click again to re-sync';
+        }
+    }
 
     function initDesyncButton() {
         const btn = document.createElement('button');
@@ -507,65 +572,613 @@
         btn.textContent = '⟳';
         btn.title = 'Free watch — click to watch freely, click again to re-sync';
         document.body.appendChild(btn);
+        _desync.btn = btn;
+        btn.addEventListener('click', () => setDesynced(!_desync.active));
+    }
 
-        let desynced = false;
-        let savedListeners = null;
+    /* ==========================================================
+       CHAT → MOVIE SEEK
+       Right-click a chat message to desync and rewind the movie to
+       roughly when that message was sent (minus a 5s lead-in).
 
-        const getMediaUpdateListeners = () => {
-            // Socket.IO v2/v3 stores listeners under _callbacks['$eventName']
-            // Socket.IO v4 stores them under _events or via listeners()
-            const key = '$mediaUpdate';
-            if (socket._callbacks?.[key]) return { store: '_callbacks', key };
-            if (socket._events?.mediaUpdate) return { store: '_events', key: 'mediaUpdate' };
-            return null;
+       Each message div carries `dataset.scTime` (absolute Unix-ms,
+       set by initChatTimestamps). Assuming uninterrupted playback,
+       the movie position when a message was posted is:
+           pos_now - (now - msgTime)
+       Equivalently the video began (wall-clock) at now - pos_now, so
+       any message older than that start is from a *previous* video and
+       gets no seek option.
+    ========================================================== */
+
+    const SEEK_LEAD_SEC = 5;     // jump to 5s before the message
+    const SEEK_START_GRACE_MS = 2000; // tolerance for clock jitter at video start
+
+    function getPlayerVideoEl() {
+        return document.querySelector('#ytapiplayer video') || document.querySelector('video');
+    }
+
+    function getPlayerTimeSec() {
+        const v = getPlayerVideoEl();
+        if (v && isFinite(v.currentTime)) return v.currentTime;
+        return null;
+    }
+
+    function seekPlayerTo(sec) {
+        const target = Math.max(0, sec);
+        const v = getPlayerVideoEl();
+        if (v) {
+            try { v.currentTime = target; return true; } catch (e) {}
+        }
+        try {
+            const p = window.PLAYER || window.player;
+            if (p && typeof p.seekTo === 'function') { p.seekTo(target); return true; }
+        } catch (e) {}
+        return false;
+    }
+
+    // Returns { target } in seconds, or null if the message predates the
+    // current video (different movie) or playback time is unavailable.
+    function seekTargetForMsgTime(msgTimeMs) {
+        const pos = getPlayerTimeSec();
+        if (pos == null) return null;
+        const videoStartWall = Date.now() - pos * 1000;
+        if (msgTimeMs < videoStartWall - SEEK_START_GRACE_MS) return null; // earlier video
+        const target = (msgTimeMs - videoStartWall) / 1000 - SEEK_LEAD_SEC;
+        return { target: Math.max(0, target) };
+    }
+
+    let _seekMenuEl = null;
+    function _seekMenuOutside(e) { if (_seekMenuEl && !_seekMenuEl.contains(e.target)) hideChatSeekMenu(); }
+    function _seekMenuKey(e) { if (e.key === 'Escape') hideChatSeekMenu(); }
+
+    function hideChatSeekMenu() {
+        if (_seekMenuEl) { _seekMenuEl.remove(); _seekMenuEl = null; }
+        document.removeEventListener('mousedown', _seekMenuOutside, true);
+        document.removeEventListener('keydown', _seekMenuKey, true);
+        window.removeEventListener('scroll', hideChatSeekMenu, true);
+    }
+
+    function _fmtClock(sec) {
+        sec = Math.max(0, Math.floor(sec));
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = sec % 60;
+        const pad = n => String(n).padStart(2, '0');
+        return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+    }
+
+    function showChatSeekMenu(x, y, targetSec) {
+        hideChatSeekMenu();
+        const menu = document.createElement('div');
+        menu.className = 'sc-seek-menu';
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'sc-seek-item';
+        item.innerHTML = `<span class="sc-seek-main">⤺ Jump movie to ${_fmtClock(targetSec)}</span>`;
+        item.addEventListener('click', () => {
+            setDesynced(true);
+            seekPlayerTo(targetSec);
+            hideChatSeekMenu();
+        });
+        menu.appendChild(item);
+        document.body.appendChild(menu);
+        _seekMenuEl = menu;
+
+        // Keep on-screen
+        const r = menu.getBoundingClientRect();
+        menu.style.left = Math.max(4, Math.min(x, window.innerWidth - r.width - 8)) + 'px';
+        menu.style.top  = Math.max(4, Math.min(y, window.innerHeight - r.height - 8)) + 'px';
+
+        setTimeout(() => {
+            document.addEventListener('mousedown', _seekMenuOutside, true);
+            document.addEventListener('keydown', _seekMenuKey, true);
+            window.addEventListener('scroll', hideChatSeekMenu, true);
+        }, 0);
+    }
+
+    function initChatSeekMenu() {
+        document.addEventListener('contextmenu', (e) => {
+            const buf = document.getElementById('messagebuffer');
+            if (!buf) return;
+            const msgEl = e.target.closest && e.target.closest('[class*="chat-msg-"]');
+            if (!msgEl || !buf.contains(msgEl)) return;
+            const t = Number(msgEl.dataset.scTime);
+            if (!t) return; // no timestamp captured (e.g. server/system line)
+            const info = seekTargetForMsgTime(t);
+            if (!info) return; // different movie / no playback → fall through to native menu
+            e.preventDefault();
+            showChatSeekMenu(e.clientX, e.clientY, info.target);
+        });
+    }
+
+    /* ==========================================================
+       GIF CAPTURE
+       Grab the last N seconds of the scene as an animated GIF.
+
+       CyTube's on-page <video> has no crossOrigin attribute, so its
+       canvas is tainted. Instead we spin up a hidden crossOrigin clone
+       of the same mp4 URL (the server sends permissive CORS), seek it to
+       the window start, play it through, sample frames to a canvas, and
+       hand the frames to gif.js (Web-Worker encoder). The on-page video
+       is never touched — the user keeps watching while it encodes.
+    ========================================================== */
+
+    const GIF_WORKER_URL = 'https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js';
+    let _gifWorkerBlobUrl = null;
+
+    // gif.js needs its worker as a separate URL. cytu.be's CSP won't load a
+    // cross-origin worker directly, so fetch the source via GM and wrap it in
+    // a same-origin blob: URL.
+    function getGifWorkerUrl() {
+        if (_gifWorkerBlobUrl) return Promise.resolve(_gifWorkerBlobUrl);
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'GET', url: GIF_WORKER_URL,
+                onload: r => {
+                    if (r.status >= 200 && r.status < 300) {
+                        _gifWorkerBlobUrl = URL.createObjectURL(
+                            new Blob([r.responseText], { type: 'application/javascript' }));
+                        resolve(_gifWorkerBlobUrl);
+                    } else reject(new Error('worker HTTP ' + r.status));
+                },
+                onerror: () => reject(new Error('worker fetch failed')),
+            });
+        });
+    }
+
+    function getGifCtor() {
+        if (typeof GIF !== 'undefined') return GIF;
+        if (typeof window !== 'undefined' && window.GIF) return window.GIF;
+        return null;
+    }
+
+    // Compute canvas size + how to blit the video frame for a given aspect mode.
+    //   native — keep the video's own ratio
+    //   crop   — 4:3, center-crop (cover, fills the box, trims overflow)
+    //   fit    — 4:3, letterbox (contain, whole frame with black bars)
+    function computeFrameGeometry(vw, vh, width, aspect) {
+        const even = n => Math.max(2, Math.round(n / 2) * 2);
+        if (aspect === 'crop' || aspect === 'fit') {
+            const cw = even(width), ch = even(width * 3 / 4);
+            const targetAR = cw / ch, srcAR = vw / vh;
+            if (aspect === 'crop') {
+                let sw, sh, sx, sy;
+                if (srcAR > targetAR) { sh = vh; sw = vh * targetAR; sx = (vw - sw) / 2; sy = 0; }
+                else                  { sw = vw; sh = vw / targetAR; sx = 0; sy = (vh - sh) / 2; }
+                return { cw, ch, letterbox: false, src: [sx, sy, sw, sh], dst: [0, 0, cw, ch] };
+            }
+            let dw, dh, dx, dy;
+            if (srcAR > targetAR) { dw = cw; dh = cw / srcAR; dx = 0; dy = (ch - dh) / 2; }
+            else                  { dh = ch; dw = ch * srcAR; dx = (cw - dw) / 2; dy = 0; }
+            return { cw, ch, letterbox: true, src: [0, 0, vw, vh], dst: [dx, dy, dw, dh] };
+        }
+        const cw = even(width), ch = even(width * vh / vw);
+        return { cw, ch, letterbox: false, src: null, dst: [0, 0, cw, ch] };
+    }
+
+    // Sample frames from a hidden crossOrigin clone across [startT, endT].
+    function captureGifFrames({ src, startT, endT, fps, width, aspect }, onProgress) {
+        return new Promise((resolve, reject) => {
+            const vid = document.createElement('video');
+            vid.crossOrigin = 'anonymous';
+            vid.muted = true;
+            vid.preload = 'auto';
+            vid.playsInline = true;
+            // Kept in the DOM but visually hidden — a detached/offscreen video can
+            // get frame-throttled, which would starve requestVideoFrameCallback.
+            vid.style.cssText = 'position:fixed;left:-10000px;top:0;width:2px;height:2px;opacity:0;pointer-events:none;';
+            document.body.appendChild(vid);
+
+            const frames = [];
+            const span = Math.max(0.1, endT - startT);
+            const frameInterval = 1 / fps;
+            let canvas, ctx, w, h, geom, lastCap = -Infinity, done = false;
+
+            const finish = (err) => {
+                if (done) return;
+                done = true;
+                try { vid.pause(); } catch (e) {}
+                try { vid.removeAttribute('src'); vid.load(); } catch (e) {}
+                try { vid.remove(); } catch (e) {}
+                if (err) reject(err);
+                else if (!frames.length) reject(new Error('no frames captured'));
+                else resolve({ frames, w, h, delay: Math.round(1000 / fps) });
+            };
+            const timer = setTimeout(() => finish(new Error('capture timeout')), 60000);
+
+            const onFrame = (now, metadata) => {
+                if (done) return;
+                const t = metadata ? metadata.mediaTime : vid.currentTime;
+                if (t + 1e-4 >= lastCap + frameInterval) {
+                    lastCap = t;
+                    if (geom.letterbox) { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h); }
+                    if (geom.src) ctx.drawImage(vid, geom.src[0], geom.src[1], geom.src[2], geom.src[3],
+                                                     geom.dst[0], geom.dst[1], geom.dst[2], geom.dst[3]);
+                    else ctx.drawImage(vid, geom.dst[0], geom.dst[1], geom.dst[2], geom.dst[3]);
+                    frames.push(ctx.getImageData(0, 0, w, h));
+                    if (onProgress) onProgress(Math.min(0.999, (t - startT) / span));
+                }
+                if (t >= endT || vid.ended) { clearTimeout(timer); finish(null); return; }
+                if ('requestVideoFrameCallback' in vid) vid.requestVideoFrameCallback(onFrame);
+            };
+
+            vid.addEventListener('error', () => {
+                clearTimeout(timer); finish(new Error('clone load error (CORS/network)'));
+            });
+            vid.addEventListener('loadedmetadata', () => {
+                geom = computeFrameGeometry(vid.videoWidth, vid.videoHeight, width, aspect);
+                w = geom.cw; h = geom.ch;
+                canvas = document.createElement('canvas');
+                canvas.width = w; canvas.height = h;
+                ctx = canvas.getContext('2d');
+                try { vid.currentTime = startT; } catch (e) {}
+            });
+            vid.addEventListener('seeked', function onSeek() {
+                vid.removeEventListener('seeked', onSeek);
+                if ('requestVideoFrameCallback' in vid) vid.requestVideoFrameCallback(onFrame);
+                else {
+                    const iv = setInterval(() => {
+                        if (done) { clearInterval(iv); return; }
+                        onFrame();
+                        if (vid.currentTime >= endT) clearInterval(iv);
+                    }, 1000 / fps);
+                }
+                const p = vid.play();
+                if (p && p.catch) p.catch(e => { clearTimeout(timer); finish(new Error('playback blocked: ' + e.message)); });
+            });
+
+            vid.src = src;
+        });
+    }
+
+    function encodeGif({ frames, w, h, delay }, onProgress) {
+        return getGifWorkerUrl().then(workerScript => new Promise((resolve, reject) => {
+            const Ctor = getGifCtor();
+            if (!Ctor) { reject(new Error('gif.js not loaded (@require missing?)')); return; }
+            const gif = new Ctor({ workers: 2, quality: 10, width: w, height: h, workerScript, repeat: 0 });
+            frames.forEach(f => gif.addFrame(f, { delay }));
+            gif.on('progress', p => onProgress && onProgress(p));
+            gif.on('finished', blob => resolve(blob));
+            gif.on('abort', () => reject(new Error('encode aborted')));
+            gif.render();
+        }));
+    }
+
+    let _gifResultUrl = null;
+    function _revokeGifResult() {
+        if (_gifResultUrl) { URL.revokeObjectURL(_gifResultUrl); _gifResultUrl = null; }
+    }
+
+    function blobToBase64(blob) {
+        return new Promise((resolve, reject) => {
+            const r = new FileReader();
+            r.onload = () => resolve(String(r.result).split(',', 2)[1] || '');
+            r.onerror = () => reject(new Error('read failed'));
+            r.readAsDataURL(blob);
+        });
+    }
+
+    // Upload to ImgBB with a free API key. Returns the direct image URL.
+    // ImgBB accepts a base64 payload on /1/upload.
+    async function uploadToImgbb(blob, apiKey) {
+        const b64 = await blobToBase64(blob);
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: 'https://api.imgbb.com/1/upload?key=' + encodeURIComponent(apiKey),
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                data: 'image=' + encodeURIComponent(b64),
+                onload: r => {
+                    let json = null;
+                    try { json = JSON.parse(r.responseText); } catch (e) {}
+                    if (r.status >= 200 && r.status < 300 && json && json.success && json.data && json.data.url) {
+                        resolve(json.data.url);
+                    } else {
+                        const msg = (json && json.error && json.error.message)
+                            ? json.error.message : ('HTTP ' + r.status);
+                        reject(new Error(msg));
+                    }
+                },
+                onerror: () => reject(new Error('network error')),
+            });
+        });
+    }
+
+    // Persistent hidden clone, kept loaded while the panel is open so scrubbing
+    // start/end preview frames is fast (one decode, many seeks).
+    let _gifScrub = null;
+    function getScrubClone(src) {
+        if (_gifScrub && _gifScrub.src === src) return _gifScrub;
+        destroyScrubClone();
+        const vid = document.createElement('video');
+        vid.crossOrigin = 'anonymous'; vid.muted = true; vid.preload = 'auto'; vid.playsInline = true;
+        vid.style.cssText = 'position:fixed;left:-10000px;top:0;width:2px;height:2px;opacity:0;pointer-events:none;';
+        document.body.appendChild(vid);
+        const ready = new Promise((resolve, reject) => {
+            vid.addEventListener('loadedmetadata', () => { _glog('scrub clone loadedmetadata', { vw: vid.videoWidth, vh: vid.videoHeight, dur: vid.duration }); resolve(); }, { once: true });
+            vid.addEventListener('error', () => { _glog('scrub clone ERROR', vid.error && vid.error.code, vid.error && vid.error.message); reject(new Error('preview load error (CORS/network)')); }, { once: true });
+        });
+        _glog('scrub clone created, loading', src && src.slice(0, 80));
+        vid.src = src;
+        _gifScrub = { vid, src, ready, busy: Promise.resolve() };
+        return _gifScrub;
+    }
+    function destroyScrubClone() {
+        if (_gifScrub) { try { _gifScrub.vid.remove(); } catch (e) {} _gifScrub = null; }
+    }
+
+    // Seek the scrub clone to `time`, return a small JPEG dataURL. Seeks are
+    // serialized through the clone's `busy` chain so rapid nudges don't collide.
+    // A *paused* video usually hasn't painted the seeked frame by the time the
+    // 'seeked' event fires (drawImage → black), so we briefly play muted and
+    // capture the first presented frame via requestVideoFrameCallback.
+    const GIF_DEBUG = false;
+    const _glog = (...a) => { if (GIF_DEBUG) console.log('[SC GIF]', ...a); };
+
+    function grabPreviewFrame(src, time, w) {
+        const sc = getScrubClone(src);
+        _glog('grabPreviewFrame request', { time: +time.toFixed(2), w, sameClone: sc.src === src });
+        const run = sc.busy.then(() => sc.ready).then(() => new Promise((resolve, reject) => {
+            const vid = sc.vid;
+            _glog('clone ready', {
+                currentSrc: vid.currentSrc && vid.currentSrc.slice(0, 80),
+                readyState: vid.readyState, vw: vid.videoWidth, vh: vid.videoHeight,
+                duration: vid.duration, error: vid.error && vid.error.code,
+                hasRVFC: 'requestVideoFrameCallback' in vid,
+            });
+            let settled = false;
+            const draw = (via) => {
+                if (settled) return;
+                settled = true;
+                try {
+                    const h = Math.max(2, Math.round(w * vid.videoHeight / vid.videoWidth));
+                    const c = document.createElement('canvas');
+                    c.width = w; c.height = h;
+                    const ctx = c.getContext('2d');
+                    ctx.drawImage(vid, 0, 0, w, h);
+                    if (GIF_DEBUG) _glog('draw', { via, readyState: vid.readyState, paused: vid.paused,
+                        currentTime: +vid.currentTime.toFixed(2), vw: vid.videoWidth, vh: vid.videoHeight,
+                        canvas: w + 'x' + h });
+                    const url = c.toDataURL('image/jpeg', 0.72);
+                    try { vid.pause(); } catch (e) {}
+                    resolve(url);
+                } catch (e) { _glog('draw ERROR', e); try { vid.pause(); } catch (e2) {} reject(e); }
+            };
+            const onSeeked = (viaSafety) => {
+                _glog('onSeeked', { viaSafety: !!viaSafety, currentTime: +vid.currentTime.toFixed(2), readyState: vid.readyState });
+                let ticks = 0;
+                const onFrame = (now, meta) => {
+                    if (settled) return;
+                    _glog('rVFC tick', ++ticks, meta ? { mediaTime: +meta.mediaTime.toFixed(2) } : '');
+                    if (ticks < 2) { vid.requestVideoFrameCallback(onFrame); return; }
+                    draw('rVFC#' + ticks);
+                };
+                if ('requestVideoFrameCallback' in vid) vid.requestVideoFrameCallback(onFrame);
+                vid.play().then(() => _glog('play() resolved')).catch(e => _glog('play() rejected', e && e.name, e && e.message));
+                setTimeout(() => { if (!settled) draw('timeout1500'); }, 1500);
+            };
+            vid.addEventListener('seeked', () => onSeeked(false), { once: true });
+            setTimeout(() => { if (!settled) onSeeked(true); }, 800);
+            try { vid.currentTime = Math.max(0, time); } catch (e) { _glog('set currentTime threw', e); reject(e); }
+        }));
+        sc.busy = run.catch((e) => { _glog('grab chain error', e && e.message); });
+        return run;
+    }
+
+    function _fmtClockTenths(sec) {
+        sec = Math.max(0, sec);
+        const m = Math.floor(sec / 60);
+        const s = sec % 60;
+        return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1);
+    }
+
+    function openGifPanel() {
+        if (document.getElementById('sc-gif-panel')) return;
+        const v0 = getPlayerVideoEl();
+        const src = v0 && (v0.currentSrc || v0.src) || '';
+        const isBlob = src.startsWith('blob:');
+        const vidDur = (v0 && isFinite(v0.duration)) ? v0.duration : Infinity;
+        const now = v0 ? v0.currentTime : 0;
+
+        // Default: a 4s window ending at the current frame.
+        let endT = now;
+        let startT = Math.max(0, endT - 4);
+
+        const panel = document.createElement('div');
+        panel.id = 'sc-gif-panel';
+        panel.innerHTML = `
+            <div id="sc-gif-head">
+                <span>Make GIF</span>
+                <button id="sc-gif-close" type="button">✕</button>
+            </div>
+            <div id="sc-gif-body">
+                <div class="sc-gif-marks">
+                    <div class="sc-gif-mark">
+                        <div class="sc-gif-thumb" id="sc-gif-thumb-start"></div>
+                        <div class="sc-gif-mark-label">START · <span id="sc-gif-time-start"></span></div>
+                        <div class="sc-gif-mark-btns">
+                            <button type="button" data-act="start-current" title="Set start to current playback position">⤓ Now</button>
+                            <button type="button" data-act="start-minus">−.5</button>
+                            <button type="button" data-act="start-plus">+.5</button>
+                        </div>
+                    </div>
+                    <div class="sc-gif-mark">
+                        <div class="sc-gif-thumb" id="sc-gif-thumb-end"></div>
+                        <div class="sc-gif-mark-label">END · <span id="sc-gif-time-end"></span></div>
+                        <div class="sc-gif-mark-btns">
+                            <button type="button" data-act="end-current" title="Set end to current playback position">⤓ Now</button>
+                            <button type="button" data-act="end-minus">−.5</button>
+                            <button type="button" data-act="end-plus">+.5</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="sc-gif-dur-line">Duration <b id="sc-gif-dur-val"></b></div>
+                <div class="sc-gif-opts">
+                    <label>FPS
+                        <select id="sc-gif-fps">
+                            <option value="8">8</option><option value="10">10</option>
+                            <option value="12" selected>12</option><option value="15">15</option>
+                        </select>
+                    </label>
+                    <label>Width
+                        <select id="sc-gif-width">
+                            <option value="320">320</option><option value="480" selected>480</option><option value="640">640</option>
+                        </select>
+                    </label>
+                    <label>Shape
+                        <select id="sc-gif-aspect">
+                            <option value="native">Native</option>
+                            <option value="crop" selected>4:3 Crop</option>
+                            <option value="fit">4:3 Bars</option>
+                        </select>
+                    </label>
+                </div>
+                <button id="sc-gif-go" type="button">● Make GIF</button>
+                <div id="sc-gif-status"></div>
+                <div id="sc-gif-result"></div>
+            </div>`;
+        document.body.appendChild(panel);
+
+        const $ = id => panel.querySelector(id);
+        const goBtn = $('#sc-gif-go'), status = $('#sc-gif-status'), result = $('#sc-gif-result');
+        const setStatus = (txt) => { status.textContent = txt || ''; };
+
+        const close = () => { _revokeGifResult(); destroyScrubClone(); panel.remove(); };
+        $('#sc-gif-close').addEventListener('click', close);
+
+        if (isBlob || !src) {
+            setStatus(isBlob
+                ? 'This source is a streaming (HLS/MSE) blob — frame capture not supported.'
+                : 'No video source found.');
+        }
+
+        // Reframe the preview thumbnails to match the chosen output shape so
+        // the START/END frames show exactly what the GIF will look like.
+        const aspectSel = $('#sc-gif-aspect');
+        const applyThumbAspect = () => {
+            const mode = aspectSel.value;
+            ['start', 'end'].forEach(which => {
+                const el = $('#sc-gif-thumb-' + which);
+                el.classList.toggle('sc-gif-thumb-43', mode !== 'native');
+                el.classList.toggle('sc-gif-thumb-fit', mode === 'fit');
+            });
+        };
+        aspectSel.addEventListener('change', applyThumbAspect);
+        applyThumbAspect();
+
+        // Debounced per-mark thumbnail refresh.
+        const thumbTimers = {};
+        const refreshThumb = (which) => {
+            if (isBlob || !src) return;
+            const t = which === 'start' ? startT : endT;
+            const el = $('#sc-gif-thumb-' + which);
+            clearTimeout(thumbTimers[which]);
+            el.classList.add('sc-gif-thumb-loading');
+            thumbTimers[which] = setTimeout(() => {
+                grabPreviewFrame(src, t, 160).then(url => {
+                    _glog('thumb', which, 'dataURL length', url.length);
+                    el.style.backgroundImage = `url("${url}")`;
+                    el.classList.remove('sc-gif-thumb-loading');
+                }).catch(() => el.classList.remove('sc-gif-thumb-loading'));
+            }, 180);
         };
 
-        const freezeSync = () => {
-            const loc = getMediaUpdateListeners();
-            if (!loc) {
-                console.warn('[CyTube SC] Could not find mediaUpdate listeners to freeze');
-                return;
-            }
-            if (loc.store === '_callbacks') {
-                savedListeners = socket._callbacks[loc.key].slice();
-                socket._callbacks[loc.key] = [];
-            } else {
-                savedListeners = socket._events[loc.key];
-                delete socket._events[loc.key];
-            }
-            console.log('[CyTube SC] Sync frozen — removed', savedListeners?.length ?? 1, 'mediaUpdate listener(s)');
+        const render = (changed) => {
+            $('#sc-gif-time-start').textContent = _fmtClockTenths(startT);
+            $('#sc-gif-time-end').textContent = _fmtClockTenths(endT);
+            const dur = Math.max(0, endT - startT);
+            $('#sc-gif-dur-val').textContent = dur.toFixed(1) + 's';
+            goBtn.disabled = isBlob || !src || dur < 0.1;
+            if (changed === 'start' || changed === 'both') refreshThumb('start');
+            if (changed === 'end' || changed === 'both') refreshThumb('end');
         };
 
-        const thawSync = () => {
-            if (!savedListeners) return;
-            const loc = getMediaUpdateListeners();
-            if (loc?.store === '_callbacks') {
-                socket._callbacks[loc.key] = savedListeners;
-            } else {
-                socket._events = socket._events || {};
-                socket._events['mediaUpdate'] = savedListeners;
-            }
-            savedListeners = null;
-            console.log('[CyTube SC] Sync restored');
-            // Trigger immediate resync
-            if (typeof socket !== 'undefined' && socket) {
-                socket.emit('playerReady');
-            }
-        };
+        const clampStart = () => { startT = Math.min(Math.max(0, startT), endT - 0.1); };
+        const clampEnd   = () => { endT = Math.min(Math.max(endT, startT + 0.1), vidDur); };
 
-        btn.addEventListener('click', () => {
-            if (typeof socket === 'undefined' || !socket) return;
-            desynced = !desynced;
-            if (desynced) {
-                freezeSync();
-                btn.classList.add('sc-desync-active');
-                btn.title = 'Free watch ON — click to re-sync';
-            } else {
-                thawSync();
-                btn.classList.remove('sc-desync-active');
-                btn.title = 'Free watch — click to watch freely';
+        panel.querySelector('.sc-gif-marks').addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-act]');
+            if (!btn) return;
+            const live = getPlayerVideoEl();
+            const cur = live ? live.currentTime : 0;
+            switch (btn.dataset.act) {
+                case 'start-current': startT = cur; clampStart(); render('start'); break;
+                case 'start-minus':   startT -= 0.5; clampStart(); render('start'); break;
+                case 'start-plus':    startT += 0.5; clampStart(); render('start'); break;
+                case 'end-current':   endT = cur; clampEnd(); render('end'); break;
+                case 'end-minus':     endT -= 0.5; clampEnd(); render('end'); break;
+                case 'end-plus':      endT += 0.5; clampEnd(); render('end'); break;
             }
         });
+
+        goBtn.addEventListener('click', async () => {
+            if (isBlob || !src) return;
+            const fps    = parseInt($('#sc-gif-fps').value, 10);
+            const width  = parseInt($('#sc-gif-width').value, 10);
+            const aspect = $('#sc-gif-aspect').value;
+            if (endT - startT < 0.1) { setStatus('End must be after start.'); return; }
+
+            _revokeGifResult();
+            result.innerHTML = '<div class="sc-gif-working"><span class="sc-gif-spinner"></span><span id="sc-gif-working-txt">Capturing frames…</span></div>';
+            const workTxt = $('#sc-gif-working-txt');
+            const setWork = (t) => { if (workTxt) workTxt.textContent = t; };
+            goBtn.disabled = true;
+            try {
+                setStatus('');
+                const cap = await captureGifFrames(
+                    { src, startT, endT, fps, width, aspect },
+                    p => setWork('Capturing frames… ' + Math.round(p * 100) + '%'));
+                setWork('Encoding GIF… (' + cap.frames.length + ' frames)');
+                const blob = await encodeGif(cap, p => setWork('Encoding GIF… ' + Math.round(p * 100) + '%'));
+                _gifResultUrl = URL.createObjectURL(blob);
+                const kb = Math.round(blob.size / 1024);
+                const fname = 'grindhouse-' + Date.now() + '.gif';
+                result.innerHTML =
+                    `<img src="${_gifResultUrl}" alt="GIF preview">` +
+                    `<div id="sc-gif-actions">` +
+                    `<a id="sc-gif-dl" href="${_gifResultUrl}" download="${fname}">⬇ Download</a>` +
+                    `<button id="sc-gif-upload" type="button">☁ Upload</button>` +
+                    `<span id="sc-gif-size">${kb} KB</span></div>` +
+                    `<div id="sc-gif-link"></div>`;
+                setStatus('Done.');
+
+                const uploadBtn = $('#sc-gif-upload');
+                if (uploadBtn) uploadBtn.addEventListener('click', async () => {
+                    const linkBox = $('#sc-gif-link');
+                    const apiKey = getKey(LS_IMGBB);
+                    if (!apiKey) {
+                        linkBox.innerHTML = '<span class="sc-gif-link-msg">Add an ImgBB API key in ⚙ Settings to enable uploads.</span>';
+                        return;
+                    }
+                    uploadBtn.disabled = true;
+                    linkBox.innerHTML = '<span class="sc-gif-spinner sc-gif-spinner-sm"></span><span class="sc-gif-link-msg">Uploading to ImgBB…</span>';
+                    try {
+                        const link = await uploadToImgbb(blob, apiKey);
+                        linkBox.innerHTML =
+                            `<a class="sc-gif-link-url" href="${link}" target="_blank" rel="noopener">${_escHtml(link)}</a>` +
+                            `<button id="sc-gif-copylink" type="button">⧉ Copy link</button>`;
+                        uploadBtn.textContent = '✓ Uploaded';
+                        try { await navigator.clipboard.writeText(link); } catch (e) {}
+                        const cl = $('#sc-gif-copylink');
+                        if (cl) cl.addEventListener('click', async () => {
+                            try { await navigator.clipboard.writeText(link); cl.textContent = '✓ Copied'; }
+                            catch (e) { cl.textContent = '✗'; }
+                        });
+                    } catch (e) {
+                        linkBox.innerHTML = '<span class="sc-gif-link-msg sc-test-bad">Upload failed: ' + _escHtml(e.message || String(e)) + '</span>';
+                        uploadBtn.disabled = false;
+                    }
+                });
+            } catch (e) {
+                console.error('[SC] GIF capture failed:', e);
+                result.innerHTML = '';
+                setStatus('Failed: ' + (e.message || e));
+            } finally {
+                goBtn.disabled = false;
+            }
+        });
+
+        render('both');
     }
 
     function addFloatingButtons() {
@@ -583,6 +1196,11 @@
         document.addEventListener('fullscreenchange', () => {
             fsBtn.style.display = document.fullscreenElement ? 'none' : '';
         });
+
+        const gifBtn = document.createElement('button');
+        gifBtn.id = 'sc-gif-btn'; gifBtn.textContent = '◉'; gifBtn.title = 'Make a GIF of this scene';
+        gifBtn.addEventListener('click', openGifPanel);
+        document.body.appendChild(gifBtn);
     }
 
     /* ==========================================================
@@ -1169,6 +1787,47 @@
     }
 
     /* ==========================================================
+       CHAT TIMESTAMP TOOLTIPS
+       Each chatMsg carries an absolute Unix-ms `time`. We stamp the
+       rendered message div with a `title` so hovering shows the time
+       in the viewer's own timezone (new Date renders in local tz).
+    ========================================================== */
+    function formatChatTime(ms) {
+        try {
+            return new Date(ms).toLocaleString(undefined, {
+                weekday: 'short', month: 'short', day: 'numeric',
+                hour: 'numeric', minute: '2-digit', second: '2-digit'
+            });
+        } catch (e) { return ''; }
+    }
+
+    function initChatTimestamps() {
+        let bound = false;
+        const tryBind = () => {
+            if (bound || typeof socket === 'undefined' || !socket || !socket.on) return;
+            bound = true;
+            // Registered after CyTube's own handler, so by the time this runs
+            // the message div is already appended — it's the last child.
+            socket.on('chatMsg', (data) => {
+                try {
+                    if (!data || typeof data.time !== 'number') return;
+                    const buf = document.getElementById('messagebuffer');
+                    const el = buf && buf.lastElementChild;
+                    if (el && !el.dataset.scTime) {
+                        el.dataset.scTime = String(data.time);
+                        el.title = formatChatTime(data.time);
+                    }
+                } catch (e) {}
+            });
+        };
+        // Bind as early as possible to catch join backlog, then retry.
+        tryBind();
+        window.addEventListener('load', () => { tryBind(); setTimeout(tryBind, 2000); });
+        const poll = setInterval(() => { tryBind(); if (bound) clearInterval(poll); }, 250);
+        setTimeout(() => clearInterval(poll), 10000);
+    }
+
+    /* ==========================================================
        TRIVIA CARD
     ========================================================== */
 
@@ -1291,11 +1950,33 @@
         } catch (e) { return 'error'; }
     }
 
+    async function validateImgbbKey(apiKey) {
+        // ImgBB has no key-check endpoint, so probe with a tiny 1x1 PNG upload.
+        const onePx = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+        try {
+            const res = await new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    // expiration=60 so the throwaway test image self-deletes.
+                    url: 'https://api.imgbb.com/1/upload?expiration=60&key=' + encodeURIComponent(apiKey),
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    data: 'image=' + encodeURIComponent(onePx),
+                    onload: r => resolve(r),
+                    onerror: reject,
+                });
+            });
+            if (res.status >= 200 && res.status < 300) return 'valid';
+            if (res.status === 400 || res.status === 403) return 'invalid';
+            return 'error';
+        } catch (e) { return 'error'; }
+    }
+
     function openSettingsModal() {
         const old = document.getElementById('sc-settings-overlay');
         if (old) old.remove();
 
         const tmdbVal  = getKey(LS_TMDB);
+        const imgbbVal = getKey(LS_IMGBB);
         const firstRun = !localStorage.getItem('sc_onboarded');
         try { localStorage.setItem('sc_onboarded', '1'); } catch (e) {}
         const fontSize = getChatFontSize();
@@ -1346,6 +2027,22 @@
                         </span>
                         <span class="sc-settings-note">Adds clickable badge icons next to the title</span>
                     </label>
+                </div>
+
+                <div class="sc-settings-group sc-settings-divider">
+                    <label class="sc-settings-label">
+                        ImgBB GIF upload
+                        <span class="sc-settings-note">Optional — lets the ☁ Upload button in the GIF maker host a GIF and give you a shareable link</span>
+                    </label>
+                    <div class="sc-settings-input-row">
+                        <input id="sc-input-imgbb" class="sc-settings-input" type="text"
+                            placeholder="Paste ImgBB API key…" value="${imgbbVal}" spellcheck="false" />
+                        <button id="sc-test-imgbb" class="sc-settings-test" type="button">Test</button>
+                    </div>
+                    <span id="sc-test-imgbb-status" class="sc-settings-test-status"></span>
+                    <a class="sc-settings-link" href="https://api.imgbb.com/" target="_blank" rel="noopener">
+                        Get a free ImgBB API key ↗ (sign up, then "Add API key" — no app registration)
+                    </a>
                 </div>
 
                 <div class="sc-settings-group sc-settings-toggle-group">
@@ -1401,14 +2098,31 @@
             else                           { testStatus.textContent = '⚠ Couldn\'t reach API'; testStatus.className = 'sc-settings-test-status sc-test-bad'; }
         });
 
+        // ImgBB API key test button
+        const imgbbTestBtn    = document.getElementById('sc-test-imgbb');
+        const imgbbTestStatus = document.getElementById('sc-test-imgbb-status');
+        imgbbTestBtn.addEventListener('click', async () => {
+            const id = document.getElementById('sc-input-imgbb').value.trim();
+            if (!id) { imgbbTestStatus.textContent = 'Enter an API key first'; imgbbTestStatus.className = 'sc-settings-test-status sc-test-bad'; return; }
+            imgbbTestBtn.disabled = true;
+            imgbbTestStatus.textContent = 'Checking…'; imgbbTestStatus.className = 'sc-settings-test-status sc-test-pending';
+            const result = await validateImgbbKey(id);
+            imgbbTestBtn.disabled = false;
+            if (result === 'valid')        { imgbbTestStatus.textContent = '✓ Valid API key';        imgbbTestStatus.className = 'sc-settings-test-status sc-test-ok'; }
+            else if (result === 'invalid') { imgbbTestStatus.textContent = '✗ Invalid API key';      imgbbTestStatus.className = 'sc-settings-test-status sc-test-bad'; }
+            else                           { imgbbTestStatus.textContent = '⚠ Couldn\'t reach ImgBB'; imgbbTestStatus.className = 'sc-settings-test-status sc-test-bad'; }
+        });
+
         document.getElementById('sc-settings-save').addEventListener('click', () => {
             const tmdb   = tmdbToggle.checked ? document.getElementById('sc-input-tmdb').value.trim() : '';
             const spell  = document.getElementById('sc-input-spellcheck').checked;
             const links  = document.getElementById('sc-input-movielinks').checked;
+            const imgbb  = document.getElementById('sc-input-imgbb').value.trim();
             const fontPx = parseInt(fontInput.value, 10);
             setKey(LS_TMDB,        tmdb);
             setKey(LS_SPELLCHECK,  spell ? 'on' : 'off');
             setKey(LS_MOVIE_LINKS, links ? 'on' : 'off');
+            setKey(LS_IMGBB,       imgbb);
             setKey(LS_CHAT_FONT,   String(fontPx));
             applyChatFontSize(fontPx);
             movieLinkCache = {};
@@ -1500,7 +2214,7 @@
     }
 
     function initGapButtonDim() {
-        const GAP_IDS = ['fs-toggle-btn', 'sc-desync-btn', 'sc-settings-btn'];
+        const GAP_IDS = ['fs-toggle-btn', 'sc-desync-btn', 'sc-gif-btn', 'sc-settings-btn'];
         let gapTimer = null;
 
         const gapShow = () => {
@@ -1936,9 +2650,11 @@
         addSettingsButton();
         watchMovieTitle();
         initMediaWatcher();
+        initChatTimestamps();
         initTopBar();
         initGapButtonDim();
         initDesyncButton();
+        initChatSeekMenu();
         initChatHeader();
         initUserCount();
         initPollWatcher();
@@ -2450,6 +3166,174 @@
                 right: 44px !important;
             }
 
+            /* ===== GIF BUTTON (matches desync/fs circular style) ===== */
+            #sc-gif-btn {
+                position: fixed !important;
+                z-index: 20002 !important;
+                background: rgba(255,255,255,0.08) !important;
+                color: rgba(255,255,255,0.55) !important;
+                border: 1px solid rgba(255,255,255,0.18) !important;
+                border-radius: 50% !important;
+                width: 28px !important; height: 28px !important;
+                padding: 0 !important; font-size: 14px !important;
+                cursor: pointer !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
+                transition: color 0.3s ease, background 0.3s ease, transform 0.3s ease, opacity 0.3s ease !important;
+            }
+            #sc-gif-btn.sc-bar-dim {
+                transform: translateX(60px) !important; opacity: 0 !important; pointer-events: none !important;
+            }
+            #sc-gif-btn:hover { color: white !important; background: rgba(255,255,255,0.22) !important; }
+            body.sc-horizontal #sc-gif-btn {
+                bottom: 6px !important;
+                right: calc(20vw + 80px) !important;
+            }
+            body.sc-vertical #sc-gif-btn {
+                bottom: 43vh !important;
+                right: 80px !important;
+            }
+
+            /* ===== GIF PANEL ===== */
+            #sc-gif-panel {
+                position: fixed !important;
+                top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important;
+                z-index: 30002 !important;
+                width: 420px !important; max-width: 92vw !important;
+                background: rgba(18,18,20,0.98) !important;
+                border: 1px solid rgba(255,255,255,0.16) !important;
+                border-radius: 10px !important;
+                box-shadow: 0 12px 40px rgba(0,0,0,0.6) !important;
+                color: #eee !important; font-size: 13px !important;
+            }
+            #sc-gif-head {
+                display: flex !important; align-items: center !important; justify-content: space-between !important;
+                padding: 10px 14px !important;
+                border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+                font-weight: 600 !important; color: #ffcc44 !important;
+            }
+            #sc-gif-close {
+                background: transparent !important; border: none !important; color: rgba(255,255,255,0.6) !important;
+                font-size: 15px !important; cursor: pointer !important; padding: 0 4px !important;
+            }
+            #sc-gif-close:hover { color: white !important; }
+            #sc-gif-body { padding: 12px 14px !important; display: flex !important; flex-direction: column !important; gap: 10px !important; }
+            #sc-gif-body label {
+                display: flex !important; align-items: center !important; justify-content: space-between !important;
+                color: rgba(255,255,255,0.8) !important; font-weight: 500 !important;
+            }
+            #sc-gif-body select {
+                background: #1f1f22 !important; color: white !important;
+                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important;
+                padding: 3px 8px !important; font-size: 13px !important;
+            }
+            /* The popup option list — dark so white text stays readable */
+            #sc-gif-body select option {
+                background-color: #1f1f22 !important; color: white !important;
+            }
+            /* Start / end mark cards with preview thumbnails */
+            .sc-gif-marks { display: flex !important; gap: 10px !important; }
+            .sc-gif-mark {
+                flex: 1 1 0 !important; min-width: 0 !important;
+                display: flex !important; flex-direction: column !important; gap: 6px !important;
+            }
+            .sc-gif-thumb {
+                width: 100% !important; aspect-ratio: 16 / 9 !important;
+                /* Longhands only — a background shorthand with !important would
+                   override the inline background-image we set from JS. */
+                background-color: #000 !important;
+                background-position: center !important;
+                background-size: cover !important;
+                background-repeat: no-repeat !important;
+                border: 1px solid rgba(255,255,255,0.18) !important; border-radius: 6px !important;
+                position: relative !important;
+            }
+            /* Preview reframing to match the chosen output shape */
+            .sc-gif-thumb-43 { aspect-ratio: 4 / 3 !important; }
+            .sc-gif-thumb-fit { background-size: contain !important; }
+            .sc-gif-thumb-loading::after {
+                content: '' !important;
+                position: absolute !important;
+                top: 50% !important; left: 50% !important;
+                width: 22px !important; height: 22px !important;
+                margin: -11px 0 0 -11px !important;
+                border: 2px solid rgba(255,255,255,0.25) !important;
+                border-top-color: #ffcc44 !important;
+                border-radius: 50% !important;
+                animation: sc-gif-spin 0.8s linear infinite !important;
+            }
+            @keyframes sc-gif-spin { to { transform: rotate(360deg); } }
+            .sc-gif-spinner {
+                display: inline-block !important;
+                width: 18px !important; height: 18px !important;
+                border: 2px solid rgba(255,255,255,0.25) !important;
+                border-top-color: #ffcc44 !important;
+                border-radius: 50% !important;
+                animation: sc-gif-spin 0.8s linear infinite !important;
+                flex: none !important;
+            }
+            .sc-gif-spinner-sm { width: 13px !important; height: 13px !important; }
+            .sc-gif-working {
+                display: flex !important; align-items: center !important; gap: 10px !important;
+                padding: 14px 4px !important; color: rgba(255,255,255,0.75) !important; font-size: 13px !important;
+            }
+            #sc-gif-link {
+                display: flex !important; align-items: center !important; gap: 8px !important;
+                flex-wrap: wrap !important; margin-top: 8px !important;
+            }
+            .sc-gif-link-url {
+                color: #8ab4ff !important; font-size: 12px !important; word-break: break-all !important;
+                text-decoration: none !important;
+            }
+            .sc-gif-link-url:hover { text-decoration: underline !important; }
+            .sc-gif-link-msg { color: rgba(255,255,255,0.6) !important; font-size: 12px !important; }
+            #sc-gif-copylink, #sc-gif-upload {
+                background: rgba(255,255,255,0.1) !important; color: white !important;
+                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important;
+                padding: 5px 12px !important; font-size: 12px !important; cursor: pointer !important;
+            }
+            #sc-gif-copylink:hover, #sc-gif-upload:hover:not(:disabled) { background: rgba(255,255,255,0.2) !important; }
+            #sc-gif-upload:disabled { opacity: 0.5 !important; cursor: default !important; }
+            .sc-gif-mark-label {
+                color: #ffcc44 !important; font-size: 11px !important; font-weight: 700 !important;
+                letter-spacing: 0.04em !important; text-align: center !important;
+            }
+            .sc-gif-mark-btns { display: flex !important; gap: 4px !important; }
+            .sc-gif-mark-btns button {
+                flex: 1 1 0 !important; min-width: 0 !important;
+                background: rgba(255,255,255,0.1) !important; color: white !important;
+                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important;
+                padding: 4px 0 !important; font-size: 11px !important; cursor: pointer !important;
+            }
+            .sc-gif-mark-btns button:hover { background: rgba(255,255,255,0.22) !important; }
+            #sc-gif-dur-line {
+                text-align: center !important; color: rgba(255,255,255,0.7) !important; font-size: 12px !important;
+            }
+            #sc-gif-dur-line b { color: #fff !important; }
+            .sc-gif-opts { display: flex !important; gap: 12px !important; }
+            .sc-gif-opts label { flex: 1 1 0 !important; }
+            #sc-gif-note { color: rgba(255,255,255,0.45) !important; font-size: 11px !important; }
+            #sc-gif-go {
+                background: rgba(255,200,50,0.18) !important; color: #ffcc44 !important;
+                border: 1px solid rgba(255,200,50,0.45) !important; border-radius: 6px !important;
+                padding: 8px 12px !important; font-size: 13px !important; font-weight: 600 !important;
+                cursor: pointer !important;
+            }
+            #sc-gif-go:hover:not(:disabled) { background: rgba(255,200,50,0.28) !important; }
+            #sc-gif-go:disabled { opacity: 0.5 !important; cursor: default !important; }
+            #sc-gif-status { color: rgba(255,255,255,0.65) !important; font-size: 12px !important; min-height: 14px !important; }
+            #sc-gif-result img { width: 100% !important; border-radius: 6px !important; display: block !important; }
+            #sc-gif-actions {
+                display: flex !important; align-items: center !important; gap: 10px !important; margin-top: 8px !important;
+            }
+            #sc-gif-dl {
+                background: rgba(255,255,255,0.1) !important; color: white !important;
+                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important;
+                padding: 5px 12px !important; font-size: 12px !important; cursor: pointer !important;
+                text-decoration: none !important;
+            }
+            #sc-gif-dl:hover { background: rgba(255,255,255,0.2) !important; }
+            #sc-gif-size { color: rgba(255,255,255,0.45) !important; font-size: 11px !important; margin-left: auto !important; }
+
             #fs-toggle-btn, #sc-emote-proxy {
                 position: fixed !important;
                 z-index: 20002 !important;
@@ -2672,10 +3556,10 @@
             }
 
             body.sc-horizontal #sc-settings-btn {
-                bottom: 6px !important; right: calc(20vw + 80px) !important;
+                bottom: 6px !important; right: calc(20vw + 116px) !important;
             }
             body.sc-vertical #sc-settings-btn {
-                bottom: 43vh !important; right: 80px !important;
+                bottom: 43vh !important; right: 116px !important;
             }
 
             /* ===== SETTINGS MODAL ===== */
@@ -2976,6 +3860,36 @@
             .sc-test-ok      { color: #7dffa0 !important; }
             .sc-test-bad     { color: #ff8080 !important; }
             .sc-test-pending { color: rgba(255,255,255,0.55) !important; }
+
+            /* ===== CHAT → MOVIE SEEK MENU ===== */
+            .sc-seek-menu {
+                position: fixed !important;
+                z-index: 30000 !important;
+                background: rgba(18,18,20,0.97) !important;
+                border: 1px solid rgba(255,255,255,0.16) !important;
+                border-radius: 8px !important;
+                box-shadow: 0 8px 28px rgba(0,0,0,0.55) !important;
+                padding: 4px !important;
+                min-width: 200px !important;
+            }
+            .sc-seek-item {
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: flex-start !important;
+                gap: 2px !important;
+                width: 100% !important;
+                background: transparent !important;
+                border: none !important;
+                border-radius: 6px !important;
+                padding: 8px 12px !important;
+                cursor: pointer !important;
+                text-align: left !important;
+            }
+            .sc-seek-item:hover { background: rgba(255,200,50,0.15) !important; }
+            .sc-seek-main {
+                color: #ffcc44 !important;
+                font-size: 13px !important; font-weight: 600 !important;
+            }
         `;
         document.head.appendChild(style);
     });
