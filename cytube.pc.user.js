@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube Fullscreen Video with Overlay Chat
 // @namespace    http://tampermonkey.net/
-// @version      4.6.1
+// @version      4.6.2
 // @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, right-click chat-to-movie seek, scene-to-GIF capture + ImgBB upload, vertical monitor support
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -19,7 +19,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.pc v4.6.1 loaded');
+    console.log('[SC] cytube.pc v4.6.2 loaded');
 
     /* ==========================================================
        API KEYS — stored in localStorage, managed via settings modal.
@@ -3795,7 +3795,9 @@
             }
             #sc-trivia-btn.sc-bar-dim { opacity: 0 !important; pointer-events: none !important; }
             #sc-trivia-btn:hover { color: rgba(255,255,255,0.9) !important; }
-            body.sc-vertical #sc-trivia-btn { right: 4px !important; top: 4px !important; }
+            /* Sit to the left of the Coming Attractions button (which is at right:0),
+               same top edge, so the two line up instead of overlapping. */
+            body.sc-vertical #sc-trivia-btn { right: 150px !important; top: 0 !important; }
 
             /* ===== TRIVIA DROPDOWN ===== */
             #sc-trivia-panel {
