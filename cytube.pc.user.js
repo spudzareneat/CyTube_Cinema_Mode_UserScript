@@ -2890,7 +2890,6 @@
 
     function initPosterStrip() {
         if (document.getElementById('sc-poster-toggle')) return;
-        if (!getMotdPosterImages().length) return;
 
         // Toggle button — injected below the video title
         const toggleBtn = document.createElement('button');
