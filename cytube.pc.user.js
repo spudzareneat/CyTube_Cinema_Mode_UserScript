@@ -861,15 +861,18 @@
     }
 
     // Upload to ImgBB with a free API key. Returns the direct image URL.
-    // ImgBB accepts a base64 payload on /1/upload.
-    async function uploadToImgbb(blob, apiKey) {
+    // ImgBB accepts a base64 payload on /1/upload. `name` (optional) sets the
+    // image's display name/filename on ImgBB, e.g. a movie title slug.
+    async function uploadToImgbb(blob, apiKey, name) {
         const b64 = await blobToBase64(blob);
+        let data = 'image=' + encodeURIComponent(b64);
+        if (name) data += '&name=' + encodeURIComponent(name);
         return new Promise((resolve, reject) => {
             GM_xmlhttpRequest({
                 method: 'POST',
                 url: 'https://api.imgbb.com/1/upload?key=' + encodeURIComponent(apiKey),
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                data: 'image=' + encodeURIComponent(b64),
+                data,
                 onload: r => {
                     let json = null;
                     try { json = JSON.parse(r.responseText); } catch (e) {}
@@ -965,6 +968,16 @@
         }));
         sc.busy = run.catch((e) => { _glog('grab chain error', e && e.message); });
         return run;
+    }
+
+    // Filesystem/URL-safe slug of the currently playing movie, e.g. "Blade-Runner-1982".
+    // Falls back to '' when no title has been detected yet.
+    function _gifTitleSlug() {
+        if (!lastMovieTitle) return '';
+        const { title, year } = parseMovieFilename(lastMovieTitle);
+        let slug = title.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '');
+        if (year) slug += '-' + year;
+        return slug;
     }
 
     function _fmtClockTenths(sec) {
@@ -1134,7 +1147,9 @@
                 const blob = await encodeGif(cap, p => setWork('Encoding GIF… ' + Math.round(p * 100) + '%'));
                 _gifResultUrl = URL.createObjectURL(blob);
                 const kb = Math.round(blob.size / 1024);
-                const fname = 'grindhouse-' + Date.now() + '.gif';
+                const slug = _gifTitleSlug();
+                const fnameBase = (slug || 'grindhouse') + '-' + Date.now();
+                const fname = fnameBase + '.gif';
                 result.innerHTML =
                     `<img src="${_gifResultUrl}" alt="GIF preview">` +
                     `<div id="sc-gif-actions">` +
@@ -1155,7 +1170,7 @@
                     uploadBtn.disabled = true;
                     linkBox.innerHTML = '<span class="sc-gif-spinner sc-gif-spinner-sm"></span><span class="sc-gif-link-msg">Uploading to ImgBB…</span>';
                     try {
-                        const link = await uploadToImgbb(blob, apiKey);
+                        const link = await uploadToImgbb(blob, apiKey, fnameBase);
                         linkBox.innerHTML =
                             `<a class="sc-gif-link-url" href="${link}" target="_blank" rel="noopener">${_escHtml(link)}</a>` +
                             `<button id="sc-gif-copylink" type="button">⧉ Copy link</button>`;
@@ -2653,6 +2668,10 @@
             <nav id="sc-lineup-daytabs"></nav>
             <div id="sc-lineup-body"></div>`;
         screen.querySelector('#sc-lineup-close').addEventListener('click', hideLineupScreen);
+        // Clicking the screen's own background (the side gutters, or any empty space
+        // below the last section) closes it -- only fires when the click lands on the
+        // screen element itself, not a descendant (header/tabs/section/poster/close button).
+        screen.addEventListener('click', (e) => { if (e.target === screen) hideLineupScreen(); });
         document.body.appendChild(screen);
         return screen;
     }
