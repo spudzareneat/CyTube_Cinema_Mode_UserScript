@@ -2649,7 +2649,7 @@
     function lineupRenderLoading(screen) {
         screen.querySelector('#sc-lineup-daytabs').innerHTML = '';
         screen.querySelector('#sc-lineup-body').innerHTML =
-            '<div id="sc-lineup-loading">Fetching tonight\'s lineup...</div>';
+            "<div id=\"sc-lineup-loading\">Fetching tonight's lineup…</div>";
     }
 
     function lineupItemButton(item) {
