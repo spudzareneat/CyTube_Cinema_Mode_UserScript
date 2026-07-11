@@ -3557,13 +3557,13 @@
                 margin-bottom: 12px !important; display: flex !important; align-items: baseline !important; gap: 10px !important;
             }
             .sc-lineup-section-count { font-size: 12px !important; color: rgba(255,255,255,0.4) !important; font-family: system-ui, sans-serif !important; }
-            .sc-lineup-rail { display: flex !important; gap: 12px !important; flex-wrap: wrap !important; }
+            .sc-lineup-rail { display: flex !important; gap: 16px !important; flex-wrap: wrap !important; }
             .sc-lineup-item {
                 background: none !important; border: none !important; padding: 0 !important; cursor: pointer !important;
-                width: 130px !important; flex-shrink: 0 !important;
+                width: 200px !important; flex-shrink: 0 !important;
             }
             .sc-lineup-poster {
-                width: 130px !important; height: 182px !important; border-radius: 6px !important;
+                width: 200px !important; height: 280px !important; border-radius: 6px !important;
                 background-size: cover !important; background-position: center !important;
                 background-color: #222 !important; position: relative !important;
                 box-shadow: 0 6px 20px rgba(0,0,0,0.5) !important;
