@@ -1885,7 +1885,7 @@
         const t = e.target;
         if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;
         if (e.key === 't' || e.key === 'T') { toggleTriviaPanel(); return; }
-        if (e.key === 'Escape') { hideTriviaCard(); hideNowPlayingCard(); return; }
+        if (e.key === 'Escape') { hideTriviaCard(); hideNowPlayingCard(); hideLineupScreen(); return; }
         if (e.key === 'i' || e.key === 'I') {
             const card = document.getElementById('sc-np-card');
             if (card && card.classList.contains('sc-np-visible')) hideNowPlayingCard();
