@@ -1627,6 +1627,7 @@
 
         if (!rawTitle || rawTitle === lastMovieTitle || rawTitle.length < 2) return;
         lastMovieTitle = rawTitle;
+        lineupObserveTitleChange(rawTitle);
         _currentImdbId = null;
 
         // Clean up previous links/stats/trivia button
@@ -2394,6 +2395,225 @@
         link.rel = 'stylesheet';
         link.href = `https://fonts.googleapis.com/css2?${LINEUP_FONT_FAMILIES.map(f => `family=${f}`).join('&')}&display=swap`;
         document.head.appendChild(link);
+    }
+
+    /* ==========================================================
+       TONIGHT'S LINEUP -- data interface consumed by the lineup screen (below).
+       Fetches + caches the Reddit schedule post once per session (persisted to
+       localStorage across page reloads, keyed by the post's own id -- self-heals
+       whenever the pinned post rolls over to next week's), locates "now" within
+       TODAY's day only, and projects the next LINEUP_MAX_ESTIMATED_AHEAD upcoming
+       films' ETA from TMDB runtimes plus a learned median bumper-gap, anchored at
+       that day's Noon-Pacific showtime start. Falls back to the current title plus
+       the static admin-curated MOTD poster art if the fetch fails and no usable
+       cache exists. Ported from the Android app's web/src/lineup/data.js.
+    ========================================================== */
+
+    const LS_LINEUP_CACHE = 'sc_lineup_cache_v1';
+    const LINEUP_CACHE_MAX_AGE_MS = 20 * 60 * 60 * 1000; // background-revalidate if older than this
+    const LINEUP_FALLBACK_TITLE = 'Coming Attractions';
+    const LINEUP_MAX_ESTIMATED_AHEAD = 4; // only the next N upcoming films get any time estimate at all
+
+    let _lineupScheduleCache = null;     // {postId, title, publishedAt, days, fetchedAt} or null
+    let _lineupFetchFailed = false;      // sticky for the session once Reddit is unreachable AND no cache at all
+    let _lineupRevalidating = false;
+    let _lineupObservedGaps = [];        // durations (s) of changeMedia items that didn't match the schedule
+    let _lineupLastUnmatchedStart = null; // Date.now() when the current unmatched (bumper) item started
+
+    function lineupReadCache() {
+        try {
+            const raw = localStorage.getItem(LS_LINEUP_CACHE);
+            return raw ? JSON.parse(raw) : null;
+        } catch (e) { return null; }
+    }
+    function lineupWriteCache(schedule) {
+        try { localStorage.setItem(LS_LINEUP_CACHE, JSON.stringify({ ...schedule, fetchedAt: Date.now() })); }
+        catch (e) { /* storage full/unavailable -- in-memory cache for this session still works */ }
+    }
+
+    function lineupAllScheduleTitles() {
+        if (!_lineupScheduleCache) return [];
+        return _lineupScheduleCache.days.flatMap(d => d.sections.flatMap(s => s.items));
+    }
+
+    // Learn bumper-gap duration live: a currently-playing title that doesn't match
+    // anything in tonight's schedule is a bumper; the time between it starting and the
+    // next (matched-or-not) title change is one observed gap sample. Called from
+    // injectMovieLinks (Step 2 below) with the same deduped rawTitle that function
+    // already tracks in lastMovieTitle.
+    function lineupObserveTitleChange(rawTitle) {
+        const title = rawTitle ? parseMovieFilename(rawTitle).title : null;
+        const matchesSchedule = !!(title && _lineupScheduleCache &&
+            lineupAllScheduleTitles().some(s => s.title.toLowerCase() === title.toLowerCase()));
+        if (rawTitle && !matchesSchedule && _lineupScheduleCache) {
+            _lineupLastUnmatchedStart = Date.now();
+        } else if (_lineupLastUnmatchedStart) {
+            _lineupObservedGaps.push((Date.now() - _lineupLastUnmatchedStart) / 1000);
+            _lineupLastUnmatchedStart = null;
+        }
+    }
+
+    async function lineupRefetchAndCache() {
+        if (_lineupRevalidating) return;
+        _lineupRevalidating = true;
+        try {
+            const result = await fetchTonightsSchedule();
+            _lineupScheduleCache = result;
+            lineupWriteCache(result);
+        } catch (e) {
+            // Keep whatever we already had -- a failed background revalidation is
+            // silent; _lineupFetchFailed only matters when we have nothing at all.
+        } finally {
+            _lineupRevalidating = false;
+        }
+    }
+
+    async function lineupEnsureSchedule() {
+        if (_lineupScheduleCache || _lineupFetchFailed) return;
+        const cached = lineupReadCache();
+        if (cached) {
+            _lineupScheduleCache = cached;
+            if (Date.now() - (cached.fetchedAt || 0) > LINEUP_CACHE_MAX_AGE_MS) lineupRefetchAndCache(); // fire-and-forget
+            return;
+        }
+        try {
+            const result = await fetchTonightsSchedule();
+            _lineupScheduleCache = result;
+            lineupWriteCache(result);
+        } catch (e) {
+            _lineupFetchFailed = true;
+        }
+    }
+
+    // Poster images in the MOTD are 125x175 -- keep portrait-ish images, skip wide
+    // banners. Used both by the fallback view below and by the Coming Attractions
+    // toggle button's "is there anything to show" check (Task 5).
+    function getMotdPosterImages() {
+        const motd = document.getElementById('motdrow');
+        if (!motd) return [];
+        return [...motd.querySelectorAll('img')].filter(img => {
+            const w = parseInt(img.getAttribute('width') || 0);
+            const h = parseInt(img.getAttribute('height') || 0);
+            return h >= 100 && w <= 200;
+        }).map(img => ({ src: img.src, title: img.title || img.alt || '' }));
+    }
+
+    // Every item's TMDB/IMDb-enriched fields, in the exact shape showNowPlayingCard
+    // (line ~1566) already consumes.
+    function lineupBuildItem(info, title, year) {
+        return {
+            cleanTitle: info.cleanTitle || title,
+            cleanYear: info.cleanYear || year,
+            poster: info.poster || null,
+            backdrop: info.backdrop || null,
+            overview: info.overview || '',
+            rating: info.rating ?? null,
+            runtime: info.runtime ?? null,
+            genres: info.genres || [],
+            parentalGuide: info.parentalGuide || null,
+            killCount: info.killCount ?? null,
+            imdbId: info.imdbId || null,
+        };
+    }
+
+    // Fallback when Reddit is unreachable and no cache exists at all: the current item
+    // (if known and it looks like a real feature, not a short/bumper) plus the same
+    // admin-curated MOTD poster art the old strip showed (display-only -- no real
+    // title/overview to show for those, so clicking does nothing). Shaped as a single
+    // pseudo-day/section so the screen's fallback renderer doesn't need to know this
+    // differs from the real day/section structure.
+    async function lineupFallbackView() {
+        const items = [];
+        if (lastMovieTitle) {
+            const { title, year } = parseMovieFilename(lastMovieTitle);
+            const info = await lookupMovie(title, year);
+            // Skip likely bumpers/shorts: if TMDB is configured and confidently found
+            // nothing for this exact title, it's probably not a real feature. Without a
+            // TMDB key at all there's no way to tell, so default to showing it.
+            if (!hasKey(LS_TMDB) || info.cleanTitle) {
+                items.push({ ...lineupBuildItem(info, title, year), isNowPlaying: true, etaLabel: '' });
+            }
+        }
+        getMotdPosterImages().forEach((img) => {
+            items.push({
+                cleanTitle: img.title, cleanYear: null,
+                poster: img.src, backdrop: null, overview: '',
+                isNowPlaying: false, etaLabel: '', clickable: false,
+            });
+        });
+        return {
+            listTitle: LINEUP_FALLBACK_TITLE, fallback: true,
+            days: [{ day: 'Tonight', date: null, isToday: true, sections: [{ name: '', slug: null, items }] }],
+        };
+    }
+
+    // Flattens a day's sections into one ordered list (for locating "now" and walking
+    // ETAs across section boundaries), then re-nests the built items back into their
+    // sections.
+    function lineupBuildDaySections(day, isTodayFlag, infosByKey) {
+        const flat = [];
+        day.sections.forEach((section, si) => {
+            section.items.forEach(item => flat.push({ section, si, item }));
+        });
+
+        const currentTitle = isTodayFlag && lastMovieTitle
+            ? parseMovieFilename(lastMovieTitle).title : '';
+        const currentFlatIndex = currentTitle
+            ? flat.findIndex(f => f.item.title.toLowerCase() === currentTitle.toLowerCase())
+            : -1;
+
+        // Pre-show cold start: the first film of ANY day that hasn't started yet gets
+        // one coarse "starts around then" guess, anchored on that day's own real
+        // Noon-Pacific showtime.
+        const anchor = lineupDayAnchorPacific(day.date);
+        const isColdStart = currentFlatIndex === -1 && Date.now() < anchor.getTime();
+
+        const learnedGap = lineupMedianGapSeconds(_lineupObservedGaps) ?? 600; // 10-min cold-start default
+        let cumulative = currentFlatIndex !== -1
+            ? Math.max(0, getCurrentMediaSeconds() - getPlayerTimeSec()) : 0;
+
+        const builtFlat = flat.map((f, idx) => {
+            const info = infosByKey.get(f.item.title + '|' + f.item.year) || {};
+            const base = lineupBuildItem(info, f.item.title, f.item.year);
+            if (idx === currentFlatIndex) return { ...base, isNowPlaying: true, etaLabel: '' };
+            if (isColdStart && idx === 0) {
+                return { ...base, isNowPlaying: false, etaLabel: lineupFormatEta(anchor.getHours(), anchor.getMinutes(), 'approx') };
+            }
+            if (currentFlatIndex === -1 || idx < currentFlatIndex) {
+                return { ...base, isNowPlaying: false, etaLabel: '' }; // no live anchor, or already aired earlier today
+            }
+            const offset = idx - currentFlatIndex;
+            cumulative += learnedGap; // a bumper precedes this feature
+            let etaLabel = '';
+            if (offset <= LINEUP_MAX_ESTIMATED_AHEAD) {
+                const precision = offset === 1 ? 'exact' : 'approx';
+                const eta = new Date(Date.now() + cumulative * 1000);
+                etaLabel = lineupFormatEta(eta.getHours(), eta.getMinutes(), precision);
+            }
+            cumulative += info.runtime ? info.runtime * 60 : 0;
+            return { ...base, isNowPlaying: false, etaLabel };
+        });
+
+        return day.sections.map((section, si) => ({
+            name: section.name, slug: section.slug,
+            items: builtFlat.filter((_, idx) => flat[idx].si === si),
+        }));
+    }
+
+    async function getTonightsLineup() {
+        await lineupEnsureSchedule();
+        if (!_lineupScheduleCache) return lineupFallbackView();
+
+        const allItems = lineupAllScheduleTitles();
+        const infos = await Promise.all(allItems.map(({ title, year }) => lookupMovie(title, year)));
+        const infosByKey = new Map(allItems.map((item, i) => [item.title + '|' + item.year, infos[i]]));
+
+        const todayStr = lineupPacificDateString();
+        const days = _lineupScheduleCache.days.map((day) => ({
+            day: day.day, date: day.date, isToday: day.date === todayStr,
+            sections: lineupBuildDaySections(day, day.date === todayStr, infosByKey),
+        }));
+        return { listTitle: _lineupScheduleCache.title || LINEUP_FALLBACK_TITLE, fallback: false, days };
     }
 
     /* ==========================================================
