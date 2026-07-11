@@ -14,6 +14,7 @@
 // @connect      caching.graphql.imdb.com
 // @connect      cdnjs.cloudflare.com
 // @connect      api.imgbb.com
+// @connect      www.reddit.com
 // @run-at       document-start
 // ==/UserScript==
 
@@ -2142,6 +2143,216 @@
         btn.title = 'Script Settings (API keys)';
         btn.addEventListener('click', openSettingsModal);
         document.body.appendChild(btn);
+    }
+
+    /* ==========================================================
+       TONIGHT'S LINEUP -- Reddit schedule fetch + parse.
+       r/420Grindhouse's Atom feed (https://www.reddit.com/r/420Grindhouse/.rss) is
+       reachable with a browser UA and no login (the .json endpoints 403 the same
+       way generic bots get blocked elsewhere; .rss doesn't). The pinned schedule
+       post sorts FIRST in the feed regardless of nominal sort order -- "find this
+       week's post" is just "take entry #1", no slug/title matching needed.
+
+       The post body is a fixed markdown->HTML shape: an intro paragraph, then
+       repeating <p><strong>Day</strong></p> headers (Friday/Saturday/Sunday, a
+       closed 3-name set) each followed by 2-4 <p><strong>Section Name</strong>
+       </p> + <ul><li>Title (Year)</li>...</ul> pairs. Two independent layers of
+       HTML-entity escaping are present: the Atom feed XML-escapes the whole
+       content blob, and Reddit's own markdown renderer separately entity-encodes
+       special characters (apostrophes, etc.) within it -- lineupDecodeHtmlEntities
+       is applied once, up front, so everything downstream works on plain text/tags.
+       Ported from the Android Grindhouse app's web/src/lineup/{reddit,timing}.js.
+    ========================================================== */
+
+    const LINEUP_FEED_URL = 'https://www.reddit.com/r/420Grindhouse/.rss';
+    const LINEUP_DAY_NAMES = ['Friday', 'Saturday', 'Sunday'];
+
+    function lineupSlugify(name) {
+        return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    }
+
+    function lineupDecodeHtmlEntities(s) {
+        return s
+            .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"').replace(/&amp;/g, '&')
+            .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+            .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)));
+    }
+
+    // The first <entry> in the feed is the pinned post. Returns null if the feed has
+    // no entries or is missing a required field.
+    function lineupParseFirstEntry(feedXml) {
+        const start = feedXml.indexOf('<entry>');
+        if (start === -1) return null;
+        const end = feedXml.indexOf('</entry>', start);
+        if (end === -1) return null;
+        const entry = feedXml.slice(start, end + '</entry>'.length);
+        const idM = entry.match(/<id>([^<]+)<\/id>/);
+        const titleM = entry.match(/<title>([^<]+)<\/title>/);
+        const contentM = entry.match(/<content type="html">([\s\S]*?)<\/content>/);
+        if (!idM || !titleM || !contentM) return null;
+        const pubM = entry.match(/<published>([^<]+)<\/published>/);
+        return {
+            postId: idM[1],
+            title: lineupDecodeHtmlEntities(titleM[1]),
+            publishedAt: pubM ? pubM[1] : null,
+            contentHtml: lineupDecodeHtmlEntities(contentM[1]),
+        };
+    }
+
+    // Parses "Weekend Grindhouse Schedule - Fri 7/10 - Sun 7/12" into real calendar
+    // dates. Only Friday's month/day is read from the title -- Saturday and Sunday are
+    // always +1/+2 days from Friday. The year comes from the post's own publishedAt
+    // timestamp, not system "now" -- except a December post for a January weekend,
+    // where the weekend is next year.
+    function lineupParseDateRange(title, publishedAt) {
+        const m = title && title.match(/Fri\D*(\d{1,2})\/(\d{1,2})/i);
+        if (!m || !publishedAt) return null;
+        const pub = new Date(publishedAt);
+        if (isNaN(pub.getTime())) return null;
+        const friMonth = parseInt(m[1], 10), friDay = parseInt(m[2], 10);
+        const pubMonth = pub.getMonth() + 1;
+        const year = (pubMonth === 12 && friMonth === 1) ? pub.getFullYear() + 1 : pub.getFullYear();
+        const fri = Date.UTC(year, friMonth - 1, friDay);
+        const toStr = (ms) => new Date(ms).toISOString().slice(0, 10);
+        return { fri: toStr(fri), sat: toStr(fri + 86400000), sun: toStr(fri + 2 * 86400000) };
+    }
+
+    // Each <li> is "Title (Year)", sometimes with a leading bold label or a trailing
+    // "aka Other Title" -- stripped for the (title, year) pair used for TMDB
+    // lookup/matching; `display` keeps the full original text.
+    function lineupParseListItems(ulInnerHtml) {
+        const items = [];
+        const liRe = /<li>([\s\S]*?)<\/li>/g;
+        let lm;
+        while ((lm = liRe.exec(ulInnerHtml))) {
+            const display = lm[1].replace(/<strong>[^<]*<\/strong>\s*/, '').replace(/<[^>]+>/g, '').trim();
+            const withoutAka = display.replace(/\s+aka\s+.+$/i, '');
+            const ym = withoutAka.match(/^(.*)\s\((\d{4})\)$/);
+            if (ym) items.push({ title: ym[1].trim(), year: ym[2], display });
+        }
+        return items;
+    }
+
+    // Walks the post body in document order, assigning each <ul> of films to the most
+    // recently seen section name, and each section to the most recently seen day.
+    function lineupParseSchedule(contentHtml) {
+        const days = [];
+        let currentDay = null;
+        let pendingSectionName = null;
+        const re = /<strong>([^<]*)<\/strong>|<ul>([\s\S]*?)<\/ul>/g;
+        let m;
+        while ((m = re.exec(contentHtml))) {
+            if (m[1] !== undefined) {
+                const text = m[1].trim();
+                if (LINEUP_DAY_NAMES.includes(text)) {
+                    currentDay = { day: text, sections: [] };
+                    days.push(currentDay);
+                    pendingSectionName = null;
+                } else {
+                    pendingSectionName = text;
+                }
+            } else if (currentDay && pendingSectionName) {
+                const items = lineupParseListItems(m[2]);
+                if (items.length) currentDay.sections.push({ name: pendingSectionName, slug: lineupSlugify(pendingSectionName), items });
+                pendingSectionName = null;
+            }
+        }
+        return days;
+    }
+
+    function lineupGmFetch(url) {
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url,
+                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' },
+                onload: resolve,
+                onerror: reject,
+            });
+        });
+    }
+
+    // Fetches and fully parses the current schedule post. Throws on any failure
+    // (network, missing entry, unparseable date range, zero days/sections parsed) --
+    // the caller (lineupEnsureSchedule, Task 3) catches this and falls back to the
+    // Now/Next-only view built from live changeMedia data.
+    async function fetchTonightsSchedule() {
+        const res = await lineupGmFetch(LINEUP_FEED_URL);
+        if (!res || res.status !== 200) throw new Error('Reddit feed HTTP ' + (res && res.status));
+        const entry = lineupParseFirstEntry(res.responseText);
+        if (!entry) throw new Error('no entries found in feed');
+        const dateRange = lineupParseDateRange(entry.title, entry.publishedAt);
+        if (!dateRange) throw new Error('could not parse weekend date range from title: ' + entry.title);
+        const days = lineupParseSchedule(entry.contentHtml);
+        if (!days.length) throw new Error('no days parsed from schedule post');
+        const dateByDay = { Friday: dateRange.fri, Saturday: dateRange.sat, Sunday: dateRange.sun };
+        return {
+            postId: entry.postId,
+            title: entry.title,
+            publishedAt: entry.publishedAt,
+            days: days.map(d => ({ ...d, date: dateByDay[d.day] || null })),
+        };
+    }
+
+    /* ==========================================================
+       TONIGHT'S LINEUP -- timing/ETA model.
+       Precision decays honestly the further out an estimate is: 'exact' (current
+       feature's remaining runtime + one learned bumper gap), 'approx' (further out,
+       compounding uncertainty), 'late' (tail of the night -- running order only).
+    ========================================================== */
+
+    function lineupFormatEta(hour24, minute, precision) {
+        if (precision === 'late') return 'LATE';
+        const period = hour24 >= 12 ? 'PM' : 'AM';
+        let h = hour24 % 12;
+        if (h === 0) h = 12;
+        const mm = String(minute).padStart(2, '0');
+        const prefix = precision === 'approx' ? '~' : '≈';
+        return `${prefix} ${h}:${mm} ${period}`;
+    }
+
+    // Running median of observed bumper-gap durations (seconds) between features.
+    function lineupMedianGapSeconds(observedGaps) {
+        if (!observedGaps.length) return null;
+        const sorted = [...observedGaps].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+
+    // Pacific-timezone offset (minutes) of the UTC instant `d`. Noon is never within a
+    // couple hours of a DST transition (those happen at 2am local), so a single
+    // read-back is safe -- no iteration needed.
+    function lineupPacificOffsetMinutes(d) {
+        const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/Los_Angeles', hour12: false,
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit',
+        }).formatToParts(d);
+        const get = (t) => parts.find(p => p.type === t).value;
+        const hour = parseInt(get('hour'), 10) % 24;
+        const asUTC = Date.UTC(+get('year'), +get('month') - 1, +get('day'), hour, +get('minute'), +get('second'));
+        return (asUTC - d.getTime()) / 60000;
+    }
+
+    // The UTC instant that is Noon Pacific on the given 'YYYY-MM-DD' calendar date --
+    // the per-day showtime anchor, used as the walk-forward start point for whichever
+    // day is selected, not just Friday.
+    function lineupDayAnchorPacific(dateStr) {
+        const [y, m, d] = dateStr.split('-').map(Number);
+        const guess = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+        const offsetMinutes = lineupPacificOffsetMinutes(guess);
+        return new Date(guess.getTime() - offsetMinutes * 60000);
+    }
+
+    // Today's Pacific calendar date as 'YYYY-MM-DD' -- used to pick the default day
+    // tab (isToday) and to decide whether "now playing" should even be searched for.
+    function lineupPacificDateString(now = new Date()) {
+        const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit',
+        }).formatToParts(now);
+        const get = (t) => parts.find(p => p.type === t).value;
+        return `${get('year')}-${get('month')}-${get('day')}`;
     }
 
     /* ==========================================================
