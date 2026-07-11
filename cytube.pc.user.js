@@ -2783,7 +2783,9 @@
     }
 
     /* ==========================================================
-       POSTER STRIP — toggle show/hide the MOTD poster images
+       COMING ATTRACTIONS — toggle button for the Tonight's Lineup screen
+       (the full lineup screen and its data layer live in the "TONIGHT'S LINEUP"
+       sections above).
     ========================================================== */
 
     // Global wake/dim control — exposed so initPosterStrip can call wake()
@@ -2887,124 +2889,8 @@
     }
 
     function initPosterStrip() {
-        const motd = document.getElementById('motdrow');
-        if (!motd) return;
-
-        // Build the poster strip container from MOTD images
-        const imgs = [...motd.querySelectorAll('img')].filter(img => {
-            // Read HTML attributes (not rendered dimensions — motdrow is hidden so rendered = 0)
-            const w = parseInt(img.getAttribute('width') || 0);
-            const h = parseInt(img.getAttribute('height') || 0);
-            // Poster images in the MOTD are 125x175 — keep portrait-ish images, skip wide banners
-            return h >= 100 && w <= 200;
-        });
-        if (!imgs.length) return;
-
-        // Create our strip outside of #motdrow so we control it fully
-        const strip = document.createElement('div');
-        strip.id = 'sc-poster-strip';
-        // Single shared zoom element — lives on body, above everything
-        let zoomEl = document.getElementById('sc-poster-zoom');
-        if (!zoomEl) {
-            zoomEl = document.createElement('img');
-            zoomEl.id = 'sc-poster-zoom';
-            document.body.appendChild(zoomEl);
-        }
-
-        const ZOOM_H = 300;
-
-        const calcZoomTarget = (thumb) => {
-            const rect  = thumb.getBoundingClientRect();
-            const attrW = parseInt(thumb.getAttribute('width')  || 125);
-            const attrH = parseInt(thumb.getAttribute('height') || 175);
-            const zoomW = Math.round(ZOOM_H * (attrW / attrH));
-
-            // Always centre horizontally over the thumb, clamped to viewport
-            let left = rect.left + rect.width / 2 - zoomW / 2;
-            left = Math.max(8, Math.min(left, window.innerWidth - zoomW - 8));
-
-            // Anchor to the top of the thumb — expand upward from there
-            // If not enough room above, expand downward instead
-            let top;
-            if (rect.top >= ZOOM_H + 8) {
-                top = rect.top - ZOOM_H;          // expands upward, bottom edge at thumb top
-            } else {
-                top = rect.bottom - ZOOM_H;        // anchor bottom to thumb bottom, grows up into video
-                top = Math.max(8, top);
-            }
-
-            return { left, top, width: zoomW, height: ZOOM_H };
-        };
-
-        const positionZoom = (thumb) => {
-            const rect   = thumb.getBoundingClientRect();
-            const target = calcZoomTarget(thumb);
-
-            // Immediately place at thumb position/size (no transition yet)
-            zoomEl.classList.remove('sc-zoom-expanded');
-            zoomEl.style.transition = 'none';
-            zoomEl.style.left   = rect.left   + 'px';
-            zoomEl.style.top    = rect.top    + 'px';
-            zoomEl.style.width  = rect.width  + 'px';
-            zoomEl.style.height = rect.height + 'px';
-            zoomEl.style.display = 'block';
-
-            // Force a reflow so the browser registers the start state
-            zoomEl.getBoundingClientRect();
-
-            // Re-enable transition and animate to final size/position
-            zoomEl._collapsing = false;
-            zoomEl.style.transition = '';
-            zoomEl.style.left   = target.left   + 'px';
-            zoomEl.style.top    = target.top    + 'px';
-            zoomEl.style.width  = target.width  + 'px';
-            zoomEl.style.height = target.height + 'px';
-            zoomEl.classList.add('sc-zoom-expanded');
-        };
-
-        imgs.forEach(img => {
-            const thumb = document.createElement('img');
-            thumb.src = img.src;
-            thumb.className = 'sc-poster-thumb';
-            thumb.title = img.title || img.alt || '';
-            thumb.setAttribute('width',  img.getAttribute('width')  || '125');
-            thumb.setAttribute('height', img.getAttribute('height') || '175');
-
-            thumb.addEventListener('mouseenter', () => {
-                // Cancel any in-progress collapse
-                zoomEl._collapsing = false;
-                zoomEl.src = thumb.src;
-                positionZoom(thumb);
-            });
-            thumb.addEventListener('mouseleave', () => {
-                zoomEl._collapsing = true;
-                // Animate back to thumb size then hide
-                const rect = thumb.getBoundingClientRect();
-                zoomEl.classList.remove('sc-zoom-expanded');
-                zoomEl.style.left   = rect.left   + 'px';
-                zoomEl.style.top    = rect.top    + 'px';
-                zoomEl.style.width  = rect.width  + 'px';
-                zoomEl.style.height = rect.height + 'px';
-                // Hide only if still collapsing when transition ends
-                const onEnd = () => {
-                    zoomEl.removeEventListener('transitionend', onEnd);
-                    if (zoomEl._collapsing) {
-                        zoomEl.style.display = 'none';
-                        zoomEl.src = '';
-                        zoomEl._collapsing = false;
-                    }
-                };
-                zoomEl.addEventListener('transitionend', onEnd);
-            });
-
-            const wrap = document.createElement('a');
-            wrap.href = img.src;
-            wrap.target = '_blank';
-            wrap.rel = 'noopener noreferrer';
-            wrap.appendChild(thumb);
-            strip.appendChild(wrap);
-        });
-        document.body.appendChild(strip);
+        if (document.getElementById('sc-poster-toggle')) return;
+        if (!getMotdPosterImages().length) return;
 
         // Toggle button — injected below the video title
         const toggleBtn = document.createElement('button');
@@ -3012,15 +2898,15 @@
         toggleBtn.textContent = "Coming Attractions";
         toggleBtn.title = 'Show/hide weekend lineup';
         toggleBtn.addEventListener('click', () => {
-            const visible = strip.classList.toggle('sc-poster-visible');
-            toggleBtn.classList.toggle('sc-poster-toggle-active', visible);
-            // Tell the top bar system whether strip is open
-            _topBarIsOpen = visible;
-            if (visible && _topBarWake) {
-                _topBarWake(); // wake and keep awake
+            const isOpen = document.getElementById('sc-lineup-screen')?.classList.contains('sc-lineup-visible');
+            if (isOpen) {
+                hideLineupScreen();
+            } else {
+                showLineupScreen();
+                toggleBtn.classList.add('sc-poster-toggle-active');
+                _topBarIsOpen = true;
+                if (_topBarWake) _topBarWake();
             }
-            // If closing, restart the idle timer via a mousemove wake
-            // (the next mousemove in the zone will restart it naturally)
         });
         document.body.appendChild(toggleBtn);
     }
@@ -3316,7 +3202,7 @@
             motdObserver.observe(document.body, { childList: true, subtree: true });
             // Hard fallback — if observer never fires, try once after 2s
             setTimeout(() => {
-                if (!document.getElementById('sc-poster-strip')) initPosterStrip();
+                if (!document.getElementById('sc-poster-toggle')) initPosterStrip();
             }, 2000);
         }
 
@@ -3626,69 +3512,79 @@
             /* ===== MOTD — keep hidden, we extract images ourselves ===== */
             #motdrow { display: none !important; }
 
-            /* ===== POSTER STRIP ===== */
-            #sc-poster-strip {
-                display: none !important; /* hidden by default */
-                position: fixed !important;
-                top: 20px !important;   /* drops down from the header bar */
-                left: 0 !important;
-                z-index: 19500 !important;
-                width: 80vw !important;
-                background: rgba(0,0,0,0.93) !important;
-                padding: 8px 12px !important;
-                overflow-x: auto !important;
-                overflow-y: hidden !important;
-                white-space: nowrap !important;
-                border-bottom: 1px solid rgba(255,255,255,0.12) !important;
-                scrollbar-width: thin !important;
-                scrollbar-color: rgba(255,255,255,0.2) transparent !important;
+            /* ===== TONIGHT'S LINEUP SCREEN ===== */
+            #sc-lineup-screen {
+                position: fixed !important; inset: 0 !important;
+                z-index: 20500 !important;
+                background: rgba(6,4,8,0.97) !important;
+                opacity: 0 !important; pointer-events: none !important;
+                transition: opacity 0.25s ease !important;
+                overflow-y: auto !important;
+                font-family: system-ui, sans-serif !important;
+                padding: 40px 6% 60px !important;
             }
-            body.sc-vertical #sc-poster-strip {
-                width: 100vw !important;
-                top: 20px !important;
-                bottom: auto !important;
+            #sc-lineup-screen.sc-lineup-visible { opacity: 1 !important; pointer-events: auto !important; }
+            #sc-lineup-close {
+                position: fixed !important; top: 20px !important; right: 24px !important;
+                z-index: 20600 !important;
+                background: rgba(255,255,255,0.08) !important; border: none !important;
+                color: #fff !important; width: 34px !important; height: 34px !important;
+                border-radius: 50% !important; font-size: 16px !important; cursor: pointer !important;
             }
-            #sc-poster-strip.sc-poster-visible {
-                display: block !important;
+            #sc-lineup-close:hover { background: rgba(255,255,255,0.18) !important; }
+            #sc-lineup-header {
+                color: #fff !important; font-size: 28px !important; font-weight: 800 !important;
+                margin-bottom: 4px !important;
             }
-            .sc-poster-thumb {
-                height: 110px !important;
-                width: auto !important;
-                border-radius: 4px !important;
-                margin-right: 6px !important;
-                opacity: 0.82 !important;
-                transition: opacity 0.15s !important;
-                vertical-align: top !important;
-                cursor: pointer !important;
-                display: inline-block !important;
-                flex-shrink: 0 !important;
+            #sc-lineup-subtitle {
+                color: rgba(255,255,255,0.45) !important; font-size: 12px !important;
+                margin-bottom: 20px !important;
             }
-            .sc-poster-thumb:hover { opacity: 1 !important; }
-
-            #sc-poster-zoom {
-                display: none;
-                position: fixed !important;
-                z-index: 99990 !important;
-                pointer-events: none !important;
-                border-radius: 4px !important;
-                box-shadow: 0 0 0 rgba(0,0,0,0) !important;
-                border: 1px solid rgba(255,255,255,0.0) !important;
-                /* transition animates position, size, shadow, border together */
-                transition:
-                    top 0.22s cubic-bezier(0.22, 1, 0.36, 1),
-                    left 0.22s cubic-bezier(0.22, 1, 0.36, 1),
-                    width 0.22s cubic-bezier(0.22, 1, 0.36, 1),
-                    height 0.22s cubic-bezier(0.22, 1, 0.36, 1),
-                    box-shadow 0.22s ease,
-                    border-color 0.22s ease,
-                    border-radius 0.22s ease !important;
+            #sc-lineup-daytabs { display: flex !important; gap: 10px !important; margin-bottom: 24px !important; }
+            .sc-lineup-daytab {
+                background: rgba(255,255,255,0.08) !important; border: 1px solid rgba(255,255,255,0.14) !important;
+                color: rgba(255,255,255,0.7) !important; padding: 6px 18px !important;
+                border-radius: 999px !important; font-size: 13px !important; cursor: pointer !important;
+                text-transform: uppercase !important; letter-spacing: 0.06em !important;
             }
-            #sc-poster-zoom.sc-zoom-expanded {
-                box-shadow: 0 12px 48px rgba(0,0,0,0.92) !important;
-                border-color: rgba(255,255,255,0.2) !important;
-                border-radius: 6px !important;
+            .sc-lineup-daytab-active { background: rgba(255,255,255,0.9) !important; color: #111 !important; font-weight: 700 !important; }
+            #sc-lineup-loading { color: rgba(255,255,255,0.5) !important; font-size: 15px !important; padding: 40px 0 !important; }
+            .sc-lineup-section {
+                background: var(--sc-lineup-wash, #14141a) !important;
+                border-radius: 12px !important; padding: 18px 20px !important; margin-bottom: 18px !important;
             }
-
+            .sc-lineup-section-name {
+                font-size: 20px !important; font-weight: 700 !important; color: #fff !important;
+                margin-bottom: 12px !important; display: flex !important; align-items: baseline !important; gap: 10px !important;
+            }
+            .sc-lineup-section-count { font-size: 12px !important; color: rgba(255,255,255,0.4) !important; font-family: system-ui, sans-serif !important; }
+            .sc-lineup-rail { display: flex !important; gap: 12px !important; flex-wrap: wrap !important; }
+            .sc-lineup-item {
+                background: none !important; border: none !important; padding: 0 !important; cursor: pointer !important;
+                width: 130px !important; flex-shrink: 0 !important;
+            }
+            .sc-lineup-poster {
+                width: 130px !important; height: 182px !important; border-radius: 6px !important;
+                background-size: cover !important; background-position: center !important;
+                background-color: #222 !important; position: relative !important;
+                box-shadow: 0 6px 20px rgba(0,0,0,0.5) !important;
+                transition: transform 0.15s ease !important;
+            }
+            .sc-lineup-item:hover .sc-lineup-poster { transform: scale(1.04) !important; }
+            .sc-lineup-item-current .sc-lineup-poster { outline: 2px solid var(--np-accent, #ff5b73) !important; }
+            .sc-lineup-item-static { cursor: default !important; }
+            .sc-lineup-poster-fallback {
+                position: absolute !important; inset: 0 !important; display: flex !important;
+                align-items: center !important; justify-content: center !important; text-align: center !important;
+                color: rgba(255,255,255,0.8) !important; font-size: 12px !important; padding: 8px !important;
+            }
+            .sc-lineup-eta {
+                position: absolute !important; left: 4px !important; right: 4px !important; bottom: 4px !important;
+                background: rgba(0,0,0,0.75) !important; color: #fff !important; font-size: 10px !important;
+                text-align: center !important; border-radius: 3px !important; padding: 2px 0 !important;
+                letter-spacing: 0.04em !important;
+            }
+            .sc-lineup-item-current .sc-lineup-eta { background: var(--np-accent, #ff5b73) !important; }
 
             /* Toggle button — right side of the header bar, same line as the title */
             #sc-poster-toggle {
