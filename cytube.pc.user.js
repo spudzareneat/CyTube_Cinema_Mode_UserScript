@@ -2690,7 +2690,7 @@
     // One section's grouping. Named theme sections repeat every week (a slow-changing,
     // closed set), so each gets its own Google Font + accent color tying its header
     // and background together.
-    function lineupSectionEl(section, index, total) {
+    function lineupSectionEl(section) {
         const el = document.createElement('div');
         el.className = 'sc-lineup-section';
         const theme = getSectionTheme(section.slug);
@@ -2700,7 +2700,7 @@
             name.className = 'sc-lineup-section-name';
             name.style.setProperty('color', theme.color, 'important');
             if (theme.font) name.style.setProperty('font-family', `${theme.font}, cursive`, 'important');
-            name.innerHTML = `${section.name}${total > 1 ? `<span class="sc-lineup-section-count">${index + 1} / ${total}</span>` : ''}`;
+            name.textContent = section.name;
             el.appendChild(name);
         }
         const rail = document.createElement('div');
@@ -2731,7 +2731,7 @@
             body.innerHTML = '<div id="sc-lineup-loading">No lineup available right now.</div>';
             return;
         }
-        day.sections.forEach((section, i) => body.appendChild(lineupSectionEl(section, i, day.sections.length)));
+        day.sections.forEach((section) => body.appendChild(lineupSectionEl(section)));
     }
 
     function lineupShowDay(screen, day) {
@@ -3565,9 +3565,8 @@
             }
             .sc-lineup-section-name {
                 font-size: 20px !important; font-weight: 700 !important; color: #fff !important;
-                margin-bottom: 12px !important; display: flex !important; align-items: baseline !important; gap: 10px !important;
+                margin-bottom: 12px !important;
             }
-            .sc-lineup-section-count { font-size: 12px !important; color: rgba(255,255,255,0.4) !important; font-family: system-ui, sans-serif !important; }
             .sc-lineup-rail { display: flex !important; gap: 16px !important; flex-wrap: wrap !important; }
             .sc-lineup-item {
                 background: none !important; border: none !important; padding: 0 !important; cursor: pointer !important;
