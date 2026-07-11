@@ -2617,6 +2617,172 @@
     }
 
     /* ==========================================================
+       TONIGHT'S LINEUP -- full-screen schedule overlay, opened from the Coming
+       Attractions toggle (Task 5). Friday/Saturday/Sunday day tabs switch which day
+       is shown; within a day, every section renders stacked and native page-scroll
+       moves between them (no D-pad paging -- this is mouse/keyboard, unlike the
+       Android TV build this was ported from). OK/click on a film opens the existing
+       Now-Playing card in browse mode. Ported from the Android app's
+       web/src/lineup/screen.js, with the TV-only paging path removed.
+    ========================================================== */
+
+    let _lineupLastData = null;   // most recent getTonightsLineup() result, so tab switches don't refetch
+    let _lineupActiveDay = null;  // currently selected day name
+
+    function lineupEnsureScreenDom() {
+        lineupEnsureThemeFontsLoaded();
+        let screen = document.getElementById('sc-lineup-screen');
+        if (screen) return screen;
+        screen = document.createElement('div');
+        screen.id = 'sc-lineup-screen';
+        screen.innerHTML = `
+            <button id="sc-lineup-close" type="button">✕</button>
+            <div id="sc-lineup-header"></div>
+            <div id="sc-lineup-subtitle">Titles/times may be subject to change.</div>
+            <nav id="sc-lineup-daytabs"></nav>
+            <div id="sc-lineup-body"></div>`;
+        screen.querySelector('#sc-lineup-close').addEventListener('click', hideLineupScreen);
+        document.body.appendChild(screen);
+        return screen;
+    }
+
+    function lineupRenderLoading(screen) {
+        screen.querySelector('#sc-lineup-daytabs').innerHTML = '';
+        screen.querySelector('#sc-lineup-body').innerHTML =
+            '<div id="sc-lineup-loading">Fetching tonight\'s lineup...</div>';
+    }
+
+    function lineupItemButton(item) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'sc-lineup-item'
+            + (item.isNowPlaying ? ' sc-lineup-item-current' : '')
+            + (item.clickable === false ? ' sc-lineup-item-static' : '');
+        const titleText = `${item.cleanTitle}${item.cleanYear ? ` (${item.cleanYear})` : ''}`;
+        const etaText = item.isNowPlaying ? 'NOW PLAYING' : (item.etaLabel || '');
+        // Titles are shown IN the poster box only when there's no art to identify the
+        // film by -- when real poster art is present, no title text is shown at all;
+        // click still opens the Now-Playing card with the full title if needed.
+        btn.innerHTML = `
+            <div class="sc-lineup-poster" style="${item.poster ? `background-image:url(${item.poster})` : ''}">
+                ${!item.poster ? `<div class="sc-lineup-poster-fallback">${titleText}</div>` : ''}
+                ${etaText ? `<div class="sc-lineup-eta">${etaText}</div>` : ''}
+            </div>`;
+        // Static fallback posters are display-only (item.clickable === false) -- they
+        // have no real title/overview to show, so click does nothing for them.
+        if (item.clickable !== false) {
+            btn.addEventListener('click', () => showNowPlayingCard(item, { autoHide: false }));
+        }
+        return btn;
+    }
+
+    // One section's grouping. Named theme sections repeat every week (a slow-changing,
+    // closed set), so each gets its own Google Font + accent color tying its header
+    // and background together.
+    function lineupSectionEl(section, index, total) {
+        const el = document.createElement('div');
+        el.className = 'sc-lineup-section';
+        const theme = getSectionTheme(section.slug);
+        el.style.setProperty('--sc-lineup-wash', theme.wash);
+        if (section.name) {
+            const name = document.createElement('div');
+            name.className = 'sc-lineup-section-name';
+            name.style.setProperty('color', theme.color, 'important');
+            if (theme.font) name.style.setProperty('font-family', `${theme.font}, cursive`, 'important');
+            name.innerHTML = `${section.name}${total > 1 ? `<span class="sc-lineup-section-count">${index + 1} / ${total}</span>` : ''}`;
+            el.appendChild(name);
+        }
+        const rail = document.createElement('div');
+        rail.className = 'sc-lineup-rail';
+        section.items.forEach(item => rail.appendChild(lineupItemButton(item)));
+        el.appendChild(rail);
+        return el;
+    }
+
+    function lineupRenderDayTabs(screen, days) {
+        const tabs = screen.querySelector('#sc-lineup-daytabs');
+        tabs.innerHTML = '';
+        days.forEach((d) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'sc-lineup-daytab' + (d.day === _lineupActiveDay ? ' sc-lineup-daytab-active' : '');
+            btn.textContent = d.day;
+            btn.addEventListener('click', () => lineupShowDay(screen, d.day));
+            tabs.appendChild(btn);
+        });
+    }
+
+    function lineupRenderBody(screen, days) {
+        const body = screen.querySelector('#sc-lineup-body');
+        body.innerHTML = '';
+        const day = days.find(d => d.day === _lineupActiveDay) || days[0];
+        if (!day || !day.sections.length) {
+            body.innerHTML = '<div id="sc-lineup-loading">No lineup available right now.</div>';
+            return;
+        }
+        day.sections.forEach((section, i) => body.appendChild(lineupSectionEl(section, i, day.sections.length)));
+    }
+
+    function lineupShowDay(screen, day) {
+        _lineupActiveDay = day;
+        const tabs = [...screen.querySelectorAll('.sc-lineup-daytab')];
+        tabs.forEach(t => t.classList.toggle('sc-lineup-daytab-active', t.textContent === day));
+        lineupRenderBody(screen, _lineupLastData.days);
+    }
+
+    // Degraded view when Reddit is unreachable: the current title (if known) plus the
+    // static Coming Attractions art, as one flat rail -- no tabs, no sections, since
+    // there's no real day/section structure to show in this mode.
+    function lineupRenderFallback(screen, data) {
+        screen.querySelector('#sc-lineup-daytabs').innerHTML = '';
+        const body = screen.querySelector('#sc-lineup-body');
+        body.innerHTML = '';
+        const items = (data.days && data.days[0] && data.days[0].sections[0] && data.days[0].sections[0].items) || [];
+        if (!items.length) {
+            body.innerHTML = '<div id="sc-lineup-loading">No lineup available right now.</div>';
+            return;
+        }
+        const section = document.createElement('div');
+        section.className = 'sc-lineup-section sc-lineup-section-fallback';
+        const rail = document.createElement('div');
+        rail.className = 'sc-lineup-rail';
+        items.forEach(item => rail.appendChild(lineupItemButton(item)));
+        section.appendChild(rail);
+        body.appendChild(section);
+    }
+
+    function lineupRenderItems(screen, data) {
+        const header = screen.querySelector('#sc-lineup-header');
+        if (header) header.textContent = (data && data.listTitle) || 'Grindhouse Lineup';
+        _lineupLastData = data;
+        if (!data || data.fallback) { lineupRenderFallback(screen, data || { days: [] }); return; }
+        const days = data.days || [];
+        // Recomputed fresh on every open so a manual tab switch from a PRIOR open
+        // doesn't linger -- opening the screen always starts back on today's day (or
+        // the first day, before the weekend starts).
+        _lineupActiveDay = (days.find(d => d.isToday) || days[0] || {}).day || null;
+        lineupRenderDayTabs(screen, days);
+        lineupRenderBody(screen, days);
+    }
+
+    function showLineupScreen() {
+        const screen = lineupEnsureScreenDom();
+        screen.classList.add('sc-lineup-visible');
+        lineupRenderLoading(screen);
+        getTonightsLineup()
+            .then(data => lineupRenderItems(screen, data))
+            .catch(() => { lineupRenderItems(screen, { fallback: true, days: [] }); });
+    }
+
+    function hideLineupScreen() {
+        const screen = document.getElementById('sc-lineup-screen');
+        if (screen) screen.classList.remove('sc-lineup-visible');
+        _topBarIsOpen = false;
+        const toggleBtn = document.getElementById('sc-poster-toggle');
+        if (toggleBtn) toggleBtn.classList.remove('sc-poster-toggle-active');
+    }
+
+    /* ==========================================================
        POSTER STRIP — toggle show/hide the MOTD poster images
     ========================================================== */
 
