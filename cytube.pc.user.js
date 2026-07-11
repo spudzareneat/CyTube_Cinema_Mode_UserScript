@@ -31,6 +31,7 @@
     const LS_CHAT_FONT   = 'sc_chat_fontsize';
     const LS_MOVIE_LINKS = 'sc_movie_links';
     const LS_IMGBB       = 'sc_imgbb_key';
+    const LS_MOVIE_CACHE = 'sc_movie_cache_v1';
     const getKey   = id => localStorage.getItem(id) || '';
     const setKey   = (id, v) => localStorage.setItem(id, v.trim());
     const hasKey   = id => !!getKey(id);
@@ -1342,7 +1343,14 @@
     ];
 
     let lastMovieTitle = '';
-    let movieLinkCache = {}; // cache by raw title to avoid repeat lookups
+    // Cache by raw title to avoid repeat lookups — persisted to localStorage so a page
+    // reload doesn't re-hit TMDB/Wikipedia/IMDb for every title already looked up.
+    let movieLinkCache = (() => {
+        try {
+            const raw = localStorage.getItem(LS_MOVIE_CACHE);
+            return raw ? JSON.parse(raw) : {};
+        } catch (e) { return {}; }
+    })();
 
     // ── Kill-Count JSONL (fetched once, keyed by tmdbId) ───────────────────────
     let killCountDb = null; // null = not loaded yet, {} = loaded (may be empty)
@@ -1537,6 +1545,8 @@
         };
 
         movieLinkCache[cacheKey] = result;
+        try { localStorage.setItem(LS_MOVIE_CACHE, JSON.stringify(movieLinkCache)); }
+        catch (e) { /* storage full/unavailable -- in-memory cache for this session still works */ }
         return result;
     }
 
@@ -2128,6 +2138,7 @@
             setKey(LS_CHAT_FONT,   String(fontPx));
             applyChatFontSize(fontPx);
             movieLinkCache = {};
+            try { localStorage.removeItem(LS_MOVIE_CACHE); } catch (e) {}
             lastMovieTitle = '';
             triggerTitleInject();
             const status = document.getElementById('sc-settings-status');
