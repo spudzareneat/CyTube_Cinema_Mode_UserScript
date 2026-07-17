@@ -1481,9 +1481,18 @@
             try {
                 const params = new URLSearchParams({ api_key: getKey(LS_TMDB), query: title, language: 'en-US' });
                 if (year) params.set('year', year);
-                const res = await fetch(`https://api.themoviedb.org/3/search/movie?${params}`);
+                let res = await fetch(`https://api.themoviedb.org/3/search/movie?${params}`);
                 if (!res.ok) return;
-                const data = await res.json();
+                let data = await res.json();
+                // TMDB's `year` param is a hard filter, not a ranking hint -- a schedule's
+                // listed year one off from TMDB's own release date returns zero results even
+                // though the film is right there under a yearless search. Retry once without it.
+                if (!data.results?.length && year) {
+                    params.delete('year');
+                    res = await fetch(`https://api.themoviedb.org/3/search/movie?${params}`);
+                    if (!res.ok) return;
+                    data = await res.json();
+                }
                 if (!data.results?.length) return;
                 let best = data.results[0];
                 if (year) {
@@ -2245,20 +2254,34 @@
         return { fri: toStr(fri), sat: toStr(fri + 86400000), sun: toStr(fri + 2 * 86400000) };
     }
 
-    // Each <li> is "Title (Year)", sometimes with a leading bold label or a trailing
-    // "aka Other Title" -- stripped for the (title, year) pair used for TMDB
-    // lookup/matching; `display` keeps the full original text.
+    // Each <li> is "Title (Year)", sometimes with a leading bold label or trailing
+    // "aka Other Title" name(s). The primary (title, year) pair drives the TMDB lookup;
+    // akas become extra MATCH aliases (the stream sometimes plays a film under the
+    // file's aka name); `display` keeps the full original text.
     function lineupParseListItems(ulInnerHtml) {
         const items = [];
         const liRe = /<li>([\s\S]*?)<\/li>/g;
         let lm;
         while ((lm = liRe.exec(ulInnerHtml))) {
             const display = lm[1].replace(/<strong>[^<]*<\/strong>\s*/, '').replace(/<[^>]+>/g, '').trim();
-            const withoutAka = display.replace(/\s+aka\s+.+$/i, '');
-            const ym = withoutAka.match(/^(.*)\s\((\d{4})\)$/);
-            if (ym) items.push({ title: ym[1].trim(), year: ym[2], display });
+            const [primary, ...akaParts] = display.split(/\s+aka\s+/i);
+            const ym = primary.trim().match(/^(.*)\s\((\d{4})\)$/);
+            if (!ym) continue;
+            const akas = akaParts
+                .map(a => a.replace(/\s*\(\d{4}\)\s*$/, '').trim())
+                .filter(Boolean);
+            items.push({ title: ym[1].trim(), year: ym[2], display, akas });
         }
         return items;
+    }
+
+    // Case-insensitive "is this schedule item the film called `title`?" -- checks the
+    // primary title and every post-provided aka. Tolerates cached schedules written
+    // before akas existed (no `akas` field).
+    function lineupItemMatchesTitle(item, title) {
+        const t = (title || '').toLowerCase();
+        if (item.title.toLowerCase() === t) return true;
+        return (item.akas || []).some(a => a.toLowerCase() === t);
     }
 
     // Walks the post body in document order, assigning each <ul> of films to the most
@@ -2626,12 +2649,26 @@
         }));
     }
 
+    // TMDB is searched under the post's primary title first; if that comes up empty, retry
+    // under each aka in turn -- the stream sometimes plays (and the post lists) a film under
+    // a retitle TMDB doesn't recognize (e.g. "Alien Predators" has no TMDB entry, but its
+    // stated aka "The Falling" does) that lineupItemMatchesTitle already treats as the same film.
+    async function lineupLookupItem(item) {
+        const primary = await lookupMovie(item.title, item.year);
+        if (primary.cleanTitle || !item.akas?.length) return primary;
+        for (const aka of item.akas) {
+            const info = await lookupMovie(aka, item.year);
+            if (info.cleanTitle) return info;
+        }
+        return primary;
+    }
+
     async function getTonightsLineup() {
         await lineupEnsureSchedule();
         if (!_lineupScheduleCache) return lineupFallbackView();
 
         const allItems = lineupAllScheduleTitles();
-        const infos = await Promise.all(allItems.map(({ title, year }) => lookupMovie(title, year)));
+        const infos = await Promise.all(allItems.map(lineupLookupItem));
         const infosByKey = new Map(allItems.map((item, i) => [item.title + '|' + item.year, infos[i]]));
 
         const todayStr = lineupPacificDateString();
