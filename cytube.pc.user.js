@@ -2535,7 +2535,9 @@
         return LINEUP_THEMES[slug] || LINEUP_DEFAULT_THEME;
     }
 
-    const LINEUP_FONT_FAMILIES = ['Boogaloo', 'Chewy', 'Creepster', 'Rubik+Wet+Paint', 'Monoton', 'Vast+Shadow', 'Cinzel', 'Eater', 'Bungee+Shade'];
+    // Bebas Neue isn't a section theme -- it's the ETA/"NOW PLAYING" caption face.
+    // Alfa Slab One isn't a section theme either -- it's the day-tab ticket-stub face.
+    const LINEUP_FONT_FAMILIES = ['Boogaloo', 'Chewy', 'Creepster', 'Rubik+Wet+Paint', 'Monoton', 'Vast+Shadow', 'Cinzel', 'Eater', 'Bungee+Shade', 'Bebas+Neue', 'Alfa+Slab+One'];
     const LINEUP_FONTS_LINK_ID = 'sc-lineup-theme-fonts';
 
     // Idempotent -- safe to call on every showLineupScreen(); only injects the <link>
@@ -2864,7 +2866,13 @@
             <div id="sc-lineup-header"></div>
             <div id="sc-lineup-subtitle">Titles/times may be subject to change.</div>
             <nav id="sc-lineup-daytabs"></nav>
-            <div id="sc-lineup-body"></div>`;
+            <div id="sc-lineup-body"></div>
+            <svg width="0" height="0" style="position:absolute">
+                <filter id="sc-ticket-grain">
+                    <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" result="noise"/>
+                    <feColorMatrix in="noise" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.08 0"/>
+                </filter>
+            </svg>`;
         screen.querySelector('#sc-lineup-close').addEventListener('click', hideLineupScreen);
         // Clicking the screen's own background (the side gutters, or any empty space
         // below the last section) closes it -- only fires when the click lands on the
@@ -2946,7 +2954,10 @@
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'sc-lineup-daytab' + (d.day === _lineupActiveDay ? ' sc-lineup-daytab-active' : '');
-            btn.textContent = d.day;
+            // The label sits in its own stacked (z-index) span so it always paints above the
+            // ticket-stub's ::before (tear-line/perforation) and ::after (paper-grain) pseudo-
+            // elements -- those are position:absolute and would otherwise paint over plain text.
+            btn.innerHTML = `<span class="sc-lineup-daytab-label">${d.day}</span>`;
             btn.addEventListener('click', () => lineupShowDay(screen, d.day));
             tabs.appendChild(btn);
         });
@@ -3779,14 +3790,47 @@
                 color: rgba(255,255,255,0.45) !important; font-size: 12px !important;
                 margin-bottom: 20px !important;
             }
-            #sc-lineup-daytabs { display: flex !important; gap: 10px !important; margin-bottom: 24px !important; }
+            #sc-lineup-daytabs { display: flex !important; gap: 14px !important; margin-bottom: 24px !important; }
+            /* Day tabs — torn-ticket-stub look: perforation edge, paper grain (the SVG
+               filter defined once in lineupEnsureScreenDom's template), Alfa Slab One face. */
             .sc-lineup-daytab {
-                background: rgba(255,255,255,0.08) !important; border: 1px solid rgba(255,255,255,0.14) !important;
-                color: rgba(255,255,255,0.7) !important; padding: 6px 18px !important;
-                border-radius: 999px !important; font-size: 13px !important; cursor: pointer !important;
-                text-transform: uppercase !important; letter-spacing: 0.06em !important;
+                position: relative !important; overflow: hidden !important;
+                background: #c9c2b8 !important; border: 1px solid #b0a89c !important;
+                color: #4a4238 !important; font-family: 'Alfa Slab One', serif !important; font-weight: 400 !important;
+                font-size: 13px !important; letter-spacing: 0.01em !important;
+                padding: 9px 16px 9px 24px !important; border-radius: 3px !important; cursor: pointer !important;
             }
-            .sc-lineup-daytab-active { background: rgba(255,255,255,0.9) !important; color: #111 !important; font-weight: 700 !important; }
+            .sc-lineup-daytab-label { position: relative !important; z-index: 2 !important; }
+            /* Perforation edge: a dashed tear-line plus a column of punch-holes just inside
+               it, like the tab was torn off a longer ticket strip. The hole color is
+               hardcoded to match #sc-lineup-screen's own near-opaque background
+               (rgba(6,4,8,0.97)) since a real cutout isn't possible on an opaque button. */
+            .sc-lineup-daytab::before {
+                content: '' !important; position: absolute !important; z-index: 1 !important;
+                left: 9px !important; top: 4px !important; bottom: 4px !important; width: 7px !important;
+                border-left: 2px dashed rgba(0,0,0,0.2) !important;
+                background-image: radial-gradient(circle, #060408 2.5px, transparent 2.6px) !important;
+                background-size: 7px 12px !important; background-repeat: repeat-y !important;
+            }
+            /* Subtle paper-grain texture -- feTurbulence ignores the element's own pixels,
+               so this pseudo-element just becomes translucent noise layered over the ticket. */
+            .sc-lineup-daytab::after {
+                content: '' !important; position: absolute !important; inset: 0 !important; z-index: 1 !important;
+                filter: url(#sc-ticket-grain) !important; pointer-events: none !important;
+            }
+            /* Deep ticket-red + a torn edge for the selected day. The tear runs the full
+               left edge (where the perforation implies it was ripped off the strip) plus
+               small nicks at both right corners. */
+            .sc-lineup-daytab-active {
+                background: #7a1f1a !important; border: none !important; color: #f5e4c8 !important;
+                clip-path: polygon(
+                    6% 0%, 88% 0%, 94% 4%, 100% 9%, 95% 14%, 100% 19%,
+                    100% 81%, 95% 86%, 100% 91%, 94% 96%, 88% 100%, 6% 100%,
+                    2% 97%, 9% 92%, 5% 84%, 9% 76%, 6% 66%, 9% 56%, 5% 46%, 9% 36%, 6% 26%, 9% 16%, 2% 6%, 6% 0%
+                ) !important;
+            }
+            .sc-lineup-daytab-active::before { border-left-color: rgba(245,228,200,0.3) !important; }
+            .sc-lineup-daytab:hover:not(.sc-lineup-daytab-active) { background: #d6cfc4 !important; }
             #sc-lineup-loading { color: rgba(255,255,255,0.5) !important; font-size: 15px !important; padding: 40px 0 !important; }
             .sc-lineup-section {
                 background: var(--sc-lineup-wash, #14141a) !important;
@@ -3819,13 +3863,22 @@
                 align-items: center !important; justify-content: center !important; text-align: center !important;
                 color: rgba(255,255,255,0.8) !important; padding: 8px !important; overflow: hidden !important;
             }
+            /* Start-time estimate, overlaid directly on the poster art (a caption bar
+               pinned to its bottom edge) instead of a separate line below -- readable over
+               any art via the gradient backing, regardless of NOW PLAYING/estimated/blank
+               state. Bebas Neue is a marquee-style condensed face; it runs visually small
+               for its px size, hence 18px where a normal face would use ~13px. */
             .sc-lineup-eta {
-                position: absolute !important; left: 4px !important; right: 4px !important; bottom: 4px !important;
-                background: rgba(0,0,0,0.75) !important; color: #fff !important; font-size: 10px !important;
-                text-align: center !important; border-radius: 3px !important; padding: 2px 0 !important;
-                letter-spacing: 0.04em !important;
+                position: absolute !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+                padding: 18px 10px 6px !important; box-sizing: border-box !important;
+                background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.75) 60%, rgba(0,0,0,0.85) 100%) !important;
+                border-radius: 0 0 6px 6px !important;
+                font-family: 'Bebas Neue', 'Inter', 'Roboto', system-ui, sans-serif !important;
+                font-size: 18px !important; font-weight: 400 !important; letter-spacing: 0.06em !important;
+                color: rgba(255,255,255,0.85) !important;
+                text-align: center !important;
             }
-            .sc-lineup-item-current .sc-lineup-eta { background: var(--np-accent, #ff5b73) !important; }
+            .sc-lineup-item-current .sc-lineup-eta { color: var(--np-accent, #ff5b73) !important; }
 
             /* Toggle button — right side of the header bar, same line as the title */
             #sc-poster-toggle {
