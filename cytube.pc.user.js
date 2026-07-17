@@ -2370,6 +2370,99 @@
         return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
     }
 
+    // Friendly display rounding for an ETA instant: these are guesses, so don't show
+    // oddly-specific minutes. 'approx' floors to the previous quarter-hour (4:39 -> 4:30);
+    // 'exact' has a real live anchor behind it, so it only snaps to the nearest 5 minutes.
+    // A displayed time must never already be in the past (it reads as broken -- e.g. a long
+    // bumper block pushed the walk behind the clock), so anything that rounds to before
+    // `nowMs` clamps up to the next grid point at-or-after now instead. Epoch flooring lands
+    // on local :00/:15/:30/:45 because real UTC offsets are 15-min multiples.
+    function lineupRoundEtaMs(etaMs, precision, nowMs) {
+        const grid = precision === 'exact' ? 5 * 60000 : 15 * 60000;
+        const round = precision === 'exact' ? Math.round : Math.floor;
+        const rounded = round(etaMs / grid) * grid;
+        if (nowMs != null && rounded < nowMs) return Math.ceil(nowMs / grid) * grid;
+        return rounded;
+    }
+
+    const LINEUP_MAX_ESTIMATED_AHEAD = 4; // live-anchored: how many upcoming films past "now" get ETAs
+    const LINEUP_MAX_PRE_SHOW = 3;        // projection-only: how many films get a "starts around then" guess
+
+    // Per-film played/now-playing/ETA model for one day of the lineup. Pure -- every
+    // input is a number/array so the whole branch tree is easy to reason about without
+    // the socket/DOM state the data layer feeds it from. Returns one entry per film
+    // (same order): { played, isNowPlaying, etaMs: epoch-ms | null, precision: 'exact' | 'approx' }
+    // Estimates degrade honestly by evidence quality: a confirmed now-playing film gives
+    // the next film an 'exact' ETA; a bumper anchor or the noon-Pacific clock projection
+    // only ever supports 'approx'.
+    function lineupEstimateDayItems({
+        nowMs, anchorMs, runtimesMin, gapSeconds, dayStatus,
+        currentIndex, remainingSec, furthestPlayedIndex, bumperStartMs,
+    }) {
+        const gapMs = gapSeconds * 1000;
+        const runtimeMs = (i) => (runtimesMin[i] ? runtimesMin[i] * 60000 : 0);
+        const blank = { played: false, isNowPlaying: false, etaMs: null, precision: 'approx' };
+
+        if (dayStatus === 'past') {
+            return runtimesMin.map(() => ({ ...blank, played: true }));
+        }
+
+        // Clock projection from the noon anchor: each film's start/end if the night ran
+        // exactly to schedule. Used for future days, today's pre-show, and joined-late.
+        const projected = [];
+        let cursor = anchorMs;
+        runtimesMin.forEach((_, i) => {
+            projected.push({ startMs: cursor, endMs: cursor + runtimeMs(i) });
+            cursor += runtimeMs(i) + gapMs;
+        });
+
+        if (dayStatus === 'today' && currentIndex >= 0) {
+            // Live anchor: walk forward from the current film's remaining runtime.
+            let cumulative = Math.max(0, remainingSec) * 1000;
+            return runtimesMin.map((_, idx) => {
+                if (idx === currentIndex) return { ...blank, isNowPlaying: true };
+                if (idx < currentIndex || idx <= furthestPlayedIndex) return { ...blank, played: true };
+                const offset = idx - currentIndex;
+                cumulative += gapMs;
+                const withEta = offset <= LINEUP_MAX_ESTIMATED_AHEAD
+                    ? { ...blank, etaMs: nowMs + cumulative, precision: offset === 1 ? 'exact' : 'approx' }
+                    : { ...blank };
+                cumulative += runtimeMs(idx);
+                return withEta;
+            });
+        }
+
+        if (dayStatus === 'today' && furthestPlayedIndex >= 0) {
+            // Bumper between films (or a title we failed to match): the furthest observed
+            // film has finished; keep estimating from when the unmatched item started.
+            let cumulative = (bumperStartMs != null ? bumperStartMs : nowMs) + gapMs;
+            return runtimesMin.map((_, idx) => {
+                if (idx <= furthestPlayedIndex) return { ...blank, played: true };
+                const offset = idx - furthestPlayedIndex;
+                const withEta = offset <= LINEUP_MAX_ESTIMATED_AHEAD ? { ...blank, etaMs: cumulative } : { ...blank };
+                cumulative += runtimeMs(idx) + gapMs;
+                return withEta;
+            });
+        }
+
+        // No observation at all: future day, today's pre-show, or joined-late today.
+        // Gray by projected end; guess starts for the next LINEUP_MAX_PRE_SHOW unstarted
+        // films. A film straddling `now` is left unmarked -- probably playing, unconfirmed.
+        let guesses = 0;
+        return runtimesMin.map((_, idx) => {
+            const p = projected[idx];
+            if (dayStatus === 'today') {
+                if (p.endMs < nowMs) return { ...blank, played: true };
+                if (p.startMs <= nowMs) return { ...blank };
+            }
+            if (guesses < LINEUP_MAX_PRE_SHOW) {
+                guesses++;
+                return { ...blank, etaMs: p.startMs };
+            }
+            return { ...blank };
+        });
+    }
+
     // Pacific-timezone offset (minutes) of the UTC instant `d`. Noon is never within a
     // couple hours of a DST transition (those happen at 2am local), so a single
     // read-back is safe -- no iteration needed.
@@ -2403,6 +2496,16 @@
         }).formatToParts(now);
         const get = (t) => parts.find(p => p.type === t).value;
         return `${get('year')}-${get('month')}-${get('day')}`;
+    }
+
+    // True once a cached schedule's own weekend has fully elapsed. The pinned Reddit post
+    // always describes the upcoming Fri-Sun, so once Sunday's date is in the past there is
+    // definitely a newer post live -- a harder, date-driven signal than a fetch-age timer,
+    // used by lineupEnsureSchedule to guarantee a rolled-over post gets picked up rather
+    // than relying on however long it's been since the last fetch.
+    function lineupScheduleExpired(sched, todayStr = lineupPacificDateString()) {
+        const lastDate = sched.days.reduce((max, d) => (d.date && d.date > max ? d.date : max), '');
+        return !lastDate || todayStr > lastDate;
     }
 
     /* ==========================================================
@@ -2448,26 +2551,33 @@
 
     /* ==========================================================
        TONIGHT'S LINEUP -- data interface consumed by the lineup screen (below).
-       Fetches + caches the Reddit schedule post once per session (persisted to
-       localStorage across page reloads, keyed by the post's own id -- self-heals
-       whenever the pinned post rolls over to next week's), locates "now" within
-       TODAY's day only, and projects the next LINEUP_MAX_ESTIMATED_AHEAD upcoming
-       films' ETA from TMDB runtimes plus a learned median bumper-gap, anchored at
-       that day's Noon-Pacific showtime start. Falls back to the current title plus
-       the static admin-curated MOTD poster art if the fetch fails and no usable
-       cache exists. Ported from the Android app's web/src/lineup/data.js.
+       Fetches + caches the Reddit schedule post, persisted to localStorage and
+       re-checked every time the lineup screen opens: a background revalidate past
+       LINEUP_CACHE_MAX_AGE_MS, or an awaited one once the cached weekend's own dates
+       are in the past (lineupScheduleExpired) -- the latter guarantees a new pinned
+       post gets picked up even if this tab has sat open since before it rolled over.
+       Locates "now" within TODAY's day only, and feeds the pure timing model
+       (lineupEstimateDayItems above) each day's TMDB runtimes, the learned median
+       bumper-gap, the confirmed now-playing film, and the persisted furthest-played
+       marker -- yielding per-film ETAs (live-anchored, bumper-anchored, or projected
+       from that day's Noon-Pacific showtime start) plus a played flag that grays
+       already-shown posters. Falls back to the current title plus the static
+       admin-curated MOTD poster art if the fetch fails and no usable cache exists.
+       Ported from the Android app's web/src/lineup/data.js.
     ========================================================== */
 
     const LS_LINEUP_CACHE = 'sc_lineup_cache_v1';
+    const LS_LINEUP_PROGRESS = 'sc_lineup_progress_v1'; // furthest film observed playing today
     const LINEUP_CACHE_MAX_AGE_MS = 20 * 60 * 60 * 1000; // background-revalidate if older than this
     const LINEUP_FALLBACK_TITLE = 'Coming Attractions';
-    const LINEUP_MAX_ESTIMATED_AHEAD = 4; // only the next N upcoming films get any time estimate at all
+    const LINEUP_PROGRESS_CONFIRM_MS = 5 * 60 * 1000; // a match this brief was a queue jump, not a showing
 
     let _lineupScheduleCache = null;     // {postId, title, publishedAt, days, fetchedAt} or null
     let _lineupFetchFailed = false;      // sticky for the session once Reddit is unreachable AND no cache at all
     let _lineupRevalidating = false;
-    let _lineupObservedGaps = [];        // durations (s) of changeMedia items that didn't match the schedule
-    let _lineupLastUnmatchedStart = null; // Date.now() when the current unmatched (bumper) item started
+    let _lineupObservedGaps = [];        // durations (s) of unmatched blocks between scheduled features
+    let _lineupLastUnmatchedStart = null; // Date.now() when the current unmatched (bumper) BLOCK started
+    let _lineupPendingProgress = null;   // {idx, since} -- a matched film not yet current long enough to count as played
 
     function lineupReadCache() {
         try {
@@ -2480,25 +2590,64 @@
         catch (e) { /* storage full/unavailable -- in-memory cache for this session still works */ }
     }
 
-    function lineupAllScheduleTitles() {
-        if (!_lineupScheduleCache) return [];
-        return _lineupScheduleCache.days.flatMap(d => d.sections.flatMap(s => s.items));
+    function lineupAllScheduleTitles(sched = _lineupScheduleCache) {
+        if (!sched) return [];
+        return sched.days.flatMap(d => d.sections.flatMap(s => s.items));
     }
 
-    // Learn bumper-gap duration live: a currently-playing title that doesn't match
-    // anything in tonight's schedule is a bumper; the time between it starting and the
-    // next (matched-or-not) title change is one observed gap sample. Called from
-    // injectMovieLinks (Step 2 below) with the same deduped rawTitle that function
-    // already tracks in lastMovieTitle.
+    // Furthest flat index within TODAY's day ever observed playing, persisted so grayed
+    // "already played" posters survive a page reload mid-night. Self-resets when the
+    // stored Pacific date isn't today's.
+    function lineupReadProgress() {
+        try {
+            const p = JSON.parse(localStorage.getItem(LS_LINEUP_PROGRESS));
+            return p && p.date === lineupPacificDateString() && p.furthestIndex >= 0 ? p.furthestIndex : -1;
+        } catch (e) { return -1; }
+    }
+    function lineupWriteProgress(furthestIndex) {
+        try { localStorage.setItem(LS_LINEUP_PROGRESS, JSON.stringify({ date: lineupPacificDateString(), furthestIndex })); }
+        catch (e) { /* storage full/unavailable -- graying just degrades to clock projection */ }
+    }
+
+    // If a matched film has now been current long enough to be a real showing (not a
+    // momentary queue jump), commit it to the persisted marker. Called when the next
+    // title change arrives AND from lineupBuildDaySections, so a still-playing film
+    // past the threshold counts even before it ends.
+    function lineupCommitConfirmedProgress() {
+        if (!_lineupPendingProgress) return;
+        if (Date.now() - _lineupPendingProgress.since >= LINEUP_PROGRESS_CONFIRM_MS) {
+            if (_lineupPendingProgress.idx > lineupReadProgress()) lineupWriteProgress(_lineupPendingProgress.idx);
+            _lineupPendingProgress = null;
+        }
+    }
+
+    // Learn bumper-gap duration live: the time from the FIRST unmatched title change after
+    // a feature to the next matched one is one observed gap sample -- the whole bumper
+    // block, not just its last item (resetting per-item makes the median absurdly small on
+    // multi-bumper blocks). Matched titles in TODAY's day also advance the persisted
+    // played-progress marker, via the confirm-delay above. Called from injectMovieLinks
+    // (Step 2 below) with the same deduped rawTitle that function already tracks in
+    // lastMovieTitle, reading the localStorage cache directly if the schedule hasn't been
+    // loaded into memory yet (without assigning _lineupScheduleCache, which stays
+    // lineupEnsureSchedule's job so revalidation still happens).
     function lineupObserveTitleChange(rawTitle) {
         const title = rawTitle ? parseMovieFilename(rawTitle).title : null;
-        const matchesSchedule = !!(title && _lineupScheduleCache &&
-            lineupAllScheduleTitles().some(s => s.title.toLowerCase() === title.toLowerCase()));
-        if (rawTitle && !matchesSchedule && _lineupScheduleCache) {
-            _lineupLastUnmatchedStart = Date.now();
+        const sched = _lineupScheduleCache || lineupReadCache();
+        const matchesSchedule = !!(title && sched &&
+            lineupAllScheduleTitles(sched).some(s => lineupItemMatchesTitle(s, title)));
+        if (rawTitle && !matchesSchedule && sched) {
+            if (!_lineupLastUnmatchedStart) _lineupLastUnmatchedStart = Date.now();
         } else if (_lineupLastUnmatchedStart) {
             _lineupObservedGaps.push((Date.now() - _lineupLastUnmatchedStart) / 1000);
             _lineupLastUnmatchedStart = null;
+        }
+        lineupCommitConfirmedProgress();
+        _lineupPendingProgress = null; // whatever was pending either just committed or was a jump
+        if (matchesSchedule) {
+            const today = sched.days.find(day => day.date === lineupPacificDateString());
+            const flatItems = today ? today.sections.flatMap(s => s.items) : [];
+            const idx = flatItems.findIndex(s => lineupItemMatchesTitle(s, title));
+            if (idx !== -1 && idx > lineupReadProgress()) _lineupPendingProgress = { idx, since: Date.now() };
         }
     }
 
@@ -2517,14 +2666,25 @@
         }
     }
 
+    // Populates the in-memory cache from localStorage on the first call, but unlike a
+    // once-only check, THIS FUNCTION RUNS AGAIN every time the lineup screen is opened --
+    // a userscript's page can sit open for days without a reload, so a one-time-only check
+    // here would mean the schedule, once loaded, is NEVER re-fetched again for the rest of
+    // that session even after the pinned post rolls over.
     async function lineupEnsureSchedule() {
-        if (_lineupScheduleCache || _lineupFetchFailed) return;
-        const cached = lineupReadCache();
-        if (cached) {
-            _lineupScheduleCache = cached;
-            if (Date.now() - (cached.fetchedAt || 0) > LINEUP_CACHE_MAX_AGE_MS) lineupRefetchAndCache(); // fire-and-forget
+        if (!_lineupScheduleCache && !_lineupFetchFailed) {
+            const cached = lineupReadCache();
+            if (cached) _lineupScheduleCache = cached;
+        }
+        if (_lineupScheduleCache) {
+            if (lineupScheduleExpired(_lineupScheduleCache)) {
+                await lineupRefetchAndCache(); // the cached weekend is over -- there IS a new post, wait for it
+            } else if (Date.now() - (_lineupScheduleCache.fetchedAt || 0) > LINEUP_CACHE_MAX_AGE_MS) {
+                lineupRefetchAndCache(); // just routine revalidation (e.g. a same-weekend post edit) -- fire-and-forget
+            }
             return;
         }
+        if (_lineupFetchFailed) return;
         try {
             const result = await fetchTonightsSchedule();
             _lineupScheduleCache = result;
@@ -2596,51 +2756,49 @@
         };
     }
 
-    // Flattens a day's sections into one ordered list (for locating "now" and walking
-    // ETAs across section boundaries), then re-nests the built items back into their
-    // sections.
-    function lineupBuildDaySections(day, isTodayFlag, infosByKey) {
+    // Flattens a day's sections into one ordered list (for locating "now" and walking ETAs
+    // across section boundaries), hands the timing model (lineupEstimateDayItems) the flat
+    // facts -- runtimes, learned gap, confirmed now-playing, persisted played-progress,
+    // bumper start -- then re-nests the built items back into their sections.
+    function lineupBuildDaySections(day, dayStatus, infosByKey) {
         const flat = [];
         day.sections.forEach((section, si) => {
             section.items.forEach(item => flat.push({ section, si, item }));
         });
 
-        const currentTitle = isTodayFlag && lastMovieTitle
+        const isToday = dayStatus === 'today';
+        const currentTitle = isToday && lastMovieTitle
             ? parseMovieFilename(lastMovieTitle).title : '';
         const currentFlatIndex = currentTitle
-            ? flat.findIndex(f => f.item.title.toLowerCase() === currentTitle.toLowerCase())
+            ? flat.findIndex(f => lineupItemMatchesTitle(f.item, currentTitle))
             : -1;
 
-        // Pre-show cold start: the first film of ANY day that hasn't started yet gets
-        // one coarse "starts around then" guess, anchored on that day's own real
-        // Noon-Pacific showtime.
-        const anchor = lineupDayAnchorPacific(day.date);
-        const isColdStart = currentFlatIndex === -1 && Date.now() < anchor.getTime();
+        if (isToday) lineupCommitConfirmedProgress(); // a film past the confirm threshold counts as reached
 
-        const learnedGap = lineupMedianGapSeconds(_lineupObservedGaps) ?? 600; // 10-min cold-start default
-        let cumulative = currentFlatIndex !== -1
-            ? Math.max(0, getCurrentMediaSeconds() - getPlayerTimeSec()) : 0;
+        const nowMs = Date.now();
+        const infoFor = (f) => infosByKey.get(f.item.title + '|' + f.item.year) || {};
+        const estimates = lineupEstimateDayItems({
+            nowMs,
+            anchorMs: lineupDayAnchorPacific(day.date).getTime(),
+            runtimesMin: flat.map(f => infoFor(f).runtime ?? null),
+            gapSeconds: lineupMedianGapSeconds(_lineupObservedGaps) ?? 600, // 10-min cold-start default
+            dayStatus,
+            currentIndex: currentFlatIndex,
+            remainingSec: currentFlatIndex !== -1
+                ? Math.max(0, getCurrentMediaSeconds() - getPlayerTimeSec()) : 0,
+            furthestPlayedIndex: isToday ? lineupReadProgress() : -1,
+            bumperStartMs: _lineupLastUnmatchedStart,
+        });
 
         const builtFlat = flat.map((f, idx) => {
-            const info = infosByKey.get(f.item.title + '|' + f.item.year) || {};
-            const base = lineupBuildItem(info, f.item.title, f.item.year);
-            if (idx === currentFlatIndex) return { ...base, isNowPlaying: true, etaLabel: '' };
-            if (isColdStart && idx === 0) {
-                return { ...base, isNowPlaying: false, etaLabel: lineupFormatEta(anchor.getHours(), anchor.getMinutes(), 'approx') };
-            }
-            if (currentFlatIndex === -1 || idx < currentFlatIndex) {
-                return { ...base, isNowPlaying: false, etaLabel: '' }; // no live anchor, or already aired earlier today
-            }
-            const offset = idx - currentFlatIndex;
-            cumulative += learnedGap; // a bumper precedes this feature
-            let etaLabel = '';
-            if (offset <= LINEUP_MAX_ESTIMATED_AHEAD) {
-                const precision = offset === 1 ? 'exact' : 'approx';
-                const eta = new Date(Date.now() + cumulative * 1000);
-                etaLabel = lineupFormatEta(eta.getHours(), eta.getMinutes(), precision);
-            }
-            cumulative += info.runtime ? info.runtime * 60 : 0;
-            return { ...base, isNowPlaying: false, etaLabel };
+            const est = estimates[idx];
+            const eta = est.etaMs != null ? new Date(lineupRoundEtaMs(est.etaMs, est.precision, nowMs)) : null;
+            return {
+                ...lineupBuildItem(infoFor(f), f.item.title, f.item.year),
+                isNowPlaying: est.isNowPlaying,
+                played: est.played,
+                etaLabel: eta ? lineupFormatEta(eta.getHours(), eta.getMinutes(), est.precision) : '',
+            };
         });
 
         return day.sections.map((section, si) => ({
@@ -2671,10 +2829,13 @@
         const infos = await Promise.all(allItems.map(lineupLookupItem));
         const infosByKey = new Map(allItems.map((item, i) => [item.title + '|' + item.year, infos[i]]));
 
-        const todayStr = lineupPacificDateString();
+        const todayStr = lineupPacificDateString(); // ISO date strings order lexicographically
         const days = _lineupScheduleCache.days.map((day) => ({
             day: day.day, date: day.date, isToday: day.date === todayStr,
-            sections: lineupBuildDaySections(day, day.date === todayStr, infosByKey),
+            sections: lineupBuildDaySections(
+                day,
+                day.date < todayStr ? 'past' : day.date === todayStr ? 'today' : 'future',
+                infosByKey),
         }));
         return { listTitle: _lineupScheduleCache.title || LINEUP_FALLBACK_TITLE, fallback: false, days };
     }
@@ -2719,11 +2880,23 @@
             '<div id="sc-lineup-loading">Fetching tonight’s lineup…</div>';
     }
 
+    // The fallback title (no TMDB poster match) sits in a fixed 200x280 box -- long
+    // titles shrink to fit rather than overflowing past the poster's rounded corners.
+    // Three tiers tuned against that box; .sc-lineup-poster-fallback also has
+    // overflow:hidden as a hard backstop for the rare title still too long even at the
+    // smallest tier.
+    function lineupFallbackTitleFontSize(text) {
+        if (text.length > 55) return 10;
+        if (text.length > 38) return 12;
+        return 14;
+    }
+
     function lineupItemButton(item) {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'sc-lineup-item'
             + (item.isNowPlaying ? ' sc-lineup-item-current' : '')
+            + (item.played ? ' sc-lineup-item-played' : '')
             + (item.clickable === false ? ' sc-lineup-item-static' : '');
         const titleText = `${item.cleanTitle}${item.cleanYear ? ` (${item.cleanYear})` : ''}`;
         const etaText = item.isNowPlaying ? 'NOW PLAYING' : (item.etaLabel || '');
@@ -2732,7 +2905,7 @@
         // click still opens the Now-Playing card with the full title if needed.
         btn.innerHTML = `
             <div class="sc-lineup-poster" style="${item.poster ? `background-image:url(${item.poster})` : ''}">
-                ${!item.poster ? `<div class="sc-lineup-poster-fallback">${titleText}</div>` : ''}
+                ${!item.poster ? `<div class="sc-lineup-poster-fallback" style="font-size:${lineupFallbackTitleFontSize(titleText)}px">${titleText}</div>` : ''}
                 ${etaText ? `<div class="sc-lineup-eta">${etaText}</div>` : ''}
             </div>`;
         // Static fallback posters are display-only (item.clickable === false) -- they
@@ -3637,11 +3810,14 @@
             }
             .sc-lineup-item:hover .sc-lineup-poster { transform: scale(1.04) !important; }
             .sc-lineup-item-current .sc-lineup-poster { outline: 2px solid var(--np-accent, #ff5b73) !important; }
+            /* Already-shown films tonight (and every film on a past day's tab) dim to
+               grayscale so it's obvious at a glance what's left to watch. */
+            .sc-lineup-item-played .sc-lineup-poster { filter: grayscale(1) !important; opacity: 0.45 !important; }
             .sc-lineup-item-static { cursor: default !important; }
             .sc-lineup-poster-fallback {
                 position: absolute !important; inset: 0 !important; display: flex !important;
                 align-items: center !important; justify-content: center !important; text-align: center !important;
-                color: rgba(255,255,255,0.8) !important; font-size: 12px !important; padding: 8px !important;
+                color: rgba(255,255,255,0.8) !important; padding: 8px !important; overflow: hidden !important;
             }
             .sc-lineup-eta {
                 position: absolute !important; left: 4px !important; right: 4px !important; bottom: 4px !important;
