@@ -734,6 +734,82 @@
         return null;
     }
 
+    // Classic meme caption fitting: greedy word-wrap + auto-shrink, shared by
+    // the live CSS preview (measured against a hidden canvas) and the actual
+    // per-frame canvas render, so what you see in the panel is what you get.
+    const CAPTION_FONT_STACK = 'Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif';
+    let _captionMeasureCtx = null;
+    function getCaptionMeasureCtx() {
+        if (!_captionMeasureCtx) {
+            const c = document.createElement('canvas');
+            _captionMeasureCtx = c.getContext('2d');
+        }
+        return _captionMeasureCtx;
+    }
+
+    function wrapCaptionAtSize(ctx, text, fontPx, maxWidth) {
+        ctx.font = 'bold ' + fontPx + 'px ' + CAPTION_FONT_STACK;
+        const words = text.split(/\s+/).filter(Boolean);
+        const lines = [];
+        let line = '';
+        for (const w of words) {
+            const trial = line ? line + ' ' + w : w;
+            if (line && ctx.measureText(trial).width > maxWidth) {
+                lines.push(line);
+                line = w;
+            } else {
+                line = trial;
+            }
+        }
+        if (line) lines.push(line);
+        const widest = lines.reduce((m, l) => Math.max(m, ctx.measureText(l).width), 0);
+        return { lines, widest };
+    }
+
+    function applyCaptionCtxStyle(ctx, fontPx, color) {
+        ctx.font = 'bold ' + fontPx + 'px ' + CAPTION_FONT_STACK;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'alphabetic';
+        ctx.lineJoin = 'round';
+        ctx.miterLimit = 2;
+        ctx.fillStyle = color === 'yellow' ? '#ffe135' : '#ffffff';
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = Math.max(2, Math.round(fontPx / 14));
+    }
+
+    // Draw one caption block centered at an exact (xPct, yPct) with an exact
+    // font size (% of frame height), positioned by dragging the handle dot
+    // on the panel's preview thumbnails. Still word-wraps to avoid running
+    // off the frame edges, but does not auto-shrink: the chosen size is used
+    // as-is.
+    function drawCaptionBlockAdvanced(ctx, w, h, text, color, sizePct, xPct, yPct) {
+        if (!text) return;
+        const fontPx = Math.max(4, Math.round(h * (sizePct || 16) / 100));
+        const { lines } = wrapCaptionAtSize(getCaptionMeasureCtx(), text.toUpperCase(), fontPx, w * 0.92);
+        const lineHeight = Math.round(fontPx * 1.15);
+        ctx.save();
+        applyCaptionCtxStyle(ctx, fontPx, color);
+        const cx = w * ((xPct == null ? 50 : xPct) / 100);
+        const cy = h * ((yPct == null ? 50 : yPct) / 100);
+        const blockH = lines.length * lineHeight;
+        const firstBaselineY = cy - blockH / 2 + fontPx * 0.8;
+        lines.forEach((line, i) => {
+            const ly = firstBaselineY + i * lineHeight;
+            ctx.strokeText(line, cx, ly);
+            ctx.fillText(line, cx, ly);
+        });
+        ctx.restore();
+    }
+
+    function drawCaptions(ctx, w, h, captions) {
+        if (!captions) return;
+        ['top', 'bottom'].forEach(key => {
+            const line = captions[key];
+            if (!line || !line.text) return;
+            drawCaptionBlockAdvanced(ctx, w, h, line.text, captions.color, line.size, line.x, line.y);
+        });
+    }
+
     // Compute canvas size + how to blit the video frame for a given aspect mode.
     //   native — keep the video's own ratio
     //   crop   — 4:3, center-crop (cover, fills the box, trims overflow)
@@ -759,7 +835,7 @@
     }
 
     // Sample frames from a hidden crossOrigin clone across [startT, endT].
-    function captureGifFrames({ src, startT, endT, fps, width, aspect }, onProgress) {
+    function captureGifFrames({ src, startT, endT, fps, width, aspect, captions }, onProgress) {
         return new Promise((resolve, reject) => {
             const vid = document.createElement('video');
             vid.crossOrigin = 'anonymous';
@@ -797,6 +873,7 @@
                     if (geom.src) ctx.drawImage(vid, geom.src[0], geom.src[1], geom.src[2], geom.src[3],
                                                      geom.dst[0], geom.dst[1], geom.dst[2], geom.dst[3]);
                     else ctx.drawImage(vid, geom.dst[0], geom.dst[1], geom.dst[2], geom.dst[3]);
+                    drawCaptions(ctx, w, h, captions);
                     frames.push(ctx.getImageData(0, 0, w, h));
                     if (onProgress) onProgress(Math.min(0.999, (t - startT) / span));
                 }
@@ -995,9 +1072,12 @@
         const vidDur = (v0 && isFinite(v0.duration)) ? v0.duration : Infinity;
         const now = v0 ? v0.currentTime : 0;
 
-        // Default: a 4s window ending at the current frame.
-        let endT = now;
-        let startT = Math.max(0, endT - 4);
+        // Default: a 2s window ending at the current frame. Moving the start
+        // (scrubber, ⤓ Now, ±.5) re-anchors the end 2s later; the end mark
+        // only ever gets fine-tuned from there via its own ±.5 buttons.
+        const DEFAULT_CLIP_LEN = 2;
+        let startT = Math.max(0, now - DEFAULT_CLIP_LEN);
+        let endT = Math.min(vidDur, startT + DEFAULT_CLIP_LEN);
 
         const panel = document.createElement('div');
         panel.id = 'sc-gif-panel';
@@ -1009,7 +1089,13 @@
             <div id="sc-gif-body">
                 <div class="sc-gif-marks">
                     <div class="sc-gif-mark">
-                        <div class="sc-gif-thumb" id="sc-gif-thumb-start"></div>
+                        <div class="sc-gif-thumb" id="sc-gif-thumb-start">
+                            <div class="sc-gif-cap sc-gif-cap-top" id="sc-gif-cap-top-start"></div>
+                            <div class="sc-gif-cap sc-gif-cap-bottom" id="sc-gif-cap-bottom-start"></div>
+                            <div class="sc-gif-cap-handle sc-gif-cap-handle-top" id="sc-gif-cap-handle-top-start" title="Drag top caption"></div>
+                            <div class="sc-gif-cap-handle sc-gif-cap-handle-bottom" id="sc-gif-cap-handle-bottom-start" title="Drag bottom caption"></div>
+                        </div>
+                        <input type="range" class="sc-gif-scrub" id="sc-gif-scrub-start" min="0" max="0" step="0.1" value="0">
                         <div class="sc-gif-mark-label">START · <span id="sc-gif-time-start"></span></div>
                         <div class="sc-gif-mark-btns">
                             <button type="button" data-act="start-current" title="Set start to current playback position">⤓ Now</button>
@@ -1018,16 +1104,34 @@
                         </div>
                     </div>
                     <div class="sc-gif-mark">
-                        <div class="sc-gif-thumb" id="sc-gif-thumb-end"></div>
+                        <div class="sc-gif-thumb" id="sc-gif-thumb-end">
+                            <div class="sc-gif-cap sc-gif-cap-top" id="sc-gif-cap-top-end"></div>
+                            <div class="sc-gif-cap sc-gif-cap-bottom" id="sc-gif-cap-bottom-end"></div>
+                            <div class="sc-gif-cap-handle sc-gif-cap-handle-top" id="sc-gif-cap-handle-top-end" title="Drag top caption"></div>
+                            <div class="sc-gif-cap-handle sc-gif-cap-handle-bottom" id="sc-gif-cap-handle-bottom-end" title="Drag bottom caption"></div>
+                        </div>
+                        <div class="sc-gif-scrub-spacer"></div>
                         <div class="sc-gif-mark-label">END · <span id="sc-gif-time-end"></span></div>
                         <div class="sc-gif-mark-btns">
-                            <button type="button" data-act="end-current" title="Set end to current playback position">⤓ Now</button>
                             <button type="button" data-act="end-minus">−.5</button>
                             <button type="button" data-act="end-plus">+.5</button>
                         </div>
                     </div>
                 </div>
                 <div id="sc-gif-dur-line">Duration <b id="sc-gif-dur-val"></b></div>
+                <div class="sc-gif-captions">
+                    <input type="text" id="sc-gif-cap-top" class="sc-gif-cap-input" placeholder="TOP TEXT (optional)" maxlength="120">
+                    <input type="text" id="sc-gif-cap-bottom" class="sc-gif-cap-input" placeholder="BOTTOM TEXT (optional)" maxlength="120">
+                    <div class="sc-gif-cap-color">
+                        <label><input type="radio" name="sc-gif-cap-color" value="white" checked> White</label>
+                        <label><input type="radio" name="sc-gif-cap-color" value="yellow"> Yellow</label>
+                    </div>
+                    <div class="sc-gif-cap-sizes">
+                        <label>Top size <input type="number" id="sc-gif-cap-top-size" min="4" max="40" step="1" value="16">%</label>
+                        <label>Bottom size <input type="number" id="sc-gif-cap-bottom-size" min="4" max="40" step="1" value="16">%</label>
+                    </div>
+                    <div class="sc-gif-cap-hint">Drag the dots on the previews to position each caption.</div>
+                </div>
                 <div class="sc-gif-opts">
                     <label>FPS
                         <select id="sc-gif-fps">
@@ -1061,6 +1165,43 @@
         const close = () => { _revokeGifResult(); destroyScrubClone(); panel.remove(); };
         $('#sc-gif-close').addEventListener('click', close);
 
+        // Draggable panel — grab the header, switch from the centered
+        // transform to explicit px positioning on first move, clamp so the
+        // header always stays reachable.
+        const head = $('#sc-gif-head');
+        let dragging = false, dragDX = 0, dragDY = 0;
+        // The panel's stylesheet rule sets top/left/transform with !important,
+        // which beats a plain inline style — setProperty(..., 'important') is
+        // required to actually move it via JS.
+        const setPanelPos = (prop, val) => panel.style.setProperty(prop, val, 'important');
+        head.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('#sc-gif-close')) return;
+            const rect = panel.getBoundingClientRect();
+            setPanelPos('left', rect.left + 'px');
+            setPanelPos('top', rect.top + 'px');
+            setPanelPos('transform', 'none');
+            dragDX = e.clientX - rect.left;
+            dragDY = e.clientY - rect.top;
+            dragging = true;
+            head.classList.add('sc-gif-dragging');
+            head.setPointerCapture(e.pointerId);
+        });
+        head.addEventListener('pointermove', (e) => {
+            if (!dragging) return;
+            const rect = panel.getBoundingClientRect();
+            const x = Math.min(Math.max(e.clientX - dragDX, -(rect.width - 40)), window.innerWidth - 40);
+            const y = Math.min(Math.max(e.clientY - dragDY, 0), window.innerHeight - 32);
+            setPanelPos('left', x + 'px');
+            setPanelPos('top', y + 'px');
+        });
+        const endDrag = (e) => {
+            dragging = false;
+            head.classList.remove('sc-gif-dragging');
+            try { head.releasePointerCapture(e.pointerId); } catch (err) {}
+        };
+        head.addEventListener('pointerup', endDrag);
+        head.addEventListener('pointercancel', endDrag);
+
         if (isBlob || !src) {
             setStatus(isBlob
                 ? 'This source is a streaming (HLS/MSE) blob — frame capture not supported.'
@@ -1078,8 +1219,79 @@
                 el.classList.toggle('sc-gif-thumb-fit', mode === 'fit');
             });
         };
-        aspectSel.addEventListener('change', applyThumbAspect);
+        aspectSel.addEventListener('change', () => { applyThumbAspect(); renderCaptionPreviews(); });
         applyThumbAspect();
+
+        // Meme caption inputs — live-overlay the thumbnails so what you see
+        // in the panel matches what gets baked into the actual GIF frames.
+        // Position is always set by dragging the handle dot on the previews;
+        // size is the one thing typed in, per line.
+        const capTopInput = $('#sc-gif-cap-top');
+        const capBottomInput = $('#sc-gif-cap-bottom');
+        const capSizeInputs = { top: $('#sc-gif-cap-top-size'), bottom: $('#sc-gif-cap-bottom-size') };
+        const getCapColor = () => (panel.querySelector('input[name="sc-gif-cap-color"]:checked') || {}).value || 'white';
+        const getCapSizePct = (key) => Math.max(1, parseFloat(capSizeInputs[key].value) || 16);
+        const clampPct = (n) => Math.min(100, Math.max(0, isFinite(n) ? n : 50));
+        const capPos = { top: { x: 50, y: 10 }, bottom: { x: 50, y: 90 } };
+
+        function renderCaptionPreview(which) {
+            const thumb = $('#sc-gif-thumb-' + which);
+            const w = thumb.clientWidth, h = thumb.clientHeight;
+            const color = getCapColor();
+            ['top', 'bottom'].forEach(key => {
+                const el = $('#sc-gif-cap-' + key + '-' + which);
+                const text = (key === 'top' ? capTopInput : capBottomInput).value.trim();
+                const pos = capPos[key];
+                thumb.style.setProperty('--cx-' + key, pos.x + '%');
+                thumb.style.setProperty('--cy-' + key, pos.y + '%');
+                el.classList.toggle('sc-gif-cap-yellow', color === 'yellow');
+                if (!text || !w || !h) { el.textContent = ''; return; }
+                const fontPx = Math.max(4, Math.round(h * getCapSizePct(key) / 100));
+                const { lines } = wrapCaptionAtSize(getCaptionMeasureCtx(), text.toUpperCase(), fontPx, w * 0.92);
+                el.style.fontSize = fontPx + 'px';
+                el.style.lineHeight = Math.round(fontPx * 1.15) + 'px';
+                el.textContent = lines.join('\n');
+            });
+        }
+        function renderCaptionPreviews() { renderCaptionPreview('start'); renderCaptionPreview('end'); }
+        capTopInput.addEventListener('input', renderCaptionPreviews);
+        capBottomInput.addEventListener('input', renderCaptionPreviews);
+        capSizeInputs.top.addEventListener('input', renderCaptionPreviews);
+        capSizeInputs.bottom.addEventListener('input', renderCaptionPreviews);
+        panel.querySelectorAll('input[name="sc-gif-cap-color"]').forEach(r => r.addEventListener('change', renderCaptionPreviews));
+
+        // Drag a handle dot on either thumbnail to reposition that caption
+        // line — both thumbnails and both handles share the same underlying
+        // X/Y state, since the caption applies to the whole GIF.
+        function wireCapHandle(handleEl, thumbEl, key) {
+            let dragging = false;
+            const move = (e) => {
+                if (!dragging) return;
+                const rect = thumbEl.getBoundingClientRect();
+                capPos[key].x = clampPct(((e.clientX - rect.left) / rect.width) * 100);
+                capPos[key].y = clampPct(((e.clientY - rect.top) / rect.height) * 100);
+                renderCaptionPreviews();
+            };
+            handleEl.addEventListener('pointerdown', (e) => {
+                e.stopPropagation();
+                dragging = true;
+                handleEl.setPointerCapture(e.pointerId);
+            });
+            handleEl.addEventListener('pointermove', move);
+            const endHandleDrag = (e) => {
+                dragging = false;
+                try { handleEl.releasePointerCapture(e.pointerId); } catch (err) {}
+            };
+            handleEl.addEventListener('pointerup', endHandleDrag);
+            handleEl.addEventListener('pointercancel', endHandleDrag);
+        }
+        ['start', 'end'].forEach(which => {
+            ['top', 'bottom'].forEach(key => {
+                wireCapHandle($('#sc-gif-cap-handle-' + key + '-' + which), $('#sc-gif-thumb-' + which), key);
+            });
+        });
+
+        renderCaptionPreviews();
 
         // Debounced per-mark thumbnail refresh.
         const thumbTimers = {};
@@ -1098,9 +1310,14 @@
             }, 180);
         };
 
+        const scrubStart = $('#sc-gif-scrub-start');
+        scrubStart.max = isFinite(vidDur) ? vidDur : 0;
+        scrubStart.disabled = isBlob || !src || !isFinite(vidDur);
+
         const render = (changed) => {
             $('#sc-gif-time-start').textContent = _fmtClockTenths(startT);
             $('#sc-gif-time-end').textContent = _fmtClockTenths(endT);
+            scrubStart.value = startT.toFixed(1);
             const dur = Math.max(0, endT - startT);
             $('#sc-gif-dur-val').textContent = dur.toFixed(1) + 's';
             goBtn.disabled = isBlob || !src || dur < 0.1;
@@ -1108,8 +1325,18 @@
             if (changed === 'end' || changed === 'both') refreshThumb('end');
         };
 
-        const clampStart = () => { startT = Math.min(Math.max(0, startT), endT - 0.1); };
-        const clampEnd   = () => { endT = Math.min(Math.max(endT, startT + 0.1), vidDur); };
+        const clampStart = () => {
+            startT = Math.max(0, startT);
+            if (isFinite(vidDur)) startT = Math.min(startT, vidDur - 0.1);
+        };
+        const clampEnd = () => { endT = Math.min(Math.max(endT, startT + 0.1), vidDur); };
+        // The end mark has no scrubber of its own — moving the start always
+        // re-anchors it to a fresh 2s window, then end's own ±.5 fine-tunes
+        // from there independently.
+        const resetEndFromStart = () => {
+            endT = isFinite(vidDur) ? Math.min(vidDur, startT + DEFAULT_CLIP_LEN) : startT + DEFAULT_CLIP_LEN;
+            if (endT - startT < 0.1) endT = startT + 0.1;
+        };
 
         panel.querySelector('.sc-gif-marks').addEventListener('click', (e) => {
             const btn = e.target.closest('button[data-act]');
@@ -1117,13 +1344,23 @@
             const live = getPlayerVideoEl();
             const cur = live ? live.currentTime : 0;
             switch (btn.dataset.act) {
-                case 'start-current': startT = cur; clampStart(); render('start'); break;
-                case 'start-minus':   startT -= 0.5; clampStart(); render('start'); break;
-                case 'start-plus':    startT += 0.5; clampStart(); render('start'); break;
-                case 'end-current':   endT = cur; clampEnd(); render('end'); break;
+                case 'start-current': startT = cur; clampStart(); resetEndFromStart(); render('both'); break;
+                case 'start-minus':   startT -= 0.5; clampStart(); resetEndFromStart(); render('both'); break;
+                case 'start-plus':    startT += 0.5; clampStart(); resetEndFromStart(); render('both'); break;
                 case 'end-minus':     endT -= 0.5; clampEnd(); render('end'); break;
                 case 'end-plus':      endT += 0.5; clampEnd(); render('end'); break;
             }
+        });
+
+        // Coarse scrubber — drag to roughly land near a moment (native range
+        // click-to-jump handles "hard to get to the start"), then fine-tune
+        // with the ⤓ Now / ±.5 buttons above. End re-anchors to start+2s and
+        // is fine-tuned separately via its own ±.5 buttons only.
+        scrubStart.addEventListener('input', () => {
+            startT = parseFloat(scrubStart.value);
+            clampStart();
+            resetEndFromStart();
+            render('both');
         });
 
         goBtn.addEventListener('click', async () => {
@@ -1131,6 +1368,11 @@
             const fps    = parseInt($('#sc-gif-fps').value, 10);
             const width  = parseInt($('#sc-gif-width').value, 10);
             const aspect = $('#sc-gif-aspect').value;
+            const captions = {
+                color: getCapColor(),
+                top: { text: capTopInput.value.trim(), size: getCapSizePct('top'), x: capPos.top.x, y: capPos.top.y },
+                bottom: { text: capBottomInput.value.trim(), size: getCapSizePct('bottom'), x: capPos.bottom.x, y: capPos.bottom.y },
+            };
             if (endT - startT < 0.1) { setStatus('End must be after start.'); return; }
 
             _revokeGifResult();
@@ -1141,7 +1383,7 @@
             try {
                 setStatus('');
                 const cap = await captureGifFrames(
-                    { src, startT, endT, fps, width, aspect },
+                    { src, startT, endT, fps, width, aspect, captions },
                     p => setWork('Capturing frames… ' + Math.round(p * 100) + '%'));
                 setWork('Encoding GIF… (' + cap.frames.length + ' frames)');
                 const blob = await encodeGif(cap, p => setWork('Encoding GIF… ' + Math.round(p * 100) + '%'));
@@ -4038,7 +4280,9 @@
                 padding: 10px 14px !important;
                 border-bottom: 1px solid rgba(255,255,255,0.1) !important;
                 font-weight: 600 !important; color: #ffcc44 !important;
+                cursor: grab !important; user-select: none !important; touch-action: none !important;
             }
+            #sc-gif-head.sc-gif-dragging { cursor: grabbing !important; }
             #sc-gif-close {
                 background: transparent !important; border: none !important; color: rgba(255,255,255,0.6) !important;
                 font-size: 15px !important; cursor: pointer !important; padding: 0 4px !important;
@@ -4078,6 +4322,71 @@
             /* Preview reframing to match the chosen output shape */
             .sc-gif-thumb-43 { aspect-ratio: 4 / 3 !important; }
             .sc-gif-thumb-fit { background-size: contain !important; }
+            /* Meme caption live-preview overlay — mirrors the canvas render.
+               Position comes from --cx-*/--cy-* CSS vars set on the .sc-gif-thumb
+               parent (read by both the caption text and its drag handle), driven
+               by dragging the handle dot on the preview. */
+            .sc-gif-cap {
+                position: absolute !important;
+                text-align: center !important; white-space: pre-line !important;
+                font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif !important;
+                font-weight: bold !important; color: #fff !important;
+                -webkit-text-stroke: 1.5px #000 !important;
+                text-shadow: -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000 !important;
+                pointer-events: none !important; transform: translate(-50%, -50%) !important;
+            }
+            .sc-gif-cap-top { left: var(--cx-top, 50%) !important; top: var(--cy-top, 10%) !important; }
+            .sc-gif-cap-bottom { left: var(--cx-bottom, 50%) !important; top: var(--cy-bottom, 90%) !important; }
+            .sc-gif-cap-yellow { color: #ffe135 !important; }
+            .sc-gif-cap-handle {
+                position: absolute !important; width: 14px !important; height: 14px !important;
+                border-radius: 50% !important; background: rgba(255,204,68,0.9) !important;
+                border: 2px solid #000 !important; transform: translate(-50%, -50%) !important;
+                cursor: grab !important; pointer-events: auto !important; touch-action: none !important;
+            }
+            .sc-gif-cap-handle:active { cursor: grabbing !important; }
+            .sc-gif-cap-handle-top { left: var(--cx-top, 50%) !important; top: var(--cy-top, 10%) !important; }
+            .sc-gif-cap-handle-bottom { left: var(--cx-bottom, 50%) !important; top: var(--cy-bottom, 90%) !important; }
+            /* Caption size inputs + hint */
+            .sc-gif-cap-sizes { display: flex !important; gap: 14px !important; justify-content: center !important; }
+            .sc-gif-cap-sizes label {
+                display: flex !important; align-items: center !important; gap: 4px !important;
+                color: rgba(255,255,255,0.8) !important; font-size: 12px !important;
+            }
+            .sc-gif-cap-sizes input[type=number] {
+                width: 48px !important; background: #1f1f22 !important; color: white !important;
+                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important; padding: 2px 4px !important;
+            }
+            .sc-gif-cap-hint { text-align: center !important; color: rgba(255,255,255,0.4) !important; font-size: 11px !important; }
+            /* Coarse scrubber under each thumbnail */
+            .sc-gif-scrub {
+                width: 100% !important; margin: 0 !important; accent-color: #ffcc44 !important;
+                cursor: pointer !important;
+            }
+            .sc-gif-scrub:disabled { opacity: 0.4 !important; cursor: default !important; }
+            /* END has no scrubber — this keeps its label/buttons row aligned
+               with START's, which still has one above its label. */
+            .sc-gif-scrub-spacer { height: 20px !important; }
+            /* Caption text inputs + color toggle */
+            .sc-gif-captions { display: flex !important; flex-direction: column !important; gap: 6px !important; }
+            .sc-gif-cap-input {
+                background: #1f1f22 !important; color: white !important;
+                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important;
+                padding: 6px 8px !important; font-size: 13px !important; width: 100% !important;
+                box-sizing: border-box !important;
+            }
+            .sc-gif-cap-input::placeholder { color: rgba(255,255,255,0.35) !important; }
+            .sc-gif-cap-color {
+                display: flex !important; align-items: center !important; gap: 14px !important; justify-content: center !important;
+                color: rgba(255,255,255,0.8) !important; font-size: 12px !important;
+            }
+            .sc-gif-cap-color label { display: flex !important; align-items: center !important; gap: 4px !important; cursor: pointer !important; }
+            #sc-gif-cap-size {
+                background: #1f1f22 !important; color: white !important;
+                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important;
+                padding: 3px 6px !important; font-size: 12px !important;
+            }
+            #sc-gif-cap-size option { background-color: #1f1f22 !important; color: white !important; }
             .sc-gif-thumb-loading::after {
                 content: '' !important;
                 position: absolute !important;
