@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube Fullscreen Video with Overlay Chat
 // @namespace    http://tampermonkey.net/
-// @version      4.7.2
+// @version      4.7.3
 // @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, right-click chat-to-movie seek, scene-to-GIF capture with meme captions + ImgBB upload, Tonight's Lineup schedule overlay, resizable chat panel, vertical monitor support
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -20,7 +20,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.pc v4.7.2 loaded');
+    console.log('[SC] cytube.pc v4.7.3 loaded');
 
     /* ==========================================================
        API KEYS — stored in localStorage, managed via settings modal.
@@ -572,7 +572,7 @@
        right-click "jump movie to this message" menu.
     ========================================================== */
 
-    const _desync = { active: false, saved: null, btn: null, anchorPos: null, anchorWall: null };
+    const _desync = { active: false, saved: null, btn: null, anchorPos: null, anchorWall: null, markerTimer: null };
 
     function _getMediaUpdateListeners() {
         // Socket.IO v2/v3 stores listeners under _callbacks['$eventName']
@@ -642,6 +642,12 @@
         // the active desync button is never hidden by idle-fade), and once more on
         // exit (gapHide's own guard stops re-hiding it early while still desynced).
         if (_gapShow) _gapShow();
+        // Keep video.js's own control bar (the scrubber) from idle-fading while
+        // desynced — see the body.sc-desynced override in the stylesheet.
+        document.body.classList.toggle('sc-desynced', on);
+        clearInterval(_desync.markerTimer);
+        _desync.markerTimer = on ? setInterval(updateSyncMarker, 500) : null;
+        updateSyncMarker();
     }
 
     function initDesyncButton() {
@@ -691,6 +697,34 @@
         if (!_desync.active) return getPlayerTimeSec();
         if (_desync.anchorPos == null) return getPlayerTimeSec();
         return _desync.anchorPos + (Date.now() - _desync.anchorWall) / 1000;
+    }
+
+    // A marker on video.js's own seek bar showing where the live synced position is,
+    // separate from the playhead (which shows wherever you've scrubbed to while
+    // desynced). Only meaningful while desynced — hidden otherwise.
+    function ensureSyncMarkerEl() {
+        const holder = document.querySelector('.video-js .vjs-progress-holder');
+        if (!holder) return null;
+        let mark = holder.querySelector('#sc-sync-marker');
+        if (!mark) {
+            mark = document.createElement('div');
+            mark.id = 'sc-sync-marker';
+            holder.appendChild(mark);
+        }
+        return mark;
+    }
+
+    function updateSyncMarker() {
+        const mark = ensureSyncMarkerEl();
+        if (!mark) return;
+        const duration = _desync.active ? getCurrentMediaSeconds() : 0;
+        const syncedNow = _desync.active ? getSyncedTimeNow() : null;
+        if (!duration || syncedNow == null) {
+            mark.style.display = 'none';
+            return;
+        }
+        mark.style.left = Math.max(0, Math.min(100, (syncedNow / duration) * 100)) + '%';
+        mark.style.display = 'block';
     }
 
     function seekPlayerTo(sec) {
@@ -4374,6 +4408,13 @@
                 right: 160px !important;
                 left: 4px !important;
             }
+            /* Keep the scrubber/control bar on screen while desynced instead of
+               letting video.js's own inactivity timer fade it out. */
+            body.sc-desynced .video-js.vjs-user-inactive .vjs-control-bar {
+                opacity: 1 !important;
+                visibility: visible !important;
+                pointer-events: auto !important;
+            }
 
             /* Individual control buttons — match pill button style */
             .video-js .vjs-control {
@@ -4396,8 +4437,24 @@
                 border-radius: 999px !important;
                 height: 4px !important;
                 transition: height 0.15s !important;
+                position: relative !important;
             }
             .video-js .vjs-progress-holder:hover { height: 6px !important; }
+            /* Marks where the group's live synced position is while desynced —
+               distinct from .vjs-play-progress, which tracks the scrubbed position. */
+            #sc-sync-marker {
+                display: none;
+                position: absolute !important;
+                top: -4px !important;
+                bottom: -4px !important;
+                width: 3px !important;
+                margin-left: -1.5px !important;
+                background: #ffcc00 !important;
+                border-radius: 2px !important;
+                box-shadow: 0 0 4px rgba(255,204,0,0.8) !important;
+                pointer-events: none !important;
+                z-index: 5 !important;
+            }
             .video-js .vjs-play-progress {
                 background: rgba(255,255,255,0.75) !important;
                 border-radius: 999px !important;
