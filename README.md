@@ -26,6 +26,10 @@ The script hides all the standard CyTube chrome (navbar, playlist, userlist, foo
 - Chat panel sits below it at the bottom 42%
 - The script polls for orientation changes and switches layouts on the fly
 
+**Resizable chat panel**
+- Drag the thin handle on the chat panel's free edge — left/right in widescreen mode (resizes width), up/down in portrait mode (resizes height)
+- The chosen size is remembered per layout and restored on reload
+
 <!-- Add screenshot here -->
 
 ---
@@ -88,6 +92,7 @@ Before a message is sent, it is checked against the free [LanguageTool](https://
 The default single-line chat box is replaced with a multi-line auto-expanding textarea.
 
 - Grows automatically as you type (up to 120 px), then scrolls
+- Drag the handle above the box to set a fixed height instead — it's remembered on reload and stays put while typing
 - **Enter** to send, **Shift+Enter** for a new line
 - Native browser spellcheck enabled
 - Works seamlessly with CyTube's emote picker — emote insertions mirror into the new textarea automatically
@@ -129,7 +134,11 @@ Capture any scene as an animated GIF, straight from the player — no external t
 
 ### Chat-to-Movie Seek
 
-**Right-click any chat message** to jump the movie back to roughly when that message was posted (minus a 5-second lead-in). The script desyncs you from the group stream so you can rewatch the moment. Messages from a previous movie are detected and don't offer the option.
+**Right-click any chat message** for two options based on roughly when that message was posted (minus a 5-second lead-in):
+- **⤺ Jump movie to...** desyncs you from the group stream and rewinds to that moment
+- **◉ Create a GIF from here** opens the GIF Maker with its start mark already scrubbed to that moment
+
+Messages from a previous movie are detected and don't offer either option.
 
 ---
 

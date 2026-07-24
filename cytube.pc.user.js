@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube Fullscreen Video with Overlay Chat
 // @namespace    http://tampermonkey.net/
-// @version      4.6.3
+// @version      4.6.4
 // @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, right-click chat-to-movie seek, scene-to-GIF capture + ImgBB upload, vertical monitor support
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -20,7 +20,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.pc v4.6.2 loaded');
+    console.log('[SC] cytube.pc v4.6.4 loaded');
 
     /* ==========================================================
        API KEYS — stored in localStorage, managed via settings modal.
@@ -32,11 +32,16 @@
     const LS_MOVIE_LINKS = 'sc_movie_links';
     const LS_IMGBB       = 'sc_imgbb_key';
     const LS_MOVIE_CACHE = 'sc_movie_cache_v1';
+    const LS_LINEUP_TIMING = 'sc_lineup_timing'; // Experimental: live NOW PLAYING/ETA tracking; off by default
+    const LS_CHAT_PANEL_W = 'sc_chat_panel_w';   // vw — horizontal-layout chat panel width
+    const LS_CHAT_PANEL_H = 'sc_chat_panel_h';   // vh — vertical-layout chat panel height
+    const LS_CHAT_TEXTAREA_H = 'sc_chat_textarea_h'; // px — manually resized chat entry height
     const getKey   = id => localStorage.getItem(id) || '';
     const setKey   = (id, v) => localStorage.setItem(id, v.trim());
     const hasKey   = id => !!getKey(id);
     const spellCheckEnabled  = () => getKey(LS_SPELLCHECK)  !== 'off';
     const movieLinksEnabled  = () => getKey(LS_MOVIE_LINKS) !== 'off';
+    const lineupTimingEnabled = () => getKey(LS_LINEUP_TIMING) === 'on'; // opt-in, unlike the toggles above
 
     function getChatFontSize() {
         const v = parseInt(getKey(LS_CHAT_FONT), 10);
@@ -47,6 +52,20 @@
         if (buf) buf.style.setProperty('font-size', px + 'px', 'important');
         const ta = document.getElementById('sc-chat-textarea');
         if (ta) ta.style.setProperty('font-size', px + 'px', 'important');
+    }
+
+    // Chat panel resize — width in horizontal layout, height in vertical layout.
+    // Driven entirely through CSS custom properties (--sc-chat-w/--sc-chat-h) so every
+    // dependent rule (header, users/poll/trivia panels, floating buttons) tracks the drag.
+    const CHAT_PANEL_W_MIN = 12, CHAT_PANEL_W_MAX = 34, CHAT_PANEL_W_DEFAULT = 19;
+    const CHAT_PANEL_H_MIN = 22, CHAT_PANEL_H_MAX = 62, CHAT_PANEL_H_DEFAULT = 42;
+    function getChatPanelWidth() {
+        const v = parseFloat(getKey(LS_CHAT_PANEL_W));
+        return (Number.isFinite(v) && v >= CHAT_PANEL_W_MIN && v <= CHAT_PANEL_W_MAX) ? v : CHAT_PANEL_W_DEFAULT;
+    }
+    function getChatPanelHeight() {
+        const v = parseFloat(getKey(LS_CHAT_PANEL_H));
+        return (Number.isFinite(v) && v >= CHAT_PANEL_H_MIN && v <= CHAT_PANEL_H_MAX) ? v : CHAT_PANEL_H_DEFAULT;
     }
 
     /* ==========================================================
@@ -420,7 +439,12 @@
             } catch (e) {}
         }
 
-        textarea.value = ''; textarea.style.height = '';
+        textarea.value = '';
+        // Clearing the value would otherwise leave the auto-grow height from the
+        // sent message in place; restore the user's manually-resized height (if
+        // any) instead of the default, rather than wiping it back to min-height.
+        const savedTaH = parseFloat(getKey(LS_CHAT_TEXTAREA_H));
+        textarea.style.height = (Number.isFinite(savedTaH) && savedTaH >= 44) ? savedTaH + 'px' : '';
         lastChatlineValue = ''; originalInput.value = '';
         // Return focus to the chat input so user can keep typing immediately
         textarea.focus();
@@ -466,13 +490,29 @@
         textarea.setAttribute('autocorrect', 'on');
         textarea.setAttribute('autocapitalize', 'sentences');
 
-        originalInput.parentElement.insertBefore(textarea, originalInput.nextSibling);
+        // Drag handle above the textarea — lets the user pick a fixed height,
+        // which then overrides the auto-grow-while-typing behavior below.
+        const taResizer = document.createElement('div');
+        taResizer.id = 'sc-chat-ta-resizer';
+
+        originalInput.parentElement.insertBefore(taResizer, originalInput.nextSibling);
+        originalInput.parentElement.insertBefore(textarea, taResizer.nextSibling);
+
+        const taHeightMax = () => window.innerHeight * 0.5;
+        let manualHeight = null;
+        const savedTaH = parseFloat(getKey(LS_CHAT_TEXTAREA_H));
+        if (Number.isFinite(savedTaH) && savedTaH >= 44 && savedTaH <= taHeightMax()) {
+            manualHeight = savedTaH;
+            textarea.style.height = manualHeight + 'px';
+        }
 
         textarea.addEventListener('input', () => {
             tabCandidates = [];
             lastChatlineValue = originalInput.value;
-            textarea.style.height = 'auto';
-            textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+            if (manualHeight == null) {
+                textarea.style.height = 'auto';
+                textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+            }
         });
         textarea.addEventListener('keydown', e => {
             handleTabComplete(textarea, e);
@@ -485,6 +525,29 @@
             }
         });
         originalInput.addEventListener('focus', () => textarea.focus());
+
+        let taDragging = false, taStartY, taStartH;
+        taResizer.addEventListener('mousedown', e => {
+            e.preventDefault();
+            taDragging = true;
+            taStartY = e.clientY;
+            taStartH = textarea.getBoundingClientRect().height;
+            taResizer.classList.add('sc-resizing');
+            document.body.style.userSelect = 'none';
+        });
+        window.addEventListener('mousemove', e => {
+            if (!taDragging) return;
+            const h = Math.min(taHeightMax(), Math.max(44, taStartH + (taStartY - e.clientY)));
+            manualHeight = h;
+            textarea.style.height = h + 'px';
+        });
+        window.addEventListener('mouseup', () => {
+            if (!taDragging) return;
+            taDragging = false;
+            taResizer.classList.remove('sc-resizing');
+            document.body.style.userSelect = '';
+            setKey(LS_CHAT_TEXTAREA_H, String(manualHeight));
+        });
 
         const chatwrap = document.getElementById('chatwrap');
         if (chatwrap) {
@@ -653,16 +716,28 @@
         hideChatSeekMenu();
         const menu = document.createElement('div');
         menu.className = 'sc-seek-menu';
-        const item = document.createElement('button');
-        item.type = 'button';
-        item.className = 'sc-seek-item';
-        item.innerHTML = `<span class="sc-seek-main">⤺ Jump movie to ${_fmtClock(targetSec)}</span>`;
-        item.addEventListener('click', () => {
+
+        const jumpItem = document.createElement('button');
+        jumpItem.type = 'button';
+        jumpItem.className = 'sc-seek-item';
+        jumpItem.innerHTML = `<span class="sc-seek-main">⤺ Jump movie to ${_fmtClock(targetSec)}</span>`;
+        jumpItem.addEventListener('click', () => {
             setDesynced(true);
             seekPlayerTo(targetSec);
             hideChatSeekMenu();
         });
-        menu.appendChild(item);
+        menu.appendChild(jumpItem);
+
+        const gifItem = document.createElement('button');
+        gifItem.type = 'button';
+        gifItem.className = 'sc-seek-item';
+        gifItem.innerHTML = `<span class="sc-seek-main">◉ Create a GIF from here</span>`;
+        gifItem.addEventListener('click', () => {
+            hideChatSeekMenu();
+            openGifPanel(targetSec);
+        });
+        menu.appendChild(gifItem);
+
         document.body.appendChild(menu);
         _seekMenuEl = menu;
 
@@ -1064,13 +1139,15 @@
         return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1);
     }
 
-    function openGifPanel() {
+    function openGifPanel(initialSec) {
         if (document.getElementById('sc-gif-panel')) return;
         const v0 = getPlayerVideoEl();
         const src = v0 && (v0.currentSrc || v0.src) || '';
         const isBlob = src.startsWith('blob:');
         const vidDur = (v0 && isFinite(v0.duration)) ? v0.duration : Infinity;
-        const now = v0 ? v0.currentTime : 0;
+        const now = (typeof initialSec === 'number' && isFinite(initialSec))
+            ? initialSec
+            : (v0 ? v0.currentTime : 0);
 
         // Default: a 2s window ending at the current frame. Moving the start
         // (scrubber, ⤓ Now, ±.5) re-anchors the end 2s later; the end mark
@@ -1586,7 +1663,16 @@
     function getCurrentMediaSeconds() {
         if (currentMediaSeconds > 0) return currentMediaSeconds;
         const el = document.querySelector('#queue .queue_active .qe_time, #queue .queue_entry.active .qe_time');
-        return el ? parseTimeToSeconds(el.textContent) : 0;
+        if (el) { const t = parseTimeToSeconds(el.textContent); if (t > 0) return t; }
+        // Last resort: the actual <video> element's own reported duration -- real and accurate
+        // (confirmed live 2026-07-19 against the true remaining runtime) whenever CyTube plays a
+        // same-origin file directly, covering exactly what the two checks above miss: a page
+        // loaded mid-movie, before any changeMedia event has arrived to populate
+        // currentMediaSeconds. Doesn't help for YouTube embeds -- the player's <video> tag lives
+        // inside a cross-origin iframe, unreachable from here -- those still fall through to 0.
+        const v = getPlayerVideoEl();
+        if (v && isFinite(v.duration) && v.duration > 0) return v.duration;
+        return 0;
     }
 
     /* ==========================================================
@@ -1903,7 +1989,8 @@
 
         if (!rawTitle || rawTitle === lastMovieTitle || rawTitle.length < 2) return;
         lastMovieTitle = rawTitle;
-        lineupObserveTitleChange(rawTitle);
+        const knownSeconds = getCurrentMediaSeconds();
+        lineupObserveTitleChange(rawTitle, knownSeconds > 0 ? knownSeconds : null);
         _currentImdbId = null;
 
         // Clean up previous links/stats/trivia button
@@ -2056,6 +2143,10 @@
                 try {
                     currentMediaSeconds = (data && typeof data.seconds === 'number') ? data.seconds : 0;
                     currentMediaType    = (data && data.type) ? data.type : '';
+                    // Authoritative lineup match straight from the raw socket payload, ahead of
+                    // (and independent from) the DOM-title path below -- see
+                    // lineupObserveTitleChange's own comment for why this matters.
+                    if (data && data.title) lineupObserveTitleChange(data.title, data.seconds);
                     setTimeout(triggerTitleInject, 350);
                 } catch (e) {}
             });
@@ -2284,6 +2375,14 @@
                         <a class="sc-settings-link" href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">
                             Get a free TMDB key ↗
                         </a>
+
+                        <label class="sc-settings-toggle-label sc-settings-divider">
+                            <span class="sc-toggle-row">
+                                <input type="checkbox" id="sc-input-lineuptiming" ${lineupTimingEnabled() ? 'checked' : ''} />
+                                <span class="sc-toggle-text">Coming Attractions live timing (Experimental)</span>
+                            </span>
+                            <span class="sc-settings-note">Shows NOW PLAYING and estimated start times in Tonight's Lineup. Needs TMDB above for movie runtimes — without it, estimates can't guess well. Off by default, still being tuned.</span>
+                        </label>
                     </div>
                 </div>
 
@@ -2395,11 +2494,13 @@
             const tmdb   = tmdbToggle.checked ? document.getElementById('sc-input-tmdb').value.trim() : '';
             const spell  = document.getElementById('sc-input-spellcheck').checked;
             const links  = document.getElementById('sc-input-movielinks').checked;
+            const lineupTiming = document.getElementById('sc-input-lineuptiming').checked;
             const imgbb  = document.getElementById('sc-input-imgbb').value.trim();
             const fontPx = parseInt(fontInput.value, 10);
             setKey(LS_TMDB,        tmdb);
             setKey(LS_SPELLCHECK,  spell ? 'on' : 'off');
             setKey(LS_MOVIE_LINKS, links ? 'on' : 'off');
+            setKey(LS_LINEUP_TIMING, lineupTiming ? 'on' : 'off');
             setKey(LS_IMGBB,       imgbb);
             setKey(LS_CHAT_FONT,   String(fontPx));
             applyChatFontSize(fontPx);
@@ -2457,25 +2558,62 @@
             .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)));
     }
 
-    // The first <entry> in the feed is the pinned post. Returns null if the feed has
-    // no entries or is missing a required field.
+    // Extracts every <entry> in the feed, in feed order. Reddit does NOT reliably sort
+    // the current/pinned schedule post first -- confirmed live 2026-07-22: an already-
+    // expired "Fri 7/17 - Sun 7/19" post sat in entry #0 all week while the brand-new
+    // "Fri 7/24 - Sun 7/26" post (published same day) sat in entry #1 behind it,
+    // apparently ordered by pin slot rather than recency/validity. lineupSelectCurrentEntry
+    // (below) is what actually picks the right one; this just extracts every candidate.
+    function lineupParseEntries(feedXml) {
+        const entries = [];
+        let searchFrom = 0;
+        while (true) {
+            const start = feedXml.indexOf('<entry>', searchFrom);
+            if (start === -1) break;
+            const end = feedXml.indexOf('</entry>', start);
+            if (end === -1) break;
+            const entry = feedXml.slice(start, end + '</entry>'.length);
+            searchFrom = end + '</entry>'.length;
+            const idM = entry.match(/<id>([^<]+)<\/id>/);
+            const titleM = entry.match(/<title>([^<]+)<\/title>/);
+            const contentM = entry.match(/<content type="html">([\s\S]*?)<\/content>/);
+            if (!idM || !titleM || !contentM) continue;
+            const pubM = entry.match(/<published>([^<]+)<\/published>/);
+            entries.push({
+                postId: idM[1],
+                title: lineupDecodeHtmlEntities(titleM[1]),
+                publishedAt: pubM ? pubM[1] : null,
+                contentHtml: lineupDecodeHtmlEntities(contentM[1]),
+            });
+        }
+        return entries;
+    }
+
+    // Kept for parity with the Android app's parseFirstEntry -- just the first extracted
+    // entry, no attempt to pick the *right* one (see lineupSelectCurrentEntry for that).
+    // Returns null if the feed has no entries or is missing a required field.
     function lineupParseFirstEntry(feedXml) {
-        const start = feedXml.indexOf('<entry>');
-        if (start === -1) return null;
-        const end = feedXml.indexOf('</entry>', start);
-        if (end === -1) return null;
-        const entry = feedXml.slice(start, end + '</entry>'.length);
-        const idM = entry.match(/<id>([^<]+)<\/id>/);
-        const titleM = entry.match(/<title>([^<]+)<\/title>/);
-        const contentM = entry.match(/<content type="html">([\s\S]*?)<\/content>/);
-        if (!idM || !titleM || !contentM) return null;
-        const pubM = entry.match(/<published>([^<]+)<\/published>/);
-        return {
-            postId: idM[1],
-            title: lineupDecodeHtmlEntities(titleM[1]),
-            publishedAt: pubM ? pubM[1] : null,
-            contentHtml: lineupDecodeHtmlEntities(contentM[1]),
-        };
+        return lineupParseEntries(feedXml)[0] || null;
+    }
+
+    // The pinned schedule post is expected within the top 3 feed entries; scanning a
+    // couple extra costs nothing and covers a mod re-pin landing it one slot further out.
+    const LINEUP_CANDIDATE_SCAN_LIMIT = 5;
+
+    // Picks the actual current schedule post out of the top of the feed: of the entries
+    // whose title looks like a schedule post (lineupParseDateRange returns non-null --
+    // filters out unrelated posts like "4 Days" or a single-film announcement), the one
+    // published most recently wins. Confirmed live 2026-07-22: the correct post is always
+    // the newest one, even when an older, already-expired schedule post happens to sort
+    // ahead of it in raw feed order (seen that day -- last weekend's post stayed in entry
+    // #0 while this weekend's, published same-day, sat in entry #1).
+    function lineupSelectCurrentEntry(entries) {
+        let best = null;
+        for (const entry of entries.slice(0, LINEUP_CANDIDATE_SCAN_LIMIT)) {
+            if (!lineupParseDateRange(entry.title, entry.publishedAt)) continue; // not a schedule post
+            if (!best || new Date(entry.publishedAt) > new Date(best.publishedAt)) best = entry;
+        }
+        return best;
     }
 
     // Parses "Weekend Grindhouse Schedule - Fri 7/10 - Sun 7/12" into real calendar
@@ -2572,8 +2710,10 @@
     async function fetchTonightsSchedule() {
         const res = await lineupGmFetch(LINEUP_FEED_URL);
         if (!res || res.status !== 200) throw new Error('Reddit feed HTTP ' + (res && res.status));
-        const entry = lineupParseFirstEntry(res.responseText);
-        if (!entry) throw new Error('no entries found in feed');
+        const entries = lineupParseEntries(res.responseText);
+        if (!entries.length) throw new Error('no entries found in feed');
+        const entry = lineupSelectCurrentEntry(entries);
+        if (!entry) throw new Error('no schedule post found in feed');
         const dateRange = lineupParseDateRange(entry.title, entry.publishedAt);
         if (!dateRange) throw new Error('could not parse weekend date range from title: ' + entry.title);
         const days = lineupParseSchedule(entry.contentHtml);
@@ -2637,12 +2777,34 @@
     // Estimates degrade honestly by evidence quality: a confirmed now-playing film gives
     // the next film an 'exact' ETA; a bumper anchor or the noon-Pacific clock projection
     // only ever supports 'approx'.
+    //
+    // The gap immediately before a film is section-aware: sectionOf[idx] is that film's
+    // section index, and a transition where it differs from sectionOf[idx - 1] (crossing into
+    // a new named block) uses crossSectionGapSeconds instead of sameSectionGapSeconds -- a
+    // section break tends to run a whole separate bumper reel (several short clips back to
+    // back), not one bumper's worth of gap, so a single pooled gap can badly underestimate
+    // exactly those transitions. sectionOf is optional; omitting it treats every film as one
+    // section (every gap is "same-section").
+    function lineupMakeGapMsFor(sectionOf, sameSectionGapSeconds, crossSectionGapSeconds) {
+        return (idx) => {
+            const crossing = sectionOf && idx > 0 && idx < sectionOf.length
+                && sectionOf[idx] !== sectionOf[idx - 1];
+            return (crossing ? crossSectionGapSeconds : sameSectionGapSeconds) * 1000;
+        };
+    }
+
     function lineupEstimateDayItems({
-        nowMs, anchorMs, runtimesMin, gapSeconds, dayStatus,
-        currentIndex, remainingSec, furthestPlayedIndex, bumperStartMs,
+        nowMs, anchorMs, runtimesMin, sectionOf, sameSectionGapSeconds, crossSectionGapSeconds,
+        dayStatus, currentIndex, remainingSec, furthestPlayedIndex, bumperStartMs,
     }) {
-        const gapMs = gapSeconds * 1000;
+        const gapMsFor = lineupMakeGapMsFor(sectionOf, sameSectionGapSeconds, crossSectionGapSeconds);
         const runtimeMs = (i) => (runtimesMin[i] ? runtimesMin[i] * 60000 : 0);
+        // A film with no TMDB runtime match contributes zero minutes to the walk, which would
+        // otherwise make the NEXT film's ETA silently identical to this one's. Once an
+        // unknown-runtime film enters the walk, every ETA past it is built on a genuinely
+        // unknown gap -- more honest to withhold those than show a confident-looking guess, so
+        // `confident` latches false once tripped and every later film in this branch goes blank.
+        const runtimeUnknown = (i) => runtimesMin[i] == null;
         const blank = { played: false, isNowPlaying: false, etaMs: null, precision: 'approx' };
 
         if (dayStatus === 'past') {
@@ -2655,20 +2817,26 @@
         let cursor = anchorMs;
         runtimesMin.forEach((_, i) => {
             projected.push({ startMs: cursor, endMs: cursor + runtimeMs(i) });
-            cursor += runtimeMs(i) + gapMs;
+            cursor += runtimeMs(i) + gapMsFor(i + 1);
         });
 
         if (dayStatus === 'today' && currentIndex >= 0) {
-            // Live anchor: walk forward from the current film's remaining runtime.
-            let cumulative = Math.max(0, remainingSec) * 1000;
+            // Live anchor: walk forward from the current film's remaining runtime. remainingSec
+            // is null when the duration isn't known yet (e.g. joined mid-film, before the next
+            // changeMedia arrives) -- treat that as "no live data" rather than letting it read as
+            // 0 (which would otherwise mean "wrapping up right now" and anchor the next film's ETA
+            // to nowMs+gap, a confident-looking but bogus guess).
+            let cumulative = remainingSec != null ? Math.max(0, remainingSec) * 1000 : 0;
+            let confident = remainingSec != null;
             return runtimesMin.map((_, idx) => {
                 if (idx === currentIndex) return { ...blank, isNowPlaying: true };
                 if (idx < currentIndex || idx <= furthestPlayedIndex) return { ...blank, played: true };
                 const offset = idx - currentIndex;
-                cumulative += gapMs;
-                const withEta = offset <= LINEUP_MAX_ESTIMATED_AHEAD
+                cumulative += gapMsFor(idx);
+                const withEta = offset <= LINEUP_MAX_ESTIMATED_AHEAD && confident
                     ? { ...blank, etaMs: nowMs + cumulative, precision: offset === 1 ? 'exact' : 'approx' }
                     : { ...blank };
+                if (runtimeUnknown(idx)) confident = false;
                 cumulative += runtimeMs(idx);
                 return withEta;
             });
@@ -2677,12 +2845,14 @@
         if (dayStatus === 'today' && furthestPlayedIndex >= 0) {
             // Bumper between films (or a title we failed to match): the furthest observed
             // film has finished; keep estimating from when the unmatched item started.
-            let cumulative = (bumperStartMs != null ? bumperStartMs : nowMs) + gapMs;
+            let cumulative = (bumperStartMs != null ? bumperStartMs : nowMs) + gapMsFor(furthestPlayedIndex + 1);
+            let confident = true; // the bumper/now anchor itself is live data, always trusted
             return runtimesMin.map((_, idx) => {
                 if (idx <= furthestPlayedIndex) return { ...blank, played: true };
                 const offset = idx - furthestPlayedIndex;
-                const withEta = offset <= LINEUP_MAX_ESTIMATED_AHEAD ? { ...blank, etaMs: cumulative } : { ...blank };
-                cumulative += runtimeMs(idx) + gapMs;
+                const withEta = offset <= LINEUP_MAX_ESTIMATED_AHEAD && confident ? { ...blank, etaMs: cumulative } : { ...blank };
+                if (runtimeUnknown(idx)) confident = false;
+                cumulative += runtimeMs(idx) + gapMsFor(idx + 1);
                 return withEta;
             });
         }
@@ -2691,14 +2861,16 @@
         // Gray by projected end; guess starts for the next LINEUP_MAX_PRE_SHOW unstarted
         // films. A film straddling `now` is left unmarked -- probably playing, unconfirmed.
         let guesses = 0;
+        let confident = true;
         return runtimesMin.map((_, idx) => {
             const p = projected[idx];
             if (dayStatus === 'today') {
                 if (p.endMs < nowMs) return { ...blank, played: true };
                 if (p.startMs <= nowMs) return { ...blank };
             }
-            if (guesses < LINEUP_MAX_PRE_SHOW) {
+            if (guesses < LINEUP_MAX_PRE_SHOW && confident) {
                 guesses++;
+                if (runtimeUnknown(idx)) confident = false;
                 return { ...blank, etaMs: p.startMs };
             }
             return { ...blank };
@@ -2801,9 +2973,10 @@
        are in the past (lineupScheduleExpired) -- the latter guarantees a new pinned
        post gets picked up even if this tab has sat open since before it rolled over.
        Locates "now" within TODAY's day only, and feeds the pure timing model
-       (lineupEstimateDayItems above) each day's TMDB runtimes, the learned median
-       bumper-gap, the confirmed now-playing film, and the persisted furthest-played
-       marker -- yielding per-film ETAs (live-anchored, bumper-anchored, or projected
+       (lineupEstimateDayItems above) each day's TMDB runtimes, section boundaries, the
+       learned same-section and cross-section median bumper gaps, the confirmed
+       now-playing film, and the persisted furthest-played marker -- yielding per-film
+       ETAs (live-anchored, bumper-anchored, or projected
        from that day's Noon-Pacific showtime start) plus a played flag that grays
        already-shown posters. Falls back to the current title plus the static
        admin-curated MOTD poster art if the fetch fails and no usable cache exists.
@@ -2812,6 +2985,36 @@
 
     const LS_LINEUP_CACHE = 'sc_lineup_cache_v1';
     const LS_LINEUP_PROGRESS = 'sc_lineup_progress_v1'; // furthest film observed playing today
+    const LS_LINEUP_GAP_SAME_SECTION = 'sc_lineup_gap_same_v1';   // learned same-section bumper gaps (s), across nights
+    const LS_LINEUP_GAP_CROSS_SECTION = 'sc_lineup_gap_cross_v1'; // learned cross-section bumper gaps (s), across nights
+    const LS_LINEUP_LAST_SECTION = 'sc_lineup_last_section_v1';   // section of the most recently matched film today
+    const LINEUP_GAP_SAMPLE_CAP = 40; // bound stored sample count; oldest drop off so habits can drift over time
+    // A film whose title fails to match the schedule (e.g. an unusual acronym/punctuation the
+    // filename parser mangles) plays out as "unmatched" for its entire runtime, same as a real
+    // bumper. If the NEXT title does match, that whole runtime would get miscounted as one giant
+    // "gap" and corrupt the learned median (confirmed live on the Android sibling app: a real
+    // ~97-min movie became a persisted 119.6-min "gap" sample). Real observed gaps run a few
+    // minutes to low teens, so anything past this is far more likely a match failure than
+    // genuine bumper time -- discard it rather than learn from it.
+    const LINEUP_MAX_PLAUSIBLE_GAP_SECONDS = 30 * 60;
+    // Symmetric floor: a gap under a few seconds is far more likely a spurious title-observer
+    // blip (the header's MutationObserver re-firing on an unrelated DOM change, briefly
+    // re-processing the same or a transient title) than a real bumper block -- confirmed live
+    // 2026-07-19: a 0.419s "gap" got learned and, being the only sample, poisoned both the
+    // same-section median AND the cross-section estimate (which falls back to the same-section
+    // one when it has no samples of its own), collapsing the ETA for everything past the current
+    // film to roughly zero padding.
+    const LINEUP_MIN_PLAUSIBLE_GAP_SECONDS = 15;
+    // lineupItemMatchesTitle compares title text only (no year), so any unrelated content that
+    // happens to share a scheduled item's exact title -- a trailer, promo, or bumper referencing
+    // the same film -- false-positive matches it. A real feature presentation runs well past
+    // this; a short clip doesn't, so reject the match instead of trusting it (confirmed live
+    // 2026-07-19 on the sibling Android app: a stray title collision permanently corrupted the
+    // played-progress marker, graying out films hours ahead of the real one playing). Checked
+    // against the socket's own declared duration (d.seconds), available immediately -- no need
+    // to wait and see how long it actually plays. Doesn't catch a coincidental FULL-length
+    // rerun of unrelated content under the same title; only short-clip collisions.
+    const LINEUP_MIN_PLAUSIBLE_FEATURE_SECONDS = 10 * 60;
     const LINEUP_CACHE_MAX_AGE_MS = 20 * 60 * 60 * 1000; // background-revalidate if older than this
     const LINEUP_FALLBACK_TITLE = 'Coming Attractions';
     const LINEUP_PROGRESS_CONFIRM_MS = 5 * 60 * 1000; // a match this brief was a queue jump, not a showing
@@ -2819,9 +3022,50 @@
     let _lineupScheduleCache = null;     // {postId, title, publishedAt, days, fetchedAt} or null
     let _lineupFetchFailed = false;      // sticky for the session once Reddit is unreachable AND no cache at all
     let _lineupRevalidating = false;
-    let _lineupObservedGaps = [];        // durations (s) of unmatched blocks between scheduled features
     let _lineupLastUnmatchedStart = null; // Date.now() when the current unmatched (bumper) BLOCK started
     let _lineupPendingProgress = null;   // {idx, since} -- a matched film not yet current long enough to count as played
+    let _lineupCurrentMatchedFlatIndex = -1; // flat index of whatever's playing RIGHT NOW per the
+                                              // socket-driven match below; -1 when unmatched
+    let _lineupLastObservedRawTitle = null;  // self-dedup guard so lineupObserveTitleChange is safe
+                                              // to call from both the socket handler (authoritative,
+                                              // immediate) and the DOM-title fallback without double-processing
+
+    // Learned bumper-gap samples (s), split by whether the gap crossed a section boundary --
+    // a section break (e.g. "Funky Cheese Friday" -> "Grindhouse-A-Go-Go") tends to run a whole
+    // separate bumper reel (several short clips back to back), not just one bumper's worth of
+    // gap, so pooling them with ordinary same-section gaps can badly underestimate exactly those
+    // transitions. Persisted to localStorage (uncapped by date, unlike the played-progress
+    // marker) so the learned habit survives a page reload instead of resetting to empty.
+    function lineupReadGapSamples(key) {
+        try {
+            const raw = JSON.parse(localStorage.getItem(key));
+            return Array.isArray(raw) ? raw.filter(n => typeof n === 'number' && n >= 0) : [];
+        } catch (e) { return []; }
+    }
+    function lineupPushGapSample(key, arr, sec) {
+        arr.push(sec);
+        if (arr.length > LINEUP_GAP_SAMPLE_CAP) arr.shift();
+        try { localStorage.setItem(key, JSON.stringify(arr)); }
+        catch (e) { /* storage full/unavailable -- in-memory sample for this session still works */ }
+    }
+    let _lineupObservedSameSectionGaps = lineupReadGapSamples(LS_LINEUP_GAP_SAME_SECTION);
+    let _lineupObservedCrossSectionGaps = lineupReadGapSamples(LS_LINEUP_GAP_CROSS_SECTION);
+
+    // Section index of the most recently matched film seen today -- the "coming from" context
+    // a gap needs to be classified same- vs cross-section. Persisted (date-scoped, like the
+    // played-progress marker) so a page reload landing mid-bumper-block doesn't lose it and
+    // silently drop that gap sample entirely.
+    function lineupReadLastMatchedSection() {
+        try {
+            const p = JSON.parse(localStorage.getItem(LS_LINEUP_LAST_SECTION));
+            return p && p.date === lineupPacificDateString() && typeof p.section === 'number' ? p.section : -1;
+        } catch (e) { return -1; }
+    }
+    function lineupWriteLastMatchedSection(section) {
+        try { localStorage.setItem(LS_LINEUP_LAST_SECTION, JSON.stringify({ date: lineupPacificDateString(), section })); }
+        catch (e) { /* storage full/unavailable -- gap classification just skips until the next real match */ }
+    }
+    let _lineupLastMatchedSection = lineupReadLastMatchedSection();
 
     function lineupReadCache() {
         try {
@@ -2865,33 +3109,88 @@
         }
     }
 
+    // Today's items flattened WITH each one's section index attached -- needed both to
+    // classify an observed gap as same-section vs cross-section, and to locate a matched
+    // title's flat index for the played-progress marker.
+    function lineupFlatTodayWithSection(sched) {
+        const today = sched && sched.days.find(day => day.date === lineupPacificDateString());
+        if (!today) return [];
+        const flat = [];
+        today.sections.forEach((section, si) => section.items.forEach(item => flat.push({ si, item })));
+        return flat;
+    }
+
     // Learn bumper-gap duration live: the time from the FIRST unmatched title change after
     // a feature to the next matched one is one observed gap sample -- the whole bumper
     // block, not just its last item (resetting per-item makes the median absurdly small on
-    // multi-bumper blocks). Matched titles in TODAY's day also advance the persisted
-    // played-progress marker, via the confirm-delay above. Called from injectMovieLinks
-    // (Step 2 below) with the same deduped rawTitle that function already tracks in
-    // lastMovieTitle, reading the localStorage cache directly if the schedule hasn't been
-    // loaded into memory yet (without assigning _lineupScheduleCache, which stays
-    // lineupEnsureSchedule's job so revalidation still happens).
-    function lineupObserveTitleChange(rawTitle) {
-        const title = rawTitle ? parseMovieFilename(rawTitle).title : null;
+    // multi-bumper blocks). Classified same-section vs cross-section by comparing the
+    // newly-matched film's section to whatever section was last confirmed playing, and pushed
+    // into the matching persisted sample list (gaps implausibly longer than any real bumper
+    // block get discarded instead -- see LINEUP_MAX_PLAUSIBLE_GAP_SECONDS). Matched titles in
+    // TODAY's day also advance the persisted played-progress marker (via the confirm-delay
+    // above) and set _lineupCurrentMatchedFlatIndex, the authoritative "what's airing right
+    // now" signal lineupBuildDaySections prefers over the DOM-title heuristic (see there for
+    // why). Self-dedupes on rawTitle so it's safe to call both from the socket's changeMedia
+    // handler (authoritative, immediate) and from injectMovieLinks's DOM-title path (fallback
+    // for the brief window before the first changeMedia of a session arrives) without
+    // double-processing the same real title change. Reads the localStorage cache directly
+    // (without assigning _lineupScheduleCache, which stays lineupEnsureSchedule's job so
+    // revalidation still happens) so all of this works before the lineup screen is first opened.
+    function lineupObserveTitleChange(rawTitle, declaredSeconds) {
+        // Deliberately NOT gated on lineupTimingEnabled() -- only the display
+        // (lineupBuildDaySections) is. Tracking always runs in the background so the state
+        // stays accurate; gating it here too seemed like a natural extension but actually broke
+        // things: while the setting was off, changeMedia events were never observed at all, so
+        // a film's entire runtime could pass with no confirmed-played marker -- confirmed live
+        // 2026-07-19 on the sibling Android app, Shock Waves' whole ~90min run went untracked
+        // while the setting was off, and turning it back on mid-next-film showed a bogus
+        // "Shock Waves starts at 8:15" because the app still thought it hadn't happened yet.
+        // Always tracking means flipping the setting on shows accurate state immediately
+        // instead of waiting for the next real title change to self-correct.
+        if (!rawTitle) return;
+        // Bail WITHOUT marking rawTitle as observed if the schedule isn't loaded yet -- e.g. the
+        // socket's changeMedia resync can fire on a fresh mid-movie page load before the cached
+        // schedule has finished reading. If we dedup on a "no schedule yet" outcome, this title
+        // would never be re-evaluated once the schedule DOES load (the movie's title isn't going
+        // to change again), leaving _lineupCurrentMatchedFlatIndex stuck at -1 for its whole
+        // runtime and the ETA anchored to a stale bumper timestamp instead of the real live
+        // countdown. Letting a later call (the DOM-title fallback, or the next resync) retry
+        // fixes it.
         const sched = _lineupScheduleCache || lineupReadCache();
-        const matchesSchedule = !!(title && sched &&
+        if (!sched) return;
+        if (rawTitle === _lineupLastObservedRawTitle) return;
+        _lineupLastObservedRawTitle = rawTitle;
+
+        const title = parseMovieFilename(rawTitle).title;
+        const matchesSchedule = !!(title &&
+            (declaredSeconds == null || declaredSeconds >= LINEUP_MIN_PLAUSIBLE_FEATURE_SECONDS) &&
             lineupAllScheduleTitles(sched).some(s => lineupItemMatchesTitle(s, title)));
-        if (rawTitle && !matchesSchedule && sched) {
+
+        const flatToday = lineupFlatTodayWithSection(sched);
+        const idx = matchesSchedule ? flatToday.findIndex(f => lineupItemMatchesTitle(f.item, title)) : -1;
+        const newSection = idx !== -1 ? flatToday[idx].si : -1;
+        _lineupCurrentMatchedFlatIndex = idx;
+
+        if (!matchesSchedule) {
             if (!_lineupLastUnmatchedStart) _lineupLastUnmatchedStart = Date.now();
         } else if (_lineupLastUnmatchedStart) {
-            _lineupObservedGaps.push((Date.now() - _lineupLastUnmatchedStart) / 1000);
+            const gapSec = (Date.now() - _lineupLastUnmatchedStart) / 1000;
+            if (_lineupLastMatchedSection !== -1 && newSection !== -1
+                && gapSec >= LINEUP_MIN_PLAUSIBLE_GAP_SECONDS && gapSec <= LINEUP_MAX_PLAUSIBLE_GAP_SECONDS) {
+                if (newSection === _lineupLastMatchedSection) {
+                    lineupPushGapSample(LS_LINEUP_GAP_SAME_SECTION, _lineupObservedSameSectionGaps, gapSec);
+                } else {
+                    lineupPushGapSample(LS_LINEUP_GAP_CROSS_SECTION, _lineupObservedCrossSectionGaps, gapSec);
+                }
+            }
             _lineupLastUnmatchedStart = null;
         }
         lineupCommitConfirmedProgress();
         _lineupPendingProgress = null; // whatever was pending either just committed or was a jump
-        if (matchesSchedule) {
-            const today = sched.days.find(day => day.date === lineupPacificDateString());
-            const flatItems = today ? today.sections.flatMap(s => s.items) : [];
-            const idx = flatItems.findIndex(s => lineupItemMatchesTitle(s, title));
-            if (idx !== -1 && idx > lineupReadProgress()) _lineupPendingProgress = { idx, since: Date.now() };
+        if (matchesSchedule && idx !== -1) {
+            _lineupLastMatchedSection = newSection;
+            lineupWriteLastMatchedSection(newSection);
+            if (idx > lineupReadProgress()) _lineupPendingProgress = { idx, since: Date.now() };
         }
     }
 
@@ -3009,27 +3308,66 @@
         day.sections.forEach((section, si) => {
             section.items.forEach(item => flat.push({ section, si, item }));
         });
+        const infoFor = (f) => infosByKey.get(f.item.title + '|' + f.item.year) || {};
+
+        // Experimental feature, off by default -- see lineupTimingEnabled(). Skip all live
+        // matching/estimation and show the schedule as a plain, unstatused list instead: posters,
+        // titles, section themes -- no NOW PLAYING, no played graying, no ETA guesses.
+        if (!lineupTimingEnabled()) {
+            const builtFlat = flat.map((f) => ({
+                ...lineupBuildItem(infoFor(f), f.item.title, f.item.year),
+                isNowPlaying: false,
+                played: false,
+                etaLabel: '',
+            }));
+            return day.sections.map((section, si) => ({
+                name: section.name, slug: section.slug,
+                items: builtFlat.filter((_, idx) => flat[idx].si === si),
+            }));
+        }
 
         const isToday = dayStatus === 'today';
-        const currentTitle = isToday && lastMovieTitle
+        // Prefer the socket-driven match (_lineupCurrentMatchedFlatIndex, authoritative --
+        // set straight from the raw changeMedia payload) over the DOM-title heuristic below
+        // (lastMovieTitle, populated by injectMovieLinks/triggerTitleInject watching
+        // #currenttitle). The DOM path can lag or land on a transient bumper/trailer title
+        // right after a reload and then never update again until the next real title change,
+        // while the socket payload self-heals on every real media change -- it's only ever
+        // stale for the brief window before the first one arrives, which the DOM fallback covers.
+        const domTitle = isToday && lastMovieTitle
             ? parseMovieFilename(lastMovieTitle).title : '';
-        const currentFlatIndex = currentTitle
-            ? flat.findIndex(f => lineupItemMatchesTitle(f.item, currentTitle))
+        const domFlatIndex = domTitle
+            ? flat.findIndex(f => lineupItemMatchesTitle(f.item, domTitle))
             : -1;
+        const currentFlatIndex = isToday && _lineupCurrentMatchedFlatIndex !== -1
+            ? _lineupCurrentMatchedFlatIndex : domFlatIndex;
 
         if (isToday) lineupCommitConfirmedProgress(); // a film past the confirm threshold counts as reached
 
         const nowMs = Date.now();
-        const infoFor = (f) => infosByKey.get(f.item.title + '|' + f.item.year) || {};
+        // Cross-section falls back to the same-section median (better than a flat guess) if no
+        // cross-section samples have been learned yet; same-section falls back to the original
+        // 10-min cold-start default.
+        const sameSectionGapSeconds = lineupMedianGapSeconds(_lineupObservedSameSectionGaps) ?? 600;
+        const crossSectionGapSeconds = lineupMedianGapSeconds(_lineupObservedCrossSectionGaps) ?? sameSectionGapSeconds;
         const estimates = lineupEstimateDayItems({
             nowMs,
             anchorMs: lineupDayAnchorPacific(day.date).getTime(),
             runtimesMin: flat.map(f => infoFor(f).runtime ?? null),
-            gapSeconds: lineupMedianGapSeconds(_lineupObservedGaps) ?? 600, // 10-min cold-start default
+            sectionOf: flat.map(f => f.si),
+            sameSectionGapSeconds,
+            crossSectionGapSeconds,
             dayStatus,
             currentIndex: currentFlatIndex,
-            remainingSec: currentFlatIndex !== -1
-                ? Math.max(0, getCurrentMediaSeconds() - getPlayerTimeSec()) : 0,
+            // null (not 0) when the movie's duration isn't known yet -- e.g. the page loaded
+            // mid-movie, so no changeMedia carrying `seconds` has fired for it. Treating unknown
+            // as 0 would make "no live data" look identical to "wrapping up right now," anchoring
+            // the next film's ETA to nowMs+gap -- a confident-looking but bogus guess (seen live
+            // 2026-07-19: showed ~10 min out with 15+ min actually remaining). The real value
+            // arrives automatically once the next real changeMedia fires.
+            remainingSec: currentFlatIndex !== -1 && getCurrentMediaSeconds() > 0
+                ? Math.max(0, getCurrentMediaSeconds() - (getPlayerTimeSec() ?? 0))
+                : (currentFlatIndex !== -1 ? null : 0),
             furthestPlayedIndex: isToday ? lineupReadProgress() : -1,
             bumperStartMs: _lineupLastUnmatchedStart,
         });
@@ -3534,6 +3872,58 @@
         document.body.appendChild(header);
     }
 
+    /* ==========================================================
+       CHAT PANEL RESIZER
+       Drags --sc-chat-w (horizontal layout) / --sc-chat-h (vertical layout)
+       live, then persists the result so it survives reload.
+    ========================================================== */
+
+    function initChatResizer() {
+        if (document.getElementById('sc-chat-resizer')) return;
+        const handle = document.createElement('div');
+        handle.id = 'sc-chat-resizer';
+        document.body.appendChild(handle);
+
+        const root = document.documentElement;
+        let dragging = false, mode, startX, startY, startW, startH;
+
+        handle.addEventListener('mousedown', e => {
+            e.preventDefault();
+            dragging = true;
+            mode = document.body.classList.contains('sc-vertical') ? 'vertical' : 'horizontal';
+            startX = e.clientX; startY = e.clientY;
+            startW = getChatPanelWidth();
+            startH = getChatPanelHeight();
+            handle.classList.add('sc-resizing');
+            document.body.style.userSelect = 'none';
+        });
+
+        window.addEventListener('mousemove', e => {
+            if (!dragging) return;
+            if (mode === 'horizontal') {
+                const deltaVw = (startX - e.clientX) / window.innerWidth * 100; // drag left = wider
+                const w = Math.min(CHAT_PANEL_W_MAX, Math.max(CHAT_PANEL_W_MIN, startW + deltaVw));
+                root.style.setProperty('--sc-chat-w', w + 'vw');
+            } else {
+                const deltaVh = (startY - e.clientY) / window.innerHeight * 100; // drag up = taller
+                const h = Math.min(CHAT_PANEL_H_MAX, Math.max(CHAT_PANEL_H_MIN, startH + deltaVh));
+                root.style.setProperty('--sc-chat-h', h + 'vh');
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (!dragging) return;
+            dragging = false;
+            handle.classList.remove('sc-resizing');
+            document.body.style.userSelect = '';
+            if (mode === 'horizontal') {
+                setKey(LS_CHAT_PANEL_W, String(parseFloat(root.style.getPropertyValue('--sc-chat-w')) || getChatPanelWidth()));
+            } else {
+                setKey(LS_CHAT_PANEL_H, String(parseFloat(root.style.getPropertyValue('--sc-chat-h')) || getChatPanelHeight()));
+            }
+        });
+    }
+
     function initUserCount() {
         const header = document.getElementById('sc-chat-header');
         if (!header) return;
@@ -3672,6 +4062,7 @@
         initDesyncButton();
         initChatSeekMenu();
         initChatHeader();
+        initChatResizer();
         initUserCount();
         initPollWatcher();
         applyChatFontSize(getChatFontSize());
@@ -3700,6 +4091,13 @@
 
         const style = document.createElement('style');
         style.textContent = `
+
+            /* Resizable chat panel — width (horizontal layout) / height (vertical layout).
+               Read from localStorage at boot; dragged live by #sc-chat-resizer. */
+            :root {
+                --sc-chat-w: ${getChatPanelWidth()}vw;
+                --sc-chat-h: ${getChatPanelHeight()}vh;
+            }
 
             /* ===== SHARED HIDDEN ELEMENTS ===== */
             nav.navbar, #drinkbarwrap, #announcements, #playlistrow,
@@ -3739,7 +4137,7 @@
                 position: fixed !important;
                 top: 20px !important; /* start below the header bar */
                 left: 0 !important;
-                width: 80vw !important; height: 40px !important;
+                width: calc(99vw - var(--sc-chat-w)) !important; height: 40px !important;
                 z-index: 10001 !important; /* above video */
                 pointer-events: none !important;
                 background: linear-gradient(
@@ -3766,7 +4164,7 @@
                 white-space: nowrap !important;
                 overflow: hidden !important;
                 text-overflow: ellipsis !important;
-                width: 80vw !important;
+                width: calc(99vw - var(--sc-chat-w)) !important;
                 box-sizing: border-box !important;
                 position: fixed !important;
                 top: 0 !important; left: 0 !important;
@@ -3787,7 +4185,7 @@
             #sc-chat-header {
                 position: fixed !important;
                 top: 0 !important; right: 5px !important;
-                width: calc(19vw - 5px) !important; height: 28px !important;
+                width: calc(var(--sc-chat-w) - 5px) !important; height: 28px !important;
                 z-index: 10003 !important;
                 background: rgba(0,0,0,0.7) !important;
                 border: 1px solid #aaaaaa !important;
@@ -3802,7 +4200,7 @@
                 left: 5px !important;
                 right: 5px !important;
                 width: auto !important;
-                bottom: calc(42vh - 20px) !important;
+                bottom: calc(var(--sc-chat-h) - 20px) !important;
                 top: auto !important;
             }
             #sc-usercount-btn, #sc-poll-btn {
@@ -3828,7 +4226,7 @@
                 position: fixed !important;
                 top: 28px !important;
                 right: 5px !important;
-                width: calc(19vw - 5px) !important;
+                width: calc(var(--sc-chat-w) - 5px) !important;
                 z-index: 19000 !important;
                 background: rgba(10,10,20,0.95) !important;
                 border: 1px solid #aaaaaa !important;
@@ -3847,7 +4245,7 @@
             }
             body.sc-vertical #sc-users-panel {
                 top: auto !important;
-                bottom: calc(42vh) !important;
+                bottom: var(--sc-chat-h) !important;
                 right: 5px !important;
                 width: calc(100vw - 5px) !important;
                 max-height: 40vh !important;
@@ -3899,7 +4297,7 @@
                 position: fixed !important;
                 bottom: 4px !important;
                 left: 4px !important;
-                right: calc(20vw + 150px) !important;
+                right: calc(var(--sc-chat-w) + 1vw + 150px) !important;
                 width: auto !important;
                 margin: 0 !important;
                 z-index: 10001 !important;
@@ -3913,7 +4311,7 @@
                 backdrop-filter: blur(4px) !important;
             }
             body.sc-vertical .video-js .vjs-control-bar {
-                bottom: calc(42vh + 15px) !important;
+                bottom: calc(var(--sc-chat-h) + 15px) !important;
                 right: 160px !important;
                 left: 4px !important;
             }
@@ -4126,7 +4524,7 @@
             #sc-poster-toggle {
                 position: fixed !important;
                 top: 0 !important;
-                right: 20vw !important;  /* stops at the chat panel edge */
+                right: calc(var(--sc-chat-w) + 1vw) !important;  /* stops at the chat panel edge */
                 left: auto !important;
                 z-index: 10003 !important;
                 background: transparent !important;
@@ -4229,10 +4627,10 @@
             }
             body.sc-horizontal #sc-desync-btn {
                 bottom: 6px !important;
-                right: calc(20vw + 44px) !important;
+                right: calc(var(--sc-chat-w) + 1vw + 44px) !important;
             }
             body.sc-vertical #sc-desync-btn {
-                bottom: 43vh !important;
+                bottom: calc(var(--sc-chat-h) + 1vh) !important;
                 right: 44px !important;
             }
 
@@ -4256,10 +4654,10 @@
             #sc-gif-btn:hover { color: white !important; background: rgba(255,255,255,0.22) !important; }
             body.sc-horizontal #sc-gif-btn {
                 bottom: 6px !important;
-                right: calc(20vw + 80px) !important;
+                right: calc(var(--sc-chat-w) + 1vw + 80px) !important;
             }
             body.sc-vertical #sc-gif-btn {
-                bottom: 43vh !important;
+                bottom: calc(var(--sc-chat-h) + 1vh) !important;
                 right: 80px !important;
             }
 
@@ -4501,16 +4899,16 @@
             /* ===== HORIZONTAL LAYOUT (widescreen) ===== */
             body.sc-horizontal #videowrap {
                 position: fixed !important; top: 0 !important; left: 0 !important;
-                width: 80vw !important; height: 100vh !important;
+                width: calc(99vw - var(--sc-chat-w)) !important; height: 100vh !important;
                 z-index: 9999 !important; background: black !important;
             }
             body.sc-horizontal #videowrap .embed-responsive,
             body.sc-horizontal #ytapiplayer {
-                width: 80vw !important; height: 100vh !important;
+                width: calc(99vw - var(--sc-chat-w)) !important; height: 100vh !important;
             }
             body.sc-horizontal #chatwrap {
                 position: fixed !important; top: 28px !important; right: 0 !important;
-                width: 19vw !important; height: calc(100vh - 28px) !important;
+                width: var(--sc-chat-w) !important; height: calc(100vh - 28px) !important;
                 z-index: 9999 !important; background: rgba(0,0,0,0.7) !important;
                 overflow: hidden !important; padding: 0 5px 0 0 !important;
                 display: flex !important; flex-direction: column !important;
@@ -4521,20 +4919,20 @@
                 bottom: 6px !important; right: 8px !important;
             }
             body.sc-horizontal #fs-toggle-btn {
-                bottom: 6px !important; right: calc(20vw + 8px) !important;
+                bottom: 6px !important; right: calc(var(--sc-chat-w) + 1vw + 8px) !important;
             }
 
             /* ===== VERTICAL LAYOUT (portrait monitor) ===== */
             body.sc-vertical #videowrap {
                 position: fixed !important; top: 0 !important; left: 0 !important;
-                width: 100vw !important; height: 55vh !important;
+                width: 100vw !important; height: calc(97vh - var(--sc-chat-h)) !important;
                 z-index: 9999 !important; background: black !important;
                 border: none !important; outline: none !important;
                 box-shadow: none !important;
             }
             body.sc-vertical #videowrap .embed-responsive,
             body.sc-vertical #ytapiplayer {
-                width: 100vw !important; height: 55vh !important;
+                width: 100vw !important; height: calc(97vh - var(--sc-chat-h)) !important;
                 border: none !important;
                 margin: 0 !important;
                 padding: 0 !important;
@@ -4550,7 +4948,7 @@
             }
             body.sc-vertical #chatwrap {
                 position: fixed !important; bottom: 0 !important; left: 0 !important;
-                width: 100vw !important; height: calc(42vh - 28px) !important;
+                width: 100vw !important; height: calc(var(--sc-chat-h) - 28px) !important;
                 z-index: 9999 !important; background: rgba(0,0,0,0.85) !important;
                 overflow: hidden !important; padding: 0 5px !important;
                 display: flex !important; flex-direction: column !important;
@@ -4568,13 +4966,14 @@
             }
             /* fs button: sits in the gap between video and chat */
             body.sc-vertical #fs-toggle-btn {
-                bottom: 43vh !important;
+                bottom: calc(var(--sc-chat-h) + 1vh) !important;
                 right: 8px !important; left: auto !important;
             }
             /* movie stats tags: float just above the video scrubber (bottom of the
-               55vh video) instead of down at the very bottom of the screen */
+               video, which shrinks as the chat panel grows) instead of down at the
+               very bottom of the screen */
             body.sc-vertical #sc-movie-stats {
-                bottom: 45vh !important;
+                bottom: calc(3vh + var(--sc-chat-h)) !important;
             }
 
             /* ===== SHARED CHAT ELEMENTS ===== */
@@ -4583,8 +4982,52 @@
                 background: transparent !important; color: white !important;
                 font-size: 14px !important; overflow-y: auto !important; padding-bottom: 5px !important;
             }
+
+            /* Chat panel resizer — thin drag strip on the panel's free edge:
+               left edge (width) in horizontal layout, top edge (height) in vertical layout. */
+            #sc-chat-resizer {
+                position: fixed !important;
+                z-index: 10004 !important;
+                background: transparent !important;
+                touch-action: none !important;
+                transition: background 0.15s ease !important;
+            }
+            #sc-chat-resizer:hover, #sc-chat-resizer.sc-resizing {
+                background: rgba(255,255,255,0.18) !important;
+            }
+            body.sc-horizontal #sc-chat-resizer {
+                top: 28px !important; bottom: 0 !important;
+                left: calc(100vw - var(--sc-chat-w) - 4px) !important;
+                width: 8px !important;
+                cursor: ew-resize !important;
+            }
+            body.sc-vertical #sc-chat-resizer {
+                left: 0 !important; right: 0 !important;
+                /* Align with #sc-chat-header's own TOP edge (bottom -20px + its 28px
+                   height) so the handle sits flush above the users/poll bar itself,
+                   not tucked below it. */
+                bottom: calc(var(--sc-chat-h) + 4px) !important;
+                height: 8px !important;
+                cursor: ns-resize !important;
+            }
+
+            /* Chat textarea resizer — thin strip above the entry box, drag up/down */
+            /* Sits directly on the textarea's own top edge — negative margin cancels
+               its own flex height so it adds no gap, and z-index keeps it grabbable
+               above the textarea underneath it. */
+            #sc-chat-ta-resizer {
+                width: 100% !important; height: 6px !important; flex-shrink: 0 !important;
+                cursor: ns-resize !important; margin-bottom: -6px !important;
+                position: relative !important; z-index: 2 !important;
+                border-radius: 4px 4px 0 0 !important; background: transparent !important;
+                transition: background 0.15s ease !important; touch-action: none !important;
+            }
+            #sc-chat-ta-resizer:hover, #sc-chat-ta-resizer.sc-resizing {
+                background: rgba(255,255,255,0.18) !important;
+            }
+
             #sc-chat-textarea {
-                width: 100% !important; min-height: 44px !important; max-height: 120px !important;
+                width: 100% !important; min-height: 44px !important; max-height: 50vh !important;
                 background: rgba(255,255,255,0.1) !important; color: white !important;
                 border: 1px solid rgba(255,255,255,0.3) !important; border-radius: 4px !important;
                 padding: 6px 38px 6px 8px !important; font-size: 14px !important; font-family: inherit !important;
@@ -4698,10 +5141,10 @@
             }
 
             body.sc-horizontal #sc-settings-btn {
-                bottom: 6px !important; right: calc(20vw + 116px) !important;
+                bottom: 6px !important; right: calc(var(--sc-chat-w) + 1vw + 116px) !important;
             }
             body.sc-vertical #sc-settings-btn {
-                bottom: 43vh !important; right: 116px !important;
+                bottom: calc(var(--sc-chat-h) + 1vh) !important; right: 116px !important;
             }
 
             /* ===== SETTINGS MODAL ===== */
@@ -4796,7 +5239,7 @@
                 position: fixed !important;
                 top: 28px !important;
                 right: 5px !important;
-                width: calc(19vw - 5px) !important;
+                width: calc(var(--sc-chat-w) - 5px) !important;
                 z-index: 19000 !important;
                 background: rgba(10,10,20,0.95) !important;
                 border: 1px solid rgba(255,255,255,0.12) !important;
@@ -4812,7 +5255,7 @@
             body.sc-vertical #sc-poll-panel {
                 right: 0 !important;
                 top: auto !important;
-                bottom: calc(42vh + 42px) !important;
+                bottom: calc(var(--sc-chat-h) + 42px) !important;
                 max-width: 98vw !important;
             }
             .sc-poll-header {
@@ -4916,7 +5359,7 @@
                 position: fixed !important;
                 z-index: 10003 !important;
                 top: 0 !important;
-                right: calc(20vw + 150px) !important;
+                right: calc(var(--sc-chat-w) + 1vw + 150px) !important;
                 background: transparent !important;
                 border: none !important;
                 border-radius: 0 !important;
@@ -4945,7 +5388,7 @@
             #sc-trivia-panel {
                 position: fixed !important;
                 top: 22px !important;
-                right: calc(20vw + 90px) !important;
+                right: calc(var(--sc-chat-w) + 1vw + 90px) !important;
                 width: 420px !important;
                 max-height: 62vh !important;
                 z-index: 21800 !important;
