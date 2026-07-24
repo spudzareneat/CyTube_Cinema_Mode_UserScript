@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube Fullscreen Video with Overlay Chat
 // @namespace    http://tampermonkey.net/
-// @version      4.7.3
+// @version      4.7.4
 // @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, right-click chat-to-movie seek, scene-to-GIF capture with meme captions + ImgBB upload, Tonight's Lineup schedule overlay, resizable chat panel, vertical monitor support
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -20,7 +20,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.pc v4.7.3 loaded');
+    console.log('[SC] cytube.pc v4.7.4 loaded');
 
     /* ==========================================================
        API KEYS — stored in localStorage, managed via settings modal.
@@ -4454,6 +4454,9 @@
                 box-shadow: 0 0 4px rgba(255,204,0,0.8) !important;
                 pointer-events: none !important;
                 z-index: 5 !important;
+                /* left updates in discrete steps (updateSyncMarker's setInterval) —
+                   glide between them at the same period instead of jumping. */
+                transition: left 0.5s linear !important;
             }
             .video-js .vjs-play-progress {
                 background: rgba(255,255,255,0.75) !important;
