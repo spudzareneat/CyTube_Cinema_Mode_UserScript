@@ -206,6 +206,13 @@
             #sc-gif-go:disabled { opacity: 0.5 !important; cursor: default !important; }
             #sc-gif-status { color: rgba(255,255,255,0.65) !important; font-size: 12px !important; min-height: 14px !important; }
             #sc-gif-result img { width: 100% !important; border-radius: 6px !important; display: block !important; }
+            #sc-gif-actions { display: flex !important; align-items: center !important; gap: 10px !important; margin-top: 8px !important; }
+            #sc-gif-dl { background: rgba(255,255,255,0.1) !important; color: white !important;
+                         border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important;
+                         padding: 5px 12px !important; font-size: 12px !important; cursor: pointer !important;
+                         text-decoration: none !important; }
+            #sc-gif-dl:hover { background: rgba(255,255,255,0.2) !important; }
+            #sc-gif-size { color: rgba(255,255,255,0.45) !important; font-size: 11px !important; margin-left: auto !important; }
             .sc-gif-imgbb-row { display: flex !important; flex-direction: column !important; gap: 4px !important; }
             .sc-gif-imgbb-label { color: rgba(255,255,255,0.8) !important; font-size: 12px !important; font-weight: 500 !important; }
             .sc-gif-imgbb-input-row { display: flex !important; gap: 6px !important; }
@@ -269,7 +276,7 @@
         const s = sec % 60;
         return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1);
     }
-    function _escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    function _escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
     /* ==========================================================
        MEME CAPTION RENDERING — shared by the live CSS preview and
@@ -552,9 +559,6 @@
     }
 
     /* ==========================================================
-       GIF PANEL
-    ========================================================== */
-    /* ==========================================================
        IMGBB — upload/test
     ========================================================== */
     function blobToBase64(blob) {
@@ -612,6 +616,9 @@
         } catch (e) { return 'error'; }
     }
 
+    /* ==========================================================
+       GIF PANEL
+    ========================================================== */
     function openGifPanel(initialSec) {
         if (document.getElementById('sc-gif-panel')) return;
         injectPanelCss();
@@ -732,12 +739,12 @@
             if (!key) { imgbbStatus.textContent = 'Enter an API key first'; imgbbStatus.className = 'sc-gif-imgbb-status sc-test-bad'; return; }
             imgbbTestBtn.disabled = true;
             imgbbStatus.textContent = 'Checking…'; imgbbStatus.className = 'sc-gif-imgbb-status sc-test-pending';
-            const result = await validateImgbbKey(key);
+            const verdict = await validateImgbbKey(key);
             imgbbTestBtn.disabled = false;
-            if (result === 'valid') {
+            if (verdict === 'valid') {
                 imgbbStatus.textContent = '✓ Valid API key'; imgbbStatus.className = 'sc-gif-imgbb-status sc-test-ok';
                 setKey(LS_IMGBB, key);
-            } else if (result === 'invalid') {
+            } else if (verdict === 'invalid') {
                 imgbbStatus.textContent = '✗ Invalid API key'; imgbbStatus.className = 'sc-gif-imgbb-status sc-test-bad';
             } else {
                 imgbbStatus.textContent = '⚠ Couldn\'t reach ImgBB'; imgbbStatus.className = 'sc-gif-imgbb-status sc-test-bad';
@@ -969,7 +976,7 @@
                     try {
                         const link = await uploadToImgbb(blob, apiKey, fnameBase);
                         linkBox.innerHTML =
-                            `<a class="sc-gif-link-url" href="${link}" target="_blank" rel="noopener">${_escHtml(link)}</a>` +
+                            `<a class="sc-gif-link-url" href="${_escHtml(link)}" target="_blank" rel="noopener">${_escHtml(link)}</a>` +
                             `<button id="sc-gif-copylink" type="button">⧉ Copy link</button>`;
                         uploadBtn.textContent = '✓ Uploaded';
                         try { await navigator.clipboard.writeText(link); } catch (e) {}
