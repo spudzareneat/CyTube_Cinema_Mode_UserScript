@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         CyTube Fullscreen Video with Overlay Chat
 // @namespace    http://tampermonkey.net/
-// @version      4.6.4
-// @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, right-click chat-to-movie seek, scene-to-GIF capture + ImgBB upload, vertical monitor support
+// @version      4.7.0
+// @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, right-click chat-to-movie seek, scene-to-GIF capture with meme captions + ImgBB upload, Tonight's Lineup schedule overlay, resizable chat panel, vertical monitor support
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
 // @grant        GM_xmlhttpRequest
@@ -20,7 +20,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.pc v4.6.4 loaded');
+    console.log('[SC] cytube.pc v4.7.0 loaded');
 
     /* ==========================================================
        API KEYS — stored in localStorage, managed via settings modal.

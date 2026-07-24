@@ -34,19 +34,20 @@ The script hides all the standard CyTube chrome (navbar, playlist, userlist, foo
 
 ---
 
-### Coming Attractions
+### Tonight's Lineup (Coming Attractions)
 
-A hidden poster strip that reveals the upcoming weekend lineup with a single click.
+A full-screen schedule overlay that shows off the whole weekend's programming, not just what's currently playing.
 
-- A **"Coming Attractions"** button sits just below the currently-playing title bar
-- Click it to reveal a horizontal scrollable strip of movie poster thumbnails pulled directly from the channel MOTD
-- Hover over any poster for a smooth zoom-in preview (animates from thumbnail size up to a larger inset, anchored above the strip)
-- Click any poster to open the full image in a new tab
-- Strip is hidden by default — the button toggles it on and off
+- A **"Coming Attractions"** button sits just below the currently-playing title bar — click it to open the **Tonight's Lineup** screen
+- Styled like a ticket stub, with day tabs (e.g. Fri/Sat/Sun) for browsing across the whole weekend
+- Each themed block of the night gets its own section name, font, and accent color, with a horizontal rail of movie posters pulled from TMDB
+- Titles that have already played are shown dimmed and grayed out
+- Click any poster to open the full movie info card
+- An optional experimental setting ("Coming Attractions live timing," off by default — see Settings Modal below) adds a **NOW PLAYING** badge on the current title and estimated start-time badges on upcoming ones
+- Falls back to a simple flat strip with no day tabs if the schedule source can't be reached
 - Adapts to both horizontal and vertical layout modes
 
-<img width="1545" height="134" alt="Screenshot 2026-05-18 191415" src="https://github.com/user-attachments/assets/7bdd32f4-5922-48ef-9ff8-48b64e911ab7" />
-
+<!-- Add screenshot here -->
 
 ---
 
@@ -66,6 +67,14 @@ A stats bar fades in at the bottom-left of the video and auto-hides after 12 sec
 - **Content warnings** from DoesTheDogDie — dog/cat deaths, jump scares, nudity, sexual violence, spiders, eye trauma, clowns, needles, decapitation, and more
 
 Filename parsing handles formats like `White.Fire.[1984].mkv` cleanly. YouTube bumpers and intros are detected and skipped automatically.
+
+<!-- Add screenshot here -->
+
+---
+
+### IMDb Trivia & Parent Guide
+
+When a recognized movie is playing, a **Trivia** button appears (or press **T**) to pop open a scrollable panel of behind-the-scenes trivia facts pulled live from IMDb — up to 30 per title, cached so reopening it is instant. Separately, the stats bar under the title shows IMDb's Parent's Guide content as color-coded severity dots per category (red = severe, yellow = moderate, green = mild), so content concerns are visible at a glance without leaving the player. Press **Escape** to close the trivia panel.
 
 <!-- Add screenshot here -->
 
@@ -123,6 +132,7 @@ Capture any scene as an animated GIF, straight from the player — no external t
 - **Lock in the start and end** of the clip with live preview thumbnails of each frame — use **⤓ Now** to grab the current playback position, or nudge each mark by ±0.5s
 - Live **duration** readout, plus **FPS** and **Width** controls to balance quality vs. size
 - **Shape** options force a consistent **4:3** output — *Crop* (center-crop) or *Bars* (letterbox), or keep the video's *Native* ratio. The preview thumbnails reframe to show exactly what you'll get
+- **Meme captions** — type separate top and bottom text lines, choose white or yellow lettering (with a bold black outline), and set each line's size as a percentage of the frame. Drag the handle dot on the start/end preview thumbnails to position each caption anywhere on the frame — the preview updates live and matches exactly what gets baked into the final GIF
 - Animated spinners while frames are captured and the GIF is encoded (encoding runs in a Web Worker so the page never freezes)
 - When done: **⬇ Download** the GIF, or **☁ Upload** it to [ImgBB](https://imgbb.com/) and get a shareable direct link with a **⧉ Copy link** button — ready to paste into chat
 
@@ -165,6 +175,7 @@ A settings panel for managing API keys and preferences. It opens automatically o
 - ImgBB API key field for GIF uploads (with a direct link to get one)
 - Toggle to enable or disable the grammar/spell check popup
 - Chat font size slider
+- Toggle for experimental **Coming Attractions live timing** (NOW PLAYING / ETA badges in Tonight's Lineup — requires a TMDB key, off by default, still being tuned)
 
 <img width="357" height="355" alt="Screenshot 2026-05-18 191527" src="https://github.com/user-attachments/assets/69fa3a59-e05d-4237-8ce1-0a93ae9a8407" />
 
