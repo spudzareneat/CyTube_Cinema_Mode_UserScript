@@ -4721,11 +4721,12 @@
             .sc-gif-thumb-43 { aspect-ratio: 4 / 3 !important; }
             .sc-gif-thumb-fit { background-size: contain !important; }
             /* Meme caption live-preview overlay — mirrors the canvas render.
-               Position comes from --cx-*/--cy-* CSS vars set on the .sc-gif-thumb
+               Position comes from the --cx-/--cy- CSS vars set on the .sc-gif-thumb
                parent (read by both the caption text and its drag handle), driven
                by dragging the handle dot on the preview. */
             .sc-gif-cap {
                 position: absolute !important;
+                width: 92% !important;
                 text-align: center !important; white-space: pre-line !important;
                 font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif !important;
                 font-weight: bold !important; color: #fff !important;
