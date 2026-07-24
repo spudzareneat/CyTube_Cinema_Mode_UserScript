@@ -206,6 +206,37 @@
             #sc-gif-go:disabled { opacity: 0.5 !important; cursor: default !important; }
             #sc-gif-status { color: rgba(255,255,255,0.65) !important; font-size: 12px !important; min-height: 14px !important; }
             #sc-gif-result img { width: 100% !important; border-radius: 6px !important; display: block !important; }
+            .sc-gif-imgbb-row { display: flex !important; flex-direction: column !important; gap: 4px !important; }
+            .sc-gif-imgbb-label { color: rgba(255,255,255,0.8) !important; font-size: 12px !important; font-weight: 500 !important; }
+            .sc-gif-imgbb-input-row { display: flex !important; gap: 6px !important; }
+            .sc-gif-imgbb-input { flex: 1 1 auto !important; }
+            .sc-gif-imgbb-test-btn {
+                background: rgba(255,255,255,0.1) !important; color: white !important;
+                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important;
+                padding: 5px 12px !important; font-size: 12px !important; cursor: pointer !important;
+            }
+            .sc-gif-imgbb-test-btn:hover:not(:disabled) { background: rgba(255,255,255,0.2) !important; }
+            .sc-gif-imgbb-status { font-size: 11px !important; min-height: 13px !important; }
+            .sc-test-ok      { color: #7dffa0 !important; }
+            .sc-test-bad     { color: #ff8080 !important; }
+            .sc-test-pending { color: rgba(255,255,255,0.55) !important; }
+            #sc-gif-link {
+                display: flex !important; align-items: center !important; gap: 8px !important;
+                flex-wrap: wrap !important; margin-top: 8px !important;
+            }
+            .sc-gif-link-url {
+                color: #8ab4ff !important; font-size: 12px !important; word-break: break-all !important;
+                text-decoration: none !important;
+            }
+            .sc-gif-link-url:hover { text-decoration: underline !important; }
+            .sc-gif-link-msg { color: rgba(255,255,255,0.6) !important; font-size: 12px !important; }
+            #sc-gif-copylink, #sc-gif-upload {
+                background: rgba(255,255,255,0.1) !important; color: white !important;
+                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important;
+                padding: 5px 12px !important; font-size: 12px !important; cursor: pointer !important;
+            }
+            #sc-gif-copylink:hover, #sc-gif-upload:hover:not(:disabled) { background: rgba(255,255,255,0.2) !important; }
+            #sc-gif-upload:disabled { opacity: 0.5 !important; cursor: default !important; }
         `;
         document.head.appendChild(style);
     }
@@ -523,6 +554,64 @@
     /* ==========================================================
        GIF PANEL
     ========================================================== */
+    /* ==========================================================
+       IMGBB — upload/test
+    ========================================================== */
+    function blobToBase64(blob) {
+        return new Promise((resolve, reject) => {
+            const r = new FileReader();
+            r.onload = () => resolve(String(r.result).split(',', 2)[1] || '');
+            r.onerror = () => reject(new Error('read failed'));
+            r.readAsDataURL(blob);
+        });
+    }
+
+    async function uploadToImgbb(blob, apiKey, name) {
+        const b64 = await blobToBase64(blob);
+        let data = 'image=' + encodeURIComponent(b64);
+        if (name) data += '&name=' + encodeURIComponent(name);
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: 'https://api.imgbb.com/1/upload?key=' + encodeURIComponent(apiKey),
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                data,
+                onload: r => {
+                    let json = null;
+                    try { json = JSON.parse(r.responseText); } catch (e) {}
+                    if (r.status >= 200 && r.status < 300 && json && json.success && json.data && json.data.url) {
+                        resolve(json.data.url);
+                    } else {
+                        const msg = (json && json.error && json.error.message)
+                            ? json.error.message : ('HTTP ' + r.status);
+                        reject(new Error(msg));
+                    }
+                },
+                onerror: () => reject(new Error('network error')),
+            });
+        });
+    }
+
+    async function validateImgbbKey(apiKey) {
+        // ImgBB has no key-check endpoint, so probe with a tiny 1x1 PNG upload.
+        const onePx = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+        try {
+            const res = await new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    url: 'https://api.imgbb.com/1/upload?expiration=60&key=' + encodeURIComponent(apiKey),
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    data: 'image=' + encodeURIComponent(onePx),
+                    onload: r => resolve(r),
+                    onerror: reject,
+                });
+            });
+            if (res.status >= 200 && res.status < 300) return 'valid';
+            if (res.status === 400 || res.status === 403) return 'invalid';
+            return 'error';
+        } catch (e) { return 'error'; }
+    }
+
     function openGifPanel(initialSec) {
         if (document.getElementById('sc-gif-panel')) return;
         injectPanelCss();
@@ -612,6 +701,15 @@
                         </select>
                     </label>
                 </div>
+                <div class="sc-gif-imgbb-row">
+                    <label class="sc-gif-imgbb-label">ImgBB key (for Upload)</label>
+                    <div class="sc-gif-imgbb-input-row">
+                        <input type="text" id="sc-gif-imgbb-key" class="sc-gif-cap-input sc-gif-imgbb-input"
+                            placeholder="Paste ImgBB API key…" value="${_escHtml(getKey(LS_IMGBB))}" spellcheck="false" />
+                        <button id="sc-gif-imgbb-test" class="sc-gif-imgbb-test-btn" type="button">Test</button>
+                    </div>
+                    <span id="sc-gif-imgbb-status" class="sc-gif-imgbb-status"></span>
+                </div>
                 <button id="sc-gif-go" type="button">● Make GIF</button>
                 <div id="sc-gif-status"></div>
                 <div id="sc-gif-result"></div>
@@ -624,6 +722,27 @@
 
         const close = () => { _revokeGifResult(); destroyScrubClone(); panel.remove(); };
         $('#sc-gif-close').addEventListener('click', close);
+
+        const imgbbInput = $('#sc-gif-imgbb-key');
+        const imgbbStatus = $('#sc-gif-imgbb-status');
+        const imgbbTestBtn = $('#sc-gif-imgbb-test');
+        imgbbInput.addEventListener('change', () => setKey(LS_IMGBB, imgbbInput.value.trim()));
+        imgbbTestBtn.addEventListener('click', async () => {
+            const key = imgbbInput.value.trim();
+            if (!key) { imgbbStatus.textContent = 'Enter an API key first'; imgbbStatus.className = 'sc-gif-imgbb-status sc-test-bad'; return; }
+            imgbbTestBtn.disabled = true;
+            imgbbStatus.textContent = 'Checking…'; imgbbStatus.className = 'sc-gif-imgbb-status sc-test-pending';
+            const result = await validateImgbbKey(key);
+            imgbbTestBtn.disabled = false;
+            if (result === 'valid') {
+                imgbbStatus.textContent = '✓ Valid API key'; imgbbStatus.className = 'sc-gif-imgbb-status sc-test-ok';
+                setKey(LS_IMGBB, key);
+            } else if (result === 'invalid') {
+                imgbbStatus.textContent = '✗ Invalid API key'; imgbbStatus.className = 'sc-gif-imgbb-status sc-test-bad';
+            } else {
+                imgbbStatus.textContent = '⚠ Couldn\'t reach ImgBB'; imgbbStatus.className = 'sc-gif-imgbb-status sc-test-bad';
+            }
+        });
 
         const head = $('#sc-gif-head');
         let dragging = false, dragDX = 0, dragDY = 0;
@@ -832,8 +951,38 @@
                     `<img src="${_gifResultUrl}" alt="GIF preview">` +
                     `<div id="sc-gif-actions">` +
                     `<a id="sc-gif-dl" href="${_gifResultUrl}" download="${fname}">⬇ Download</a>` +
-                    `<span id="sc-gif-size">${kb} KB</span></div>`;
+                    `<button id="sc-gif-upload" type="button">☁ Upload</button>` +
+                    `<span id="sc-gif-size">${kb} KB</span></div>` +
+                    `<div id="sc-gif-link"></div>`;
                 setStatus('Done.');
+
+                const uploadBtn = $('#sc-gif-upload');
+                if (uploadBtn) uploadBtn.addEventListener('click', async () => {
+                    const linkBox = $('#sc-gif-link');
+                    const apiKey = getKey(LS_IMGBB);
+                    if (!apiKey) {
+                        linkBox.innerHTML = '<span class="sc-gif-link-msg">Add an ImgBB API key above to enable uploads.</span>';
+                        return;
+                    }
+                    uploadBtn.disabled = true;
+                    linkBox.innerHTML = '<span class="sc-gif-spinner sc-gif-spinner-sm"></span><span class="sc-gif-link-msg">Uploading to ImgBB…</span>';
+                    try {
+                        const link = await uploadToImgbb(blob, apiKey, fnameBase);
+                        linkBox.innerHTML =
+                            `<a class="sc-gif-link-url" href="${link}" target="_blank" rel="noopener">${_escHtml(link)}</a>` +
+                            `<button id="sc-gif-copylink" type="button">⧉ Copy link</button>`;
+                        uploadBtn.textContent = '✓ Uploaded';
+                        try { await navigator.clipboard.writeText(link); } catch (e) {}
+                        const cl = $('#sc-gif-copylink');
+                        if (cl) cl.addEventListener('click', async () => {
+                            try { await navigator.clipboard.writeText(link); cl.textContent = '✓ Copied'; }
+                            catch (e) { cl.textContent = '✗'; }
+                        });
+                    } catch (e) {
+                        linkBox.innerHTML = '<span class="sc-gif-link-msg sc-test-bad">Upload failed: ' + _escHtml(e.message || String(e)) + '</span>';
+                        uploadBtn.disabled = false;
+                    }
+                });
             } catch (e) {
                 console.error('[GIFMaker] GIF capture failed:', e);
                 result.innerHTML = '';
