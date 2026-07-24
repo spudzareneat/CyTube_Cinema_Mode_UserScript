@@ -97,7 +97,7 @@ classes/ids so existing panel styling just works):
   color/size controls, FPS/width/aspect selects, Make GIF → capture → encode
   → result (download link + Upload button) flow.
 - All `#sc-gif-*` / `.sc-gif-*` CSS rules copied as-is from pc.user.js
-  (lines ~4784–4979), since class/id names are unchanged.
+  (lines ~4784–4990), since class/id names are unchanged.
 
 Not carried over: `_gifTitleSlug()`'s dependency on `lastMovieTitle` +
 `parseMovieFilename` (TMDB-adjacent title-cleaning machinery). Replaced by a
