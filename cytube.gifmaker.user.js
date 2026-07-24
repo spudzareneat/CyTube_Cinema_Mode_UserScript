@@ -41,10 +41,809 @@
     }
 
     /* ==========================================================
-       GIF PANEL (implemented in a later pass)
+       GIF PANEL — CSS (lazily injected on first open)
+    ========================================================== */
+    function injectPanelCss() {
+        if (document.getElementById('scgm-panel-style')) return;
+        const style = document.createElement('style');
+        style.id = 'scgm-panel-style';
+        style.textContent = `
+            #sc-gif-panel {
+                position: fixed !important;
+                top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important;
+                z-index: 30002 !important;
+                width: 420px !important; max-width: 92vw !important;
+                background: rgba(18,18,20,0.98) !important;
+                border: 1px solid rgba(255,255,255,0.16) !important;
+                border-radius: 10px !important;
+                box-shadow: 0 12px 40px rgba(0,0,0,0.6) !important;
+                color: #eee !important; font-size: 13px !important;
+            }
+            #sc-gif-head {
+                display: flex !important; align-items: center !important; justify-content: space-between !important;
+                padding: 10px 14px !important;
+                border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+                font-weight: 600 !important; color: #ffcc44 !important;
+                cursor: grab !important; user-select: none !important; touch-action: none !important;
+            }
+            #sc-gif-head.sc-gif-dragging { cursor: grabbing !important; }
+            #sc-gif-close {
+                background: transparent !important; border: none !important; color: rgba(255,255,255,0.6) !important;
+                font-size: 15px !important; cursor: pointer !important; padding: 0 4px !important;
+            }
+            #sc-gif-close:hover { color: white !important; }
+            #sc-gif-body { padding: 12px 14px !important; display: flex !important; flex-direction: column !important; gap: 10px !important; }
+            #sc-gif-body label {
+                display: flex !important; align-items: center !important; justify-content: space-between !important;
+                color: rgba(255,255,255,0.8) !important; font-weight: 500 !important;
+            }
+            #sc-gif-body select {
+                background: #1f1f22 !important; color: white !important;
+                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important;
+                padding: 3px 8px !important; font-size: 13px !important;
+            }
+            #sc-gif-body select option {
+                background-color: #1f1f22 !important; color: white !important;
+            }
+            .sc-gif-marks { display: flex !important; gap: 10px !important; }
+            .sc-gif-mark {
+                flex: 1 1 0 !important; min-width: 0 !important;
+                display: flex !important; flex-direction: column !important; gap: 6px !important;
+            }
+            .sc-gif-thumb {
+                width: 100% !important; aspect-ratio: 16 / 9 !important;
+                background-color: #000 !important;
+                background-position: center !important;
+                background-size: cover !important;
+                background-repeat: no-repeat !important;
+                border: 1px solid rgba(255,255,255,0.18) !important; border-radius: 6px !important;
+                position: relative !important;
+            }
+            .sc-gif-thumb-43 { aspect-ratio: 4 / 3 !important; }
+            .sc-gif-thumb-fit { background-size: contain !important; }
+            .sc-gif-cap {
+                position: absolute !important;
+                width: 92% !important;
+                text-align: center !important; white-space: pre-line !important;
+                font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif !important;
+                font-weight: bold !important; color: #fff !important;
+                -webkit-text-stroke: 1.5px #000 !important;
+                text-shadow: -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000 !important;
+                pointer-events: none !important; transform: translate(-50%, -50%) !important;
+            }
+            .sc-gif-cap-top { left: var(--cx-top, 50%) !important; top: var(--cy-top, 10%) !important; }
+            .sc-gif-cap-bottom { left: var(--cx-bottom, 50%) !important; top: var(--cy-bottom, 90%) !important; }
+            .sc-gif-cap-yellow { color: #ffe135 !important; }
+            .sc-gif-cap-handle {
+                position: absolute !important; width: 14px !important; height: 14px !important;
+                border-radius: 50% !important; background: rgba(255,204,68,0.9) !important;
+                border: 2px solid #000 !important; transform: translate(-50%, -50%) !important;
+                cursor: grab !important; pointer-events: auto !important; touch-action: none !important;
+            }
+            .sc-gif-cap-handle:active { cursor: grabbing !important; }
+            .sc-gif-cap-handle-top { left: var(--cx-top, 50%) !important; top: var(--cy-top, 10%) !important; }
+            .sc-gif-cap-handle-bottom { left: var(--cx-bottom, 50%) !important; top: var(--cy-bottom, 90%) !important; }
+            .sc-gif-cap-sizes { display: flex !important; gap: 14px !important; justify-content: center !important; }
+            .sc-gif-cap-sizes label {
+                display: flex !important; align-items: center !important; gap: 4px !important;
+                color: rgba(255,255,255,0.8) !important; font-size: 12px !important;
+            }
+            .sc-gif-cap-sizes input[type=number] {
+                width: 48px !important; background: #1f1f22 !important; color: white !important;
+                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important; padding: 2px 4px !important;
+            }
+            .sc-gif-cap-hint { text-align: center !important; color: rgba(255,255,255,0.4) !important; font-size: 11px !important; }
+            .sc-gif-scrub {
+                width: 100% !important; margin: 0 !important; accent-color: #ffcc44 !important;
+                cursor: pointer !important;
+            }
+            .sc-gif-scrub:disabled { opacity: 0.4 !important; cursor: default !important; }
+            .sc-gif-scrub-spacer { height: 20px !important; }
+            .sc-gif-captions { display: flex !important; flex-direction: column !important; gap: 6px !important; }
+            .sc-gif-cap-input {
+                background: #1f1f22 !important; color: white !important;
+                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important;
+                padding: 6px 8px !important; font-size: 13px !important; width: 100% !important;
+                box-sizing: border-box !important;
+            }
+            .sc-gif-cap-input::placeholder { color: rgba(255,255,255,0.35) !important; }
+            .sc-gif-cap-color {
+                display: flex !important; align-items: center !important; gap: 14px !important; justify-content: center !important;
+                color: rgba(255,255,255,0.8) !important; font-size: 12px !important;
+            }
+            .sc-gif-cap-color label { display: flex !important; align-items: center !important; gap: 4px !important; cursor: pointer !important; }
+            .sc-gif-thumb-loading::after {
+                content: '' !important;
+                position: absolute !important;
+                top: 50% !important; left: 50% !important;
+                width: 22px !important; height: 22px !important;
+                margin: -11px 0 0 -11px !important;
+                border: 2px solid rgba(255,255,255,0.25) !important;
+                border-top-color: #ffcc44 !important;
+                border-radius: 50% !important;
+                animation: sc-gif-spin 0.8s linear infinite !important;
+            }
+            @keyframes sc-gif-spin { to { transform: rotate(360deg); } }
+            .sc-gif-spinner {
+                display: inline-block !important;
+                width: 18px !important; height: 18px !important;
+                border: 2px solid rgba(255,255,255,0.25) !important;
+                border-top-color: #ffcc44 !important;
+                border-radius: 50% !important;
+                animation: sc-gif-spin 0.8s linear infinite !important;
+                flex: none !important;
+            }
+            .sc-gif-spinner-sm { width: 13px !important; height: 13px !important; }
+            .sc-gif-working {
+                display: flex !important; align-items: center !important; gap: 10px !important;
+                padding: 14px 4px !important; color: rgba(255,255,255,0.75) !important; font-size: 13px !important;
+            }
+            .sc-gif-mark-label {
+                color: #ffcc44 !important; font-size: 11px !important; font-weight: 700 !important;
+                letter-spacing: 0.04em !important; text-align: center !important;
+            }
+            .sc-gif-mark-btns { display: flex !important; gap: 4px !important; }
+            .sc-gif-mark-btns button {
+                flex: 1 1 0 !important; min-width: 0 !important;
+                background: rgba(255,255,255,0.1) !important; color: white !important;
+                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important;
+                padding: 4px 0 !important; font-size: 11px !important; cursor: pointer !important;
+            }
+            .sc-gif-mark-btns button:hover { background: rgba(255,255,255,0.22) !important; }
+            #sc-gif-dur-line {
+                text-align: center !important; color: rgba(255,255,255,0.7) !important; font-size: 12px !important;
+            }
+            #sc-gif-dur-line b { color: #fff !important; }
+            .sc-gif-opts { display: flex !important; gap: 12px !important; }
+            .sc-gif-opts label { flex: 1 1 0 !important; }
+            #sc-gif-go {
+                background: rgba(255,200,50,0.18) !important; color: #ffcc44 !important;
+                border: 1px solid rgba(255,200,50,0.45) !important; border-radius: 6px !important;
+                padding: 8px 12px !important; font-size: 13px !important; font-weight: 600 !important;
+                cursor: pointer !important;
+            }
+            #sc-gif-go:hover:not(:disabled) { background: rgba(255,200,50,0.28) !important; }
+            #sc-gif-go:disabled { opacity: 0.5 !important; cursor: default !important; }
+            #sc-gif-status { color: rgba(255,255,255,0.65) !important; font-size: 12px !important; min-height: 14px !important; }
+            #sc-gif-result img { width: 100% !important; border-radius: 6px !important; display: block !important; }
+        `;
+        document.head.appendChild(style);
+    }
+
+    /* ==========================================================
+       TITLE SLUG — filename naming, no TMDB cleanup.
+       Reads whatever CyTube's own title element currently shows —
+       these are CyTube's DOM nodes, not something this script creates.
+    ========================================================== */
+    function currentRawTitle() {
+        for (const el of [
+            document.getElementById('currenttitle'),
+            document.querySelector('#videowrap-header .pull-left'),
+            document.querySelector('#videowrap-header span'),
+            document.querySelector('.video-title'),
+        ]) {
+            if (el && el.textContent.trim()) return el.textContent.trim();
+        }
+        return '';
+    }
+    function gifTitleSlug() {
+        const raw = currentRawTitle();
+        if (!raw) return '';
+        return raw.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '');
+    }
+
+    function _fmtClockTenths(sec) {
+        sec = Math.max(0, sec);
+        const m = Math.floor(sec / 60);
+        const s = sec % 60;
+        return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1);
+    }
+    function _escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    /* ==========================================================
+       MEME CAPTION RENDERING — shared by the live CSS preview and
+       the actual per-frame canvas render, so what you see in the
+       panel is what gets baked into the GIF.
+    ========================================================== */
+    const CAPTION_FONT_STACK = 'Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif';
+    let _captionMeasureCtx = null;
+    function getCaptionMeasureCtx() {
+        if (!_captionMeasureCtx) {
+            const c = document.createElement('canvas');
+            _captionMeasureCtx = c.getContext('2d');
+        }
+        return _captionMeasureCtx;
+    }
+    function wrapCaptionAtSize(ctx, text, fontPx, maxWidth) {
+        ctx.font = 'bold ' + fontPx + 'px ' + CAPTION_FONT_STACK;
+        const words = text.split(/\s+/).filter(Boolean);
+        const lines = [];
+        let line = '';
+        for (const w of words) {
+            const trial = line ? line + ' ' + w : w;
+            if (line && ctx.measureText(trial).width > maxWidth) {
+                lines.push(line);
+                line = w;
+            } else {
+                line = trial;
+            }
+        }
+        if (line) lines.push(line);
+        const widest = lines.reduce((m, l) => Math.max(m, ctx.measureText(l).width), 0);
+        return { lines, widest };
+    }
+    function applyCaptionCtxStyle(ctx, fontPx, color) {
+        ctx.font = 'bold ' + fontPx + 'px ' + CAPTION_FONT_STACK;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'alphabetic';
+        ctx.lineJoin = 'round';
+        ctx.miterLimit = 2;
+        ctx.fillStyle = color === 'yellow' ? '#ffe135' : '#ffffff';
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = Math.max(2, Math.round(fontPx / 14));
+    }
+    function drawCaptionBlockAdvanced(ctx, w, h, text, color, sizePct, xPct, yPct) {
+        if (!text) return;
+        const fontPx = Math.max(4, Math.round(h * (sizePct || 16) / 100));
+        const { lines } = wrapCaptionAtSize(getCaptionMeasureCtx(), text.toUpperCase(), fontPx, w * 0.92);
+        const lineHeight = Math.round(fontPx * 1.15);
+        ctx.save();
+        applyCaptionCtxStyle(ctx, fontPx, color);
+        const cx = w * ((xPct == null ? 50 : xPct) / 100);
+        const cy = h * ((yPct == null ? 50 : yPct) / 100);
+        const blockH = lines.length * lineHeight;
+        const firstBaselineY = cy - blockH / 2 + fontPx * 0.8;
+        lines.forEach((line, i) => {
+            const ly = firstBaselineY + i * lineHeight;
+            ctx.strokeText(line, cx, ly);
+            ctx.fillText(line, cx, ly);
+        });
+        ctx.restore();
+    }
+    function drawCaptions(ctx, w, h, captions) {
+        if (!captions) return;
+        ['top', 'bottom'].forEach(key => {
+            const line = captions[key];
+            if (!line || !line.text) return;
+            drawCaptionBlockAdvanced(ctx, w, h, line.text, captions.color, line.size, line.x, line.y);
+        });
+    }
+
+    /* ==========================================================
+       FRAME CAPTURE + GIF ENCODE
+       CyTube's on-page <video> has no crossOrigin attribute, so its
+       canvas is tainted. Spin up a hidden crossOrigin clone of the
+       same source, seek/play it, sample frames to a canvas, hand
+       them to gif.js (Web-Worker encoder). The on-page video is
+       never touched.
+    ========================================================== */
+    function computeFrameGeometry(vw, vh, width, aspect) {
+        const even = n => Math.max(2, Math.round(n / 2) * 2);
+        if (aspect === 'crop' || aspect === 'fit') {
+            const cw = even(width), ch = even(width * 3 / 4);
+            const targetAR = cw / ch, srcAR = vw / vh;
+            if (aspect === 'crop') {
+                let sw, sh, sx, sy;
+                if (srcAR > targetAR) { sh = vh; sw = vh * targetAR; sx = (vw - sw) / 2; sy = 0; }
+                else                  { sw = vw; sh = vw / targetAR; sx = 0; sy = (vh - sh) / 2; }
+                return { cw, ch, letterbox: false, src: [sx, sy, sw, sh], dst: [0, 0, cw, ch] };
+            }
+            let dw, dh, dx, dy;
+            if (srcAR > targetAR) { dw = cw; dh = cw / srcAR; dx = 0; dy = (ch - dh) / 2; }
+            else                  { dh = ch; dw = ch * srcAR; dx = (cw - dw) / 2; dy = 0; }
+            return { cw, ch, letterbox: true, src: [0, 0, vw, vh], dst: [dx, dy, dw, dh] };
+        }
+        const cw = even(width), ch = even(width * vh / vw);
+        return { cw, ch, letterbox: false, src: null, dst: [0, 0, cw, ch] };
+    }
+
+    function captureGifFrames({ src, startT, endT, fps, width, aspect, captions }, onProgress) {
+        return new Promise((resolve, reject) => {
+            const vid = document.createElement('video');
+            vid.crossOrigin = 'anonymous';
+            vid.muted = true;
+            vid.preload = 'auto';
+            vid.playsInline = true;
+            vid.style.cssText = 'position:fixed;left:-10000px;top:0;width:2px;height:2px;opacity:0;pointer-events:none;';
+            document.body.appendChild(vid);
+
+            const frames = [];
+            const span = Math.max(0.1, endT - startT);
+            const frameInterval = 1 / fps;
+            let canvas, ctx, w, h, geom, lastCap = -Infinity, done = false;
+
+            const finish = (err) => {
+                if (done) return;
+                done = true;
+                try { vid.pause(); } catch (e) {}
+                try { vid.removeAttribute('src'); vid.load(); } catch (e) {}
+                try { vid.remove(); } catch (e) {}
+                if (err) reject(err);
+                else if (!frames.length) reject(new Error('no frames captured'));
+                else resolve({ frames, w, h, delay: Math.round(1000 / fps) });
+            };
+            const timer = setTimeout(() => finish(new Error('capture timeout')), 60000);
+
+            const onFrame = (now, metadata) => {
+                if (done) return;
+                const t = metadata ? metadata.mediaTime : vid.currentTime;
+                if (t + 1e-4 >= lastCap + frameInterval) {
+                    lastCap = t;
+                    if (geom.letterbox) { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h); }
+                    if (geom.src) ctx.drawImage(vid, geom.src[0], geom.src[1], geom.src[2], geom.src[3],
+                                                     geom.dst[0], geom.dst[1], geom.dst[2], geom.dst[3]);
+                    else ctx.drawImage(vid, geom.dst[0], geom.dst[1], geom.dst[2], geom.dst[3]);
+                    drawCaptions(ctx, w, h, captions);
+                    frames.push(ctx.getImageData(0, 0, w, h));
+                    if (onProgress) onProgress(Math.min(0.999, (t - startT) / span));
+                }
+                if (t >= endT || vid.ended) { clearTimeout(timer); finish(null); return; }
+                if ('requestVideoFrameCallback' in vid) vid.requestVideoFrameCallback(onFrame);
+            };
+
+            vid.addEventListener('error', () => {
+                clearTimeout(timer); finish(new Error('clone load error (CORS/network)'));
+            });
+            vid.addEventListener('loadedmetadata', () => {
+                geom = computeFrameGeometry(vid.videoWidth, vid.videoHeight, width, aspect);
+                w = geom.cw; h = geom.ch;
+                canvas = document.createElement('canvas');
+                canvas.width = w; canvas.height = h;
+                ctx = canvas.getContext('2d');
+                try { vid.currentTime = startT; } catch (e) {}
+            });
+            vid.addEventListener('seeked', function onSeek() {
+                vid.removeEventListener('seeked', onSeek);
+                if ('requestVideoFrameCallback' in vid) vid.requestVideoFrameCallback(onFrame);
+                else {
+                    const iv = setInterval(() => {
+                        if (done) { clearInterval(iv); return; }
+                        onFrame();
+                        if (vid.currentTime >= endT) clearInterval(iv);
+                    }, 1000 / fps);
+                }
+                const p = vid.play();
+                if (p && p.catch) p.catch(e => { clearTimeout(timer); finish(new Error('playback blocked: ' + e.message)); });
+            });
+
+            vid.src = src;
+        });
+    }
+
+    const GIF_WORKER_URL = 'https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js';
+    let _gifWorkerBlobUrl = null;
+    function getGifWorkerUrl() {
+        if (_gifWorkerBlobUrl) return Promise.resolve(_gifWorkerBlobUrl);
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'GET', url: GIF_WORKER_URL,
+                onload: r => {
+                    if (r.status >= 200 && r.status < 300) {
+                        _gifWorkerBlobUrl = URL.createObjectURL(
+                            new Blob([r.responseText], { type: 'application/javascript' }));
+                        resolve(_gifWorkerBlobUrl);
+                    } else reject(new Error('worker HTTP ' + r.status));
+                },
+                onerror: () => reject(new Error('worker fetch failed')),
+            });
+        });
+    }
+    function getGifCtor() {
+        if (typeof GIF !== 'undefined') return GIF;
+        if (typeof window !== 'undefined' && window.GIF) return window.GIF;
+        return null;
+    }
+    function encodeGif({ frames, w, h, delay }, onProgress) {
+        return getGifWorkerUrl().then(workerScript => new Promise((resolve, reject) => {
+            const Ctor = getGifCtor();
+            if (!Ctor) { reject(new Error('gif.js not loaded (@require missing?)')); return; }
+            const gif = new Ctor({ workers: 2, quality: 10, width: w, height: h, workerScript, repeat: 0 });
+            frames.forEach(f => gif.addFrame(f, { delay }));
+            gif.on('progress', p => onProgress && onProgress(p));
+            gif.on('finished', blob => resolve(blob));
+            gif.on('abort', () => reject(new Error('encode aborted')));
+            gif.render();
+        }));
+    }
+
+    let _gifResultUrl = null;
+    function _revokeGifResult() {
+        if (_gifResultUrl) { URL.revokeObjectURL(_gifResultUrl); _gifResultUrl = null; }
+    }
+
+    /* ==========================================================
+       SCRUB-BAR PREVIEW THUMBNAILS
+       A persistent hidden clone, kept loaded while the panel is
+       open so seeking start/end preview frames is fast (one
+       decode, many seeks).
+    ========================================================== */
+    let _gifScrub = null;
+    function getScrubClone(src) {
+        if (_gifScrub && _gifScrub.src === src) return _gifScrub;
+        destroyScrubClone();
+        const vid = document.createElement('video');
+        vid.crossOrigin = 'anonymous'; vid.muted = true; vid.preload = 'auto'; vid.playsInline = true;
+        vid.style.cssText = 'position:fixed;left:-10000px;top:0;width:2px;height:2px;opacity:0;pointer-events:none;';
+        document.body.appendChild(vid);
+        const ready = new Promise((resolve, reject) => {
+            vid.addEventListener('loadedmetadata', () => resolve(), { once: true });
+            vid.addEventListener('error', () => reject(new Error('preview load error (CORS/network)')), { once: true });
+        });
+        vid.src = src;
+        _gifScrub = { vid, src, ready, busy: Promise.resolve() };
+        return _gifScrub;
+    }
+    function destroyScrubClone() {
+        if (_gifScrub) { try { _gifScrub.vid.remove(); } catch (e) {} _gifScrub = null; }
+    }
+    // Seeks are serialized through the clone's `busy` chain so rapid
+    // nudges don't collide. A *paused* video usually hasn't painted the
+    // seeked frame by the time 'seeked' fires (drawImage -> black), so
+    // this briefly plays muted and captures the first presented frame
+    // via requestVideoFrameCallback.
+    function grabPreviewFrame(src, time, w) {
+        const sc = getScrubClone(src);
+        const run = sc.busy.then(() => sc.ready).then(() => new Promise((resolve, reject) => {
+            const vid = sc.vid;
+            let settled = false;
+            const draw = () => {
+                if (settled) return;
+                settled = true;
+                try {
+                    const h = Math.max(2, Math.round(w * vid.videoHeight / vid.videoWidth));
+                    const c = document.createElement('canvas');
+                    c.width = w; c.height = h;
+                    const ctx = c.getContext('2d');
+                    ctx.drawImage(vid, 0, 0, w, h);
+                    const url = c.toDataURL('image/jpeg', 0.72);
+                    try { vid.pause(); } catch (e) {}
+                    resolve(url);
+                } catch (e) { try { vid.pause(); } catch (e2) {} reject(e); }
+            };
+            const onSeeked = () => {
+                let ticks = 0;
+                const onFrame = () => {
+                    if (settled) return;
+                    ticks++;
+                    if (ticks < 2) { vid.requestVideoFrameCallback(onFrame); return; }
+                    draw();
+                };
+                if ('requestVideoFrameCallback' in vid) vid.requestVideoFrameCallback(onFrame);
+                vid.play().catch(() => {});
+                setTimeout(() => { if (!settled) draw(); }, 1500);
+            };
+            vid.addEventListener('seeked', onSeeked, { once: true });
+            setTimeout(() => { if (!settled) onSeeked(); }, 800);
+            try { vid.currentTime = Math.max(0, time); } catch (e) { reject(e); }
+        }));
+        sc.busy = run.catch(() => {});
+        return run;
+    }
+
+    /* ==========================================================
+       GIF PANEL
     ========================================================== */
     function openGifPanel(initialSec) {
-        console.log('[GIFMaker] openGifPanel stub — panel not implemented yet', initialSec);
+        if (document.getElementById('sc-gif-panel')) return;
+        injectPanelCss();
+
+        const v0 = getPlayerVideoEl();
+        const src = v0 && (v0.currentSrc || v0.src) || '';
+        const isBlob = src.startsWith('blob:');
+        const vidDur = (v0 && isFinite(v0.duration)) ? v0.duration : Infinity;
+        const now = (typeof initialSec === 'number' && isFinite(initialSec))
+            ? initialSec
+            : (v0 ? v0.currentTime : 0);
+
+        const DEFAULT_CLIP_LEN = 2;
+        let startT = Math.max(0, now - DEFAULT_CLIP_LEN);
+        let endT = Math.min(vidDur, startT + DEFAULT_CLIP_LEN);
+
+        const panel = document.createElement('div');
+        panel.id = 'sc-gif-panel';
+        panel.innerHTML = `
+            <div id="sc-gif-head">
+                <span>Make GIF</span>
+                <button id="sc-gif-close" type="button">✕</button>
+            </div>
+            <div id="sc-gif-body">
+                <div class="sc-gif-marks">
+                    <div class="sc-gif-mark">
+                        <div class="sc-gif-thumb" id="sc-gif-thumb-start">
+                            <div class="sc-gif-cap sc-gif-cap-top" id="sc-gif-cap-top-start"></div>
+                            <div class="sc-gif-cap sc-gif-cap-bottom" id="sc-gif-cap-bottom-start"></div>
+                            <div class="sc-gif-cap-handle sc-gif-cap-handle-top" id="sc-gif-cap-handle-top-start" title="Drag top caption"></div>
+                            <div class="sc-gif-cap-handle sc-gif-cap-handle-bottom" id="sc-gif-cap-handle-bottom-start" title="Drag bottom caption"></div>
+                        </div>
+                        <input type="range" class="sc-gif-scrub" id="sc-gif-scrub-start" min="0" max="0" step="0.1" value="0">
+                        <div class="sc-gif-mark-label">START · <span id="sc-gif-time-start"></span></div>
+                        <div class="sc-gif-mark-btns">
+                            <button type="button" data-act="start-current" title="Set start to current playback position">⤓ Now</button>
+                            <button type="button" data-act="start-minus">−.5</button>
+                            <button type="button" data-act="start-plus">+.5</button>
+                        </div>
+                    </div>
+                    <div class="sc-gif-mark">
+                        <div class="sc-gif-thumb" id="sc-gif-thumb-end">
+                            <div class="sc-gif-cap sc-gif-cap-top" id="sc-gif-cap-top-end"></div>
+                            <div class="sc-gif-cap sc-gif-cap-bottom" id="sc-gif-cap-bottom-end"></div>
+                            <div class="sc-gif-cap-handle sc-gif-cap-handle-top" id="sc-gif-cap-handle-top-end" title="Drag top caption"></div>
+                            <div class="sc-gif-cap-handle sc-gif-cap-handle-bottom" id="sc-gif-cap-handle-bottom-end" title="Drag bottom caption"></div>
+                        </div>
+                        <div class="sc-gif-scrub-spacer"></div>
+                        <div class="sc-gif-mark-label">END · <span id="sc-gif-time-end"></span></div>
+                        <div class="sc-gif-mark-btns">
+                            <button type="button" data-act="end-minus">−.5</button>
+                            <button type="button" data-act="end-plus">+.5</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="sc-gif-dur-line">Duration <b id="sc-gif-dur-val"></b></div>
+                <div class="sc-gif-captions">
+                    <input type="text" id="sc-gif-cap-top" class="sc-gif-cap-input" placeholder="TOP TEXT (optional)" maxlength="120">
+                    <input type="text" id="sc-gif-cap-bottom" class="sc-gif-cap-input" placeholder="BOTTOM TEXT (optional)" maxlength="120">
+                    <div class="sc-gif-cap-color">
+                        <label><input type="radio" name="sc-gif-cap-color" value="white" checked> White</label>
+                        <label><input type="radio" name="sc-gif-cap-color" value="yellow"> Yellow</label>
+                    </div>
+                    <div class="sc-gif-cap-sizes">
+                        <label>Top size <input type="number" id="sc-gif-cap-top-size" min="4" max="40" step="1" value="16">%</label>
+                        <label>Bottom size <input type="number" id="sc-gif-cap-bottom-size" min="4" max="40" step="1" value="16">%</label>
+                    </div>
+                    <div class="sc-gif-cap-hint">Drag the dots on the previews to position each caption.</div>
+                </div>
+                <div class="sc-gif-opts">
+                    <label>FPS
+                        <select id="sc-gif-fps">
+                            <option value="8">8</option><option value="10">10</option>
+                            <option value="12" selected>12</option><option value="15">15</option>
+                        </select>
+                    </label>
+                    <label>Width
+                        <select id="sc-gif-width">
+                            <option value="320">320</option><option value="480" selected>480</option><option value="640">640</option>
+                        </select>
+                    </label>
+                    <label>Shape
+                        <select id="sc-gif-aspect">
+                            <option value="native">Native</option>
+                            <option value="crop" selected>4:3 Crop</option>
+                            <option value="fit">4:3 Bars</option>
+                        </select>
+                    </label>
+                </div>
+                <button id="sc-gif-go" type="button">● Make GIF</button>
+                <div id="sc-gif-status"></div>
+                <div id="sc-gif-result"></div>
+            </div>`;
+        document.body.appendChild(panel);
+
+        const $ = id => panel.querySelector(id);
+        const goBtn = $('#sc-gif-go'), status = $('#sc-gif-status'), result = $('#sc-gif-result');
+        const setStatus = (txt) => { status.textContent = txt || ''; };
+
+        const close = () => { _revokeGifResult(); destroyScrubClone(); panel.remove(); };
+        $('#sc-gif-close').addEventListener('click', close);
+
+        const head = $('#sc-gif-head');
+        let dragging = false, dragDX = 0, dragDY = 0;
+        const setPanelPos = (prop, val) => panel.style.setProperty(prop, val, 'important');
+        head.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('#sc-gif-close')) return;
+            const rect = panel.getBoundingClientRect();
+            setPanelPos('left', rect.left + 'px');
+            setPanelPos('top', rect.top + 'px');
+            setPanelPos('transform', 'none');
+            dragDX = e.clientX - rect.left;
+            dragDY = e.clientY - rect.top;
+            dragging = true;
+            head.classList.add('sc-gif-dragging');
+            head.setPointerCapture(e.pointerId);
+        });
+        head.addEventListener('pointermove', (e) => {
+            if (!dragging) return;
+            const rect = panel.getBoundingClientRect();
+            const x = Math.min(Math.max(e.clientX - dragDX, -(rect.width - 40)), window.innerWidth - 40);
+            const y = Math.min(Math.max(e.clientY - dragDY, 0), window.innerHeight - 32);
+            setPanelPos('left', x + 'px');
+            setPanelPos('top', y + 'px');
+        });
+        const endDrag = (e) => {
+            dragging = false;
+            head.classList.remove('sc-gif-dragging');
+            try { head.releasePointerCapture(e.pointerId); } catch (err) {}
+        };
+        head.addEventListener('pointerup', endDrag);
+        head.addEventListener('pointercancel', endDrag);
+
+        if (isBlob || !src) {
+            setStatus(isBlob
+                ? 'This source is a streaming (HLS/MSE) blob — frame capture not supported.'
+                : 'No video source found.');
+        }
+
+        const aspectSel = $('#sc-gif-aspect');
+        const applyThumbAspect = () => {
+            const mode = aspectSel.value;
+            ['start', 'end'].forEach(which => {
+                const el = $('#sc-gif-thumb-' + which);
+                el.classList.toggle('sc-gif-thumb-43', mode !== 'native');
+                el.classList.toggle('sc-gif-thumb-fit', mode === 'fit');
+            });
+        };
+        aspectSel.addEventListener('change', () => { applyThumbAspect(); renderCaptionPreviews(); });
+        applyThumbAspect();
+
+        const capTopInput = $('#sc-gif-cap-top');
+        const capBottomInput = $('#sc-gif-cap-bottom');
+        const capSizeInputs = { top: $('#sc-gif-cap-top-size'), bottom: $('#sc-gif-cap-bottom-size') };
+        const getCapColor = () => (panel.querySelector('input[name="sc-gif-cap-color"]:checked') || {}).value || 'white';
+        const getCapSizePct = (key) => Math.max(1, parseFloat(capSizeInputs[key].value) || 16);
+        const clampPct = (n) => Math.min(100, Math.max(0, isFinite(n) ? n : 50));
+        const capPos = { top: { x: 50, y: 10 }, bottom: { x: 50, y: 90 } };
+
+        function renderCaptionPreview(which) {
+            const thumb = $('#sc-gif-thumb-' + which);
+            const w = thumb.clientWidth, h = thumb.clientHeight;
+            const color = getCapColor();
+            ['top', 'bottom'].forEach(key => {
+                const el = $('#sc-gif-cap-' + key + '-' + which);
+                const text = (key === 'top' ? capTopInput : capBottomInput).value.trim();
+                const pos = capPos[key];
+                thumb.style.setProperty('--cx-' + key, pos.x + '%');
+                thumb.style.setProperty('--cy-' + key, pos.y + '%');
+                el.classList.toggle('sc-gif-cap-yellow', color === 'yellow');
+                if (!text || !w || !h) { el.textContent = ''; return; }
+                const fontPx = Math.max(4, Math.round(h * getCapSizePct(key) / 100));
+                const { lines } = wrapCaptionAtSize(getCaptionMeasureCtx(), text.toUpperCase(), fontPx, w * 0.92);
+                el.style.fontSize = fontPx + 'px';
+                el.style.lineHeight = Math.round(fontPx * 1.15) + 'px';
+                el.textContent = lines.join('\n');
+            });
+        }
+        function renderCaptionPreviews() { renderCaptionPreview('start'); renderCaptionPreview('end'); }
+        capTopInput.addEventListener('input', renderCaptionPreviews);
+        capBottomInput.addEventListener('input', renderCaptionPreviews);
+        capSizeInputs.top.addEventListener('input', renderCaptionPreviews);
+        capSizeInputs.bottom.addEventListener('input', renderCaptionPreviews);
+        panel.querySelectorAll('input[name="sc-gif-cap-color"]').forEach(r => r.addEventListener('change', renderCaptionPreviews));
+
+        function wireCapHandle(handleEl, thumbEl, key) {
+            let dragging = false;
+            const move = (e) => {
+                if (!dragging) return;
+                const rect = thumbEl.getBoundingClientRect();
+                capPos[key].x = clampPct(((e.clientX - rect.left) / rect.width) * 100);
+                capPos[key].y = clampPct(((e.clientY - rect.top) / rect.height) * 100);
+                renderCaptionPreviews();
+            };
+            handleEl.addEventListener('pointerdown', (e) => {
+                e.stopPropagation();
+                dragging = true;
+                handleEl.setPointerCapture(e.pointerId);
+            });
+            handleEl.addEventListener('pointermove', move);
+            const endHandleDrag = (e) => {
+                dragging = false;
+                try { handleEl.releasePointerCapture(e.pointerId); } catch (err) {}
+            };
+            handleEl.addEventListener('pointerup', endHandleDrag);
+            handleEl.addEventListener('pointercancel', endHandleDrag);
+        }
+        ['start', 'end'].forEach(which => {
+            ['top', 'bottom'].forEach(key => {
+                wireCapHandle($('#sc-gif-cap-handle-' + key + '-' + which), $('#sc-gif-thumb-' + which), key);
+            });
+        });
+
+        renderCaptionPreviews();
+
+        const thumbTimers = {};
+        const refreshThumb = (which) => {
+            if (isBlob || !src) return;
+            const t = which === 'start' ? startT : endT;
+            const el = $('#sc-gif-thumb-' + which);
+            clearTimeout(thumbTimers[which]);
+            el.classList.add('sc-gif-thumb-loading');
+            thumbTimers[which] = setTimeout(() => {
+                grabPreviewFrame(src, t, 160).then(url => {
+                    el.style.backgroundImage = `url("${url}")`;
+                    el.classList.remove('sc-gif-thumb-loading');
+                }).catch(() => el.classList.remove('sc-gif-thumb-loading'));
+            }, 180);
+        };
+
+        const scrubStart = $('#sc-gif-scrub-start');
+        scrubStart.max = isFinite(vidDur) ? vidDur : 0;
+        scrubStart.disabled = isBlob || !src || !isFinite(vidDur);
+
+        const render = (changed) => {
+            $('#sc-gif-time-start').textContent = _fmtClockTenths(startT);
+            $('#sc-gif-time-end').textContent = _fmtClockTenths(endT);
+            scrubStart.value = startT.toFixed(1);
+            const dur = Math.max(0, endT - startT);
+            $('#sc-gif-dur-val').textContent = dur.toFixed(1) + 's';
+            goBtn.disabled = isBlob || !src || dur < 0.1;
+            if (changed === 'start' || changed === 'both') refreshThumb('start');
+            if (changed === 'end' || changed === 'both') refreshThumb('end');
+        };
+
+        const clampStart = () => {
+            startT = Math.max(0, startT);
+            if (isFinite(vidDur)) startT = Math.min(startT, vidDur - 0.1);
+        };
+        const clampEnd = () => { endT = Math.min(Math.max(endT, startT + 0.1), vidDur); };
+        const resetEndFromStart = () => {
+            endT = isFinite(vidDur) ? Math.min(vidDur, startT + DEFAULT_CLIP_LEN) : startT + DEFAULT_CLIP_LEN;
+            if (endT - startT < 0.1) endT = startT + 0.1;
+        };
+
+        panel.querySelector('.sc-gif-marks').addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-act]');
+            if (!btn) return;
+            const live = getPlayerVideoEl();
+            const cur = live ? live.currentTime : 0;
+            switch (btn.dataset.act) {
+                case 'start-current': startT = cur; clampStart(); resetEndFromStart(); render('both'); break;
+                case 'start-minus':   startT -= 0.5; clampStart(); resetEndFromStart(); render('both'); break;
+                case 'start-plus':    startT += 0.5; clampStart(); resetEndFromStart(); render('both'); break;
+                case 'end-minus':     endT -= 0.5; clampEnd(); render('end'); break;
+                case 'end-plus':      endT += 0.5; clampEnd(); render('end'); break;
+            }
+        });
+
+        scrubStart.addEventListener('input', () => {
+            startT = parseFloat(scrubStart.value);
+            clampStart();
+            resetEndFromStart();
+            render('both');
+        });
+
+        goBtn.addEventListener('click', async () => {
+            if (isBlob || !src) return;
+            const fps    = parseInt($('#sc-gif-fps').value, 10);
+            const width  = parseInt($('#sc-gif-width').value, 10);
+            const aspect = $('#sc-gif-aspect').value;
+            const captions = {
+                color: getCapColor(),
+                top: { text: capTopInput.value.trim(), size: getCapSizePct('top'), x: capPos.top.x, y: capPos.top.y },
+                bottom: { text: capBottomInput.value.trim(), size: getCapSizePct('bottom'), x: capPos.bottom.x, y: capPos.bottom.y },
+            };
+            if (endT - startT < 0.1) { setStatus('End must be after start.'); return; }
+
+            _revokeGifResult();
+            result.innerHTML = '<div class="sc-gif-working"><span class="sc-gif-spinner"></span><span id="sc-gif-working-txt">Capturing frames…</span></div>';
+            const workTxt = $('#sc-gif-working-txt');
+            const setWork = (t) => { if (workTxt) workTxt.textContent = t; };
+            goBtn.disabled = true;
+            try {
+                setStatus('');
+                const cap = await captureGifFrames(
+                    { src, startT, endT, fps, width, aspect, captions },
+                    p => setWork('Capturing frames… ' + Math.round(p * 100) + '%'));
+                setWork('Encoding GIF… (' + cap.frames.length + ' frames)');
+                const blob = await encodeGif(cap, p => setWork('Encoding GIF… ' + Math.round(p * 100) + '%'));
+                _gifResultUrl = URL.createObjectURL(blob);
+                const kb = Math.round(blob.size / 1024);
+                const slug = gifTitleSlug();
+                const fnameBase = (slug || 'gif') + '-' + Date.now();
+                const fname = fnameBase + '.gif';
+                result.innerHTML =
+                    `<img src="${_gifResultUrl}" alt="GIF preview">` +
+                    `<div id="sc-gif-actions">` +
+                    `<a id="sc-gif-dl" href="${_gifResultUrl}" download="${fname}">⬇ Download</a>` +
+                    `<span id="sc-gif-size">${kb} KB</span></div>`;
+                setStatus('Done.');
+            } catch (e) {
+                console.error('[GIFMaker] GIF capture failed:', e);
+                result.innerHTML = '';
+                setStatus('Failed: ' + (e.message || e));
+            } finally {
+                goBtn.disabled = false;
+            }
+        });
+
+        render('both');
     }
 
     /* ==========================================================
