@@ -70,7 +70,7 @@
     function updateRecordButtonVisibility() {
         const btn = document.getElementById('scgm-record-btn');
         if (!btn) return;
-        btn.style.display = isYouTubeMedia() ? 'none' : '';
+        btn.style.setProperty('display', isYouTubeMedia() ? 'none' : 'flex', 'important');
     }
 
     /* ==========================================================
