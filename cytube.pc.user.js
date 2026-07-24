@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube Fullscreen Video with Overlay Chat
 // @namespace    http://tampermonkey.net/
-// @version      4.7.0
+// @version      4.7.1
 // @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, right-click chat-to-movie seek, scene-to-GIF capture with meme captions + ImgBB upload, Tonight's Lineup schedule overlay, resizable chat panel, vertical monitor support
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -20,7 +20,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.pc v4.7.0 loaded');
+    console.log('[SC] cytube.pc v4.7.1 loaded');
 
     /* ==========================================================
        API KEYS — stored in localStorage, managed via settings modal.
@@ -572,7 +572,7 @@
        right-click "jump movie to this message" menu.
     ========================================================== */
 
-    const _desync = { active: false, saved: null, btn: null };
+    const _desync = { active: false, saved: null, btn: null, anchorPos: null, anchorWall: null };
 
     function _getMediaUpdateListeners() {
         // Socket.IO v2/v3 stores listeners under _callbacks['$eventName']
@@ -622,7 +622,16 @@
         if (typeof socket === 'undefined' || !socket) return;
         if (on === _desync.active) return;
         _desync.active = on;
-        if (on) _freezeSync(); else _thawSync();
+        if (on) {
+            // Anchor captured BEFORE freezing so it reflects the still-live position.
+            _desync.anchorPos = getPlayerTimeSec();
+            _desync.anchorWall = Date.now();
+            _freezeSync();
+        } else {
+            _thawSync();
+            _desync.anchorPos = null;
+            _desync.anchorWall = null;
+        }
         const btn = _desync.btn;
         if (btn) {
             btn.classList.toggle('sc-desync-active', on);
@@ -666,6 +675,18 @@
         const v = getPlayerVideoEl();
         if (v && isFinite(v.currentTime)) return v.currentTime;
         return null;
+    }
+
+    // The group's live synced position, right now. When not desynced this IS the
+    // player's own time (CyTube keeps it live). While desynced, CyTube's own
+    // mediaUpdate listeners are frozen (see _freezeSync), so we extrapolate forward
+    // from the position captured at the moment desync began, assuming uninterrupted
+    // playback — same trade-off seekTargetForMsgTime() below already makes for the
+    // chat-to-movie seek feature.
+    function getSyncedTimeNow() {
+        if (!_desync.active) return getPlayerTimeSec();
+        if (_desync.anchorPos == null) return getPlayerTimeSec();
+        return _desync.anchorPos + (Date.now() - _desync.anchorWall) / 1000;
     }
 
     function seekPlayerTo(sec) {
@@ -2247,7 +2268,9 @@
         else showTriviaCard();
     }
 
-    // 'T' = trivia, 'I' = movie info card — from anywhere when not typing
+    // 'T' = trivia, 'I' = movie info card, arrows/space = YouTube-style seek — from
+    // anywhere when not typing.
+    const ARROW_SEEK_STEP_SEC = 5;
     document.addEventListener('keydown', (e) => {
         const t = e.target;
         if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;
@@ -2257,6 +2280,33 @@
             const card = document.getElementById('sc-np-card');
             if (card && card.classList.contains('sc-np-visible')) hideNowPlayingCard();
             else if (_npData) showNowPlayingCard(_npData, { autoHide: false });
+            return;
+        }
+        if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            const pos = getPlayerTimeSec();
+            if (pos == null) return;
+            if (!_desync.active) setDesynced(true);
+            seekPlayerTo(Math.max(0, pos - ARROW_SEEK_STEP_SEC));
+            return;
+        }
+        if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            if (!_desync.active) return; // already at the live edge — nothing to catch up to
+            const pos = getPlayerTimeSec();
+            const syncedNow = getSyncedTimeNow();
+            if (pos == null || syncedNow == null) return;
+            const target = Math.min(pos + ARROW_SEEK_STEP_SEC, syncedNow);
+            seekPlayerTo(target);
+            if (target >= syncedNow - 0.15) setDesynced(false);
+            return;
+        }
+        if (e.key === ' ' || e.key === 'Spacebar') {
+            e.preventDefault();
+            if (!_desync.active) return;
+            const syncedNow = getSyncedTimeNow();
+            setDesynced(false);
+            if (syncedNow != null) seekPlayerTo(syncedNow);
         }
     });
 
