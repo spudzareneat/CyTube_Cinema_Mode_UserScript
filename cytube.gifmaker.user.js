@@ -273,6 +273,14 @@
             #sc-gif-size { color: rgba(255,255,255,0.45) !important; font-size: 11px !important; margin-left: auto !important; }
             .sc-gif-imgbb-row { display: flex !important; flex-direction: column !important; gap: 4px !important; }
             .sc-gif-imgbb-label { color: rgba(255,255,255,0.8) !important; font-size: 12px !important; font-weight: 500 !important; }
+            .sc-gif-imgbb-header {
+                display: flex !important; align-items: center !important; justify-content: space-between !important;
+                background: transparent !important; border: none !important; padding: 0 !important;
+                cursor: pointer !important; width: 100% !important; text-align: left !important;
+            }
+            .sc-gif-imgbb-toggle { color: rgba(255,255,255,0.5) !important; font-size: 11px !important; }
+            .sc-gif-imgbb-body { display: none !important; flex-direction: column !important; gap: 4px !important; margin-top: 4px !important; }
+            .sc-gif-imgbb-row.sc-gif-imgbb-open .sc-gif-imgbb-body { display: flex !important; }
             .sc-gif-imgbb-input-row { display: flex !important; gap: 6px !important; }
             .sc-gif-imgbb-input { flex: 1 1 auto !important; }
             .sc-gif-imgbb-test-btn {
@@ -797,14 +805,19 @@
                         </select>
                     </label>
                 </div>
-                <div class="sc-gif-imgbb-row">
-                    <label class="sc-gif-imgbb-label">ImgBB key (for Upload)</label>
-                    <div class="sc-gif-imgbb-input-row">
-                        <input type="text" id="sc-gif-imgbb-key" class="sc-gif-cap-input sc-gif-imgbb-input"
-                            placeholder="Paste ImgBB API key…" value="${_escHtml(getKey(LS_IMGBB))}" spellcheck="false" />
-                        <button id="sc-gif-imgbb-test" class="sc-gif-imgbb-test-btn" type="button">Test</button>
+                <div class="sc-gif-imgbb-row" id="sc-gif-imgbb-row">
+                    <button type="button" class="sc-gif-imgbb-header" id="sc-gif-imgbb-header">
+                        <span class="sc-gif-imgbb-label">ImgBB key (for Upload)</span>
+                        <span class="sc-gif-imgbb-toggle" id="sc-gif-imgbb-toggle">▸</span>
+                    </button>
+                    <div class="sc-gif-imgbb-body" id="sc-gif-imgbb-body">
+                        <div class="sc-gif-imgbb-input-row">
+                            <input type="text" id="sc-gif-imgbb-key" class="sc-gif-cap-input sc-gif-imgbb-input"
+                                placeholder="Paste ImgBB API key…" value="${_escHtml(getKey(LS_IMGBB))}" spellcheck="false" />
+                            <button id="sc-gif-imgbb-test" class="sc-gif-imgbb-test-btn" type="button">Test</button>
+                        </div>
+                        <span id="sc-gif-imgbb-status" class="sc-gif-imgbb-status"></span>
                     </div>
-                    <span id="sc-gif-imgbb-status" class="sc-gif-imgbb-status"></span>
                 </div>
                 <button id="sc-gif-go" type="button">● Make GIF</button>
                 <div id="sc-gif-status"></div>
@@ -824,6 +837,14 @@
             _revokeGifResult(); destroyScrubClone(); panel.remove();
         };
         $('#sc-gif-close').addEventListener('click', close);
+
+        const imgbbRow = $('#sc-gif-imgbb-row');
+        const imgbbHeader = $('#sc-gif-imgbb-header');
+        const imgbbToggle = $('#sc-gif-imgbb-toggle');
+        imgbbHeader.addEventListener('click', () => {
+            const open = imgbbRow.classList.toggle('sc-gif-imgbb-open');
+            imgbbToggle.textContent = open ? '▾' : '▸';
+        });
 
         const imgbbInput = $('#sc-gif-imgbb-key');
         const imgbbStatus = $('#sc-gif-imgbb-status');
@@ -1289,16 +1310,17 @@
                 const slug = gifTitleSlug();
                 const fnameBase = (slug || 'gif') + '-' + Date.now();
                 const fname = fnameBase + '.gif';
+                const hasImgbbKey = !!getKey(LS_IMGBB);
                 result.innerHTML =
                     `<img src="${_gifResultUrl}" alt="GIF preview">` +
                     `<div id="sc-gif-actions">` +
                     `<a id="sc-gif-dl" href="${_gifResultUrl}" download="${fname}">⬇ Download</a>` +
-                    `<button id="sc-gif-upload" type="button">☁ Upload</button>` +
+                    (hasImgbbKey ? `<button id="sc-gif-upload" type="button">☁ Upload</button>` : '') +
                     `<span id="sc-gif-size">${kb} KB</span></div>` +
-                    `<div id="sc-gif-link"></div>`;
+                    (hasImgbbKey ? `<div id="sc-gif-link"></div>` : '');
                 setStatus('Done.');
 
-                const uploadBtn = $('#sc-gif-upload');
+                const uploadBtn = hasImgbbKey ? $('#sc-gif-upload') : null;
                 if (uploadBtn) uploadBtn.addEventListener('click', async () => {
                     const linkBox = $('#sc-gif-link');
                     const apiKey = getKey(LS_IMGBB);
