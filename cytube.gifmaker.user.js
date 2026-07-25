@@ -932,6 +932,7 @@
         const filmstripHandleStart = $('#sc-gif-filmstrip-handle-start');
         const filmstripHandleEnd = $('#sc-gif-filmstrip-handle-end');
         let _filmstripTimer = null;
+        let _tilesWindowKey = null; // the window the on-screen tiles currently show
 
         for (let i = 0; i < FILMSTRIP_TILES; i++) {
             const tile = document.createElement('div');
@@ -975,24 +976,31 @@
                 _fmtClockTenths(win.windowStart) + ' – ' + _fmtClockTenths(win.windowEnd);
         }
 
+        function refetchFilmstripTiles() {
+            const win = _filmstripWindow;
+            if (!win || isBlob || !src) return;
+            const key = win.windowStart + '|' + win.windowEnd;
+            if (key === _tilesWindowKey) return; // tiles already match this window
+            _tilesWindowKey = key;
+            const tiles = [...panel.querySelectorAll('.sc-gif-filmstrip-tile')];
+            const span = win.windowEnd - win.windowStart;
+            tiles.forEach((tile, i) => {
+                const t = win.windowStart + (i + 0.5) * span / FILMSTRIP_TILES;
+                tile.classList.add('sc-gif-thumb-loading');
+                grabPreviewFrame(src, t, 64).then(url => {
+                    tile.style.backgroundImage = `url("${url}")`;
+                    tile.classList.remove('sc-gif-thumb-loading');
+                }).catch(() => tile.classList.remove('sc-gif-thumb-loading'));
+            });
+        }
+
         function scheduleFilmstripRefresh() {
             renderFilmstripHandles(); // cheap; keep the handles live even mid-debounce
             clearTimeout(_filmstripTimer);
             _filmstripTimer = setTimeout(() => {
-                if (!ensureFilmstripWindow()) { renderFilmstripHandles(); return; }
+                ensureFilmstripWindow();
                 renderFilmstripHandles();
-                if (isBlob || !src) return;
-                const win = _filmstripWindow;
-                const tiles = [...panel.querySelectorAll('.sc-gif-filmstrip-tile')];
-                const span = win.windowEnd - win.windowStart;
-                tiles.forEach((tile, i) => {
-                    const t = win.windowStart + (i + 0.5) * span / FILMSTRIP_TILES;
-                    tile.classList.add('sc-gif-thumb-loading');
-                    grabPreviewFrame(src, t, 64).then(url => {
-                        tile.style.backgroundImage = `url("${url}")`;
-                        tile.classList.remove('sc-gif-thumb-loading');
-                    }).catch(() => tile.classList.remove('sc-gif-thumb-loading'));
-                });
+                refetchFilmstripTiles();
             }, 220);
         }
 
