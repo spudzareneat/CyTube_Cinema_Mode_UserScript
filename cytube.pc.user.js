@@ -886,7 +886,12 @@
                 onload: r => {
                     if (r.status < 200 || r.status >= 300) { reject(new Error('gifsicle HTTP ' + r.status)); return; }
                     try {
-                        _gifsicleCtor = new Function(r.responseText + '\n;return typeof gifsicle !== "undefined" ? gifsicle : null;')();
+                        // The bundle ends with a literal ES-module `export default gifsicle;`,
+                        // which is a syntax error inside a Function body — strip it before
+                        // executing; the preceding `let gifsicle = {...}` is plain classic-script
+                        // code and is what our appended return statement actually captures.
+                        const src = r.responseText.replace(/export\s+default\s+gifsicle\s*;?\s*$/, '');
+                        _gifsicleCtor = new Function(src + '\n;return typeof gifsicle !== "undefined" ? gifsicle : null;')();
                         if (!_gifsicleCtor) { reject(new Error('gifsicle export not found')); return; }
                         resolve(_gifsicleCtor);
                     } catch (e) { reject(e); }
