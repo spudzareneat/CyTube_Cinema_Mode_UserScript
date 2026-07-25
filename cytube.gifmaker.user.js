@@ -1023,7 +1023,7 @@
                 overviewViewport.style.width = Math.max(0.5, ovEnd - ovStart) + '%';
             }
             if (!overviewDragging) {
-                overviewCurrent.textContent = _fmtClockTenths(startT);
+                overviewCurrent.textContent = 'Currently editing: ' + _fmtClockTenths(startT);
             }
         }
 
