@@ -140,6 +140,9 @@
                 background: #17171a !important; border: 1px solid rgba(255,255,255,0.14) !important;
                 cursor: pointer !important; user-select: none !important; touch-action: none !important;
             }
+            .sc-gif-overview-track:focus {
+                outline: 2px solid #ffcc44 !important; outline-offset: 1px !important;
+            }
             .sc-gif-overview-viewport {
                 position: absolute !important; top: 0 !important; bottom: 0 !important;
                 background: rgba(255,204,68,0.55) !important;
@@ -679,6 +682,8 @@
     const FILMSTRIP_MIN_WINDOW = 12;
     const FILMSTRIP_EDGE_PAD = 1;
     const FILMSTRIP_TILES = 10;
+    const OVERVIEW_NUDGE_SEC = 1;
+    const OVERVIEW_NUDGE_SEC_FAST = 10;
 
     function openGifPanel(initialSec) {
         if (document.getElementById('sc-gif-panel')) return;
@@ -706,7 +711,7 @@
             </div>
             <div id="sc-gif-body">
                 <div class="sc-gif-overview">
-                    <div class="sc-gif-overview-track" id="sc-gif-overview-track">
+                    <div class="sc-gif-overview-track" id="sc-gif-overview-track" tabindex="0">
                         <div class="sc-gif-overview-viewport" id="sc-gif-overview-viewport"></div>
                         <div class="sc-gif-overview-ghost" id="sc-gif-overview-ghost"></div>
                     </div>
@@ -1119,6 +1124,18 @@
             overviewGhost.style.setProperty('display', 'none', 'important');
             try { overviewTrack.releasePointerCapture(e.pointerId); } catch (err) {}
             renderFilmstripHandles(); // restore the "Currently editing" label, no jump
+        });
+        overviewTrack.addEventListener('keydown', (e) => {
+            if (isBlob || !src || !isFinite(vidDur)) return;
+            if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+            e.preventDefault(); // arrows would otherwise scroll the page/chat behind the panel
+            const step = (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? OVERVIEW_NUDGE_SEC_FAST : OVERVIEW_NUDGE_SEC);
+            const dur = endT - startT;
+            let newStart = startT + step;
+            newStart = Math.max(0, Math.min(newStart, vidDur - dur));
+            startT = newStart;
+            endT = startT + dur;
+            render('both');
         });
 
         const render = (changed) => {
