@@ -13,6 +13,7 @@
 // @connect      api.languagetool.org
 // @connect      caching.graphql.imdb.com
 // @connect      cdnjs.cloudflare.com
+// @connect      cdn.jsdelivr.net
 // @connect      api.imgbb.com
 // @connect      www.reddit.com
 // @run-at       document-start
@@ -36,12 +37,14 @@
     const LS_CHAT_PANEL_W = 'sc_chat_panel_w';   // vw — horizontal-layout chat panel width
     const LS_CHAT_PANEL_H = 'sc_chat_panel_h';   // vh — vertical-layout chat panel height
     const LS_CHAT_TEXTAREA_H = 'sc_chat_textarea_h'; // px — manually resized chat entry height
+    const LS_GIF_OPTIMIZE = 'sc_gif_optimize'; // shared with cytube.gifmaker.user.js
     const getKey   = id => localStorage.getItem(id) || '';
     const setKey   = (id, v) => localStorage.setItem(id, v.trim());
     const hasKey   = id => !!getKey(id);
     const spellCheckEnabled  = () => getKey(LS_SPELLCHECK)  !== 'off';
     const movieLinksEnabled  = () => getKey(LS_MOVIE_LINKS) !== 'off';
     const lineupTimingEnabled = () => getKey(LS_LINEUP_TIMING) === 'on'; // opt-in, unlike the toggles above
+    const gifOptimizeEnabled = () => getKey(LS_GIF_OPTIMIZE) !== 'off'; // default ON, like spellcheck/movielinks
 
     function getChatFontSize() {
         const v = parseInt(getKey(LS_CHAT_FONT), 10);
@@ -868,6 +871,31 @@
         return null;
     }
 
+    // gifsicle-wasm-browser is ~35x the size of gif.js — lazy-fetch it only
+    // when a GIF is actually being optimized, never @require it. It assigns
+    // a bare top-level `let gifsicle = {...}`; running its source inside a
+    // Function body whose own last statement returns that binding captures
+    // the export without touching any outer/global scope.
+    const GIFSICLE_URL = 'https://cdn.jsdelivr.net/npm/gifsicle-wasm-browser@1.5.19/dist/gifsicle.min.js';
+    let _gifsicleCtor = null;
+    function getGifsicleCtor() {
+        if (_gifsicleCtor) return Promise.resolve(_gifsicleCtor);
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'GET', url: GIFSICLE_URL,
+                onload: r => {
+                    if (r.status < 200 || r.status >= 300) { reject(new Error('gifsicle HTTP ' + r.status)); return; }
+                    try {
+                        _gifsicleCtor = new Function(r.responseText + '\n;return typeof gifsicle !== "undefined" ? gifsicle : null;')();
+                        if (!_gifsicleCtor) { reject(new Error('gifsicle export not found')); return; }
+                        resolve(_gifsicleCtor);
+                    } catch (e) { reject(e); }
+                },
+                onerror: () => reject(new Error('gifsicle fetch failed')),
+            });
+        });
+    }
+
     // Classic meme caption fitting: greedy word-wrap + auto-shrink, shared by
     // the live CSS preview (measured against a hidden canvas) and the actual
     // per-frame canvas render, so what you see in the panel is what you get.
@@ -1055,6 +1083,24 @@
             gif.on('abort', () => reject(new Error('encode aborted')));
             gif.render();
         }));
+    }
+
+    // Optional lossless size-shrink via gifsicle -O3, run after encodeGif().
+    // Any failure anywhere in here falls back to the original blob silently
+    // — this step is strictly additive and must never break Make GIF.
+    async function maybeOptimizeGif(blob) {
+        if (!gifOptimizeEnabled()) return blob;
+        try {
+            const gifsicle = await getGifsicleCtor();
+            const out = await gifsicle.run({
+                input: [{ file: blob, name: 'in.gif' }],
+                command: ['-O3 in.gif -o /out/out.gif'],
+            });
+            return (out && out[0]) ? out[0] : blob;
+        } catch (e) {
+            console.warn('[SC] GIF optimize failed, using unoptimized output:', e);
+            return blob;
+        }
     }
 
     let _gifResultUrl = null;
@@ -1792,7 +1838,9 @@
                     { src, startT, endT, fps, width, aspect, captions },
                     p => setWork('Capturing frames… ' + Math.round(p * 100) + '%'));
                 setWork('Encoding GIF… (' + cap.frames.length + ' frames)');
-                const blob = await encodeGif(cap, p => setWork('Encoding GIF… ' + Math.round(p * 100) + '%'));
+                let blob = await encodeGif(cap, p => setWork('Encoding GIF… ' + Math.round(p * 100) + '%'));
+                if (gifOptimizeEnabled()) setWork('Optimizing…');
+                blob = await maybeOptimizeGif(blob);
                 _gifResultUrl = URL.createObjectURL(blob);
                 const kb = Math.round(blob.size / 1024);
                 const slug = _gifTitleSlug();
@@ -2765,6 +2813,16 @@
                     </label>
                 </div>
 
+                <div class="sc-settings-group sc-settings-toggle-group">
+                    <label class="sc-settings-toggle-label">
+                        <span class="sc-toggle-row">
+                            <input type="checkbox" id="sc-input-gifoptimize" ${gifOptimizeEnabled() ? 'checked' : ''} />
+                            <span class="sc-toggle-text">Optimize GIFs before upload</span>
+                        </span>
+                        <span class="sc-settings-note">Losslessly shrinks the file with gifsicle before Download/Upload — adds a couple seconds</span>
+                    </label>
+                </div>
+
                 <div class="sc-settings-group sc-settings-divider">
                     <label class="sc-settings-label">
                         ImgBB GIF upload
@@ -2854,12 +2912,14 @@
             const spell  = document.getElementById('sc-input-spellcheck').checked;
             const links  = document.getElementById('sc-input-movielinks').checked;
             const lineupTiming = document.getElementById('sc-input-lineuptiming').checked;
+            const gifOptimize = document.getElementById('sc-input-gifoptimize').checked;
             const imgbb  = document.getElementById('sc-input-imgbb').value.trim();
             const fontPx = parseInt(fontInput.value, 10);
             setKey(LS_TMDB,        tmdb);
             setKey(LS_SPELLCHECK,  spell ? 'on' : 'off');
             setKey(LS_MOVIE_LINKS, links ? 'on' : 'off');
             setKey(LS_LINEUP_TIMING, lineupTiming ? 'on' : 'off');
+            setKey(LS_GIF_OPTIMIZE, gifOptimize ? 'on' : 'off');
             setKey(LS_IMGBB,       imgbb);
             setKey(LS_CHAT_FONT,   String(fontPx));
             applyChatFontSize(fontPx);
