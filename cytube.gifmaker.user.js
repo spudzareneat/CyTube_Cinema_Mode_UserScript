@@ -1126,14 +1126,17 @@
             renderFilmstripHandles(); // restore the "Currently editing" label, no jump
         });
         overviewTrack.addEventListener('keydown', (e) => {
-            if (isBlob || !src || !isFinite(vidDur)) return;
             if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
             e.preventDefault(); // arrows would otherwise scroll the page/chat behind the panel
-            e.stopPropagation(); // stop cytube.pc.user.js's document-level arrow-key video-seek handler from also firing
+            e.stopPropagation(); // stop cytube.pc.user.js's document-level arrow-key video-seek handler from also firing, even in the disabled-state branch below
+            if (isBlob || !src || !isFinite(vidDur)) return;
             const step = (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? OVERVIEW_NUDGE_SEC_FAST : OVERVIEW_NUDGE_SEC);
             const dur = endT - startT;
+            // Deliberately bypasses clampStart()/clampEnd() -- those can change
+            // dur (MAX_CLIP_LEN/MIN_CLIP_GAP), but a nudge must never alter the
+            // clip's length, only its position.
             let newStart = startT + step;
-            newStart = Math.max(0, Math.min(newStart, vidDur - dur));
+            newStart = Math.max(0, Math.min(newStart, Math.max(0, vidDur - dur)));
             startT = newStart;
             endT = startT + dur;
             render('both');
