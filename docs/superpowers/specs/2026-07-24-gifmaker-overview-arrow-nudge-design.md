@@ -50,14 +50,17 @@ const OVERVIEW_NUDGE_SEC_FAST = 10;
 
 overviewTrack.setAttribute('tabindex', '0');
 overviewTrack.addEventListener('keydown', (e) => {
-    if (isBlob || !src || !isFinite(vidDur)) return;
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault(); // arrows would otherwise scroll the page/chat behind the panel
-    e.stopPropagation(); // stop cytube.pc.user.js's document-level arrow-key video-seek handler from also firing
+    e.stopPropagation(); // stop cytube.pc.user.js's document-level arrow-key video-seek handler from also firing, even in the disabled-state branch below
+    if (isBlob || !src || !isFinite(vidDur)) return;
     const step = (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? OVERVIEW_NUDGE_SEC_FAST : OVERVIEW_NUDGE_SEC);
     const dur = endT - startT;
+    // Deliberately bypasses clampStart()/clampEnd() -- those can change
+    // dur (MAX_CLIP_LEN/MIN_CLIP_GAP), but a nudge must never alter the
+    // clip's length, only its position.
     let newStart = startT + step;
-    newStart = Math.max(0, Math.min(newStart, vidDur - dur));
+    newStart = Math.max(0, Math.min(newStart, Math.max(0, vidDur - dur)));
     startT = newStart;
     endT = startT + dur;
     render('both');
@@ -65,16 +68,32 @@ overviewTrack.addEventListener('keydown', (e) => {
 ```
 
 Same disabled-state guard as the click/drag path
-(`isBlob || !src || !isFinite(vidDur)`). `render('both')` is the panel's
+(`isBlob || !src || !isFinite(vidDur)`), but it now runs **after** the
+key-type filter and both `preventDefault()`/`stopPropagation()` calls,
+not before. The disabled state (most commonly: the panel opened before
+the video's `duration` metadata finished loading) is a real, reachable
+transient, not just a theoretical edge case — and if the guard short-
+circuits before `stopPropagation()` runs, an arrow keypress during that
+window bubbles up to `document` and re-triggers `cytube.pc.user.js`'s
+document-level arrow-key handler, seeking the live video and reopening
+the exact desync bug this feature closed for the enabled case. Swallowing
+the arrow key (prevent + stop) is therefore unconditional on "is this an
+arrow key," never conditional on "is nudging currently possible" — the
+disabled-state check only decides whether the nudge math runs, not
+whether the event escapes the track. `render('both')` is the panel's
 existing render function — same one the click/drag teleport and the
 filmstrip handles already use, so this gets the filmstrip reframe, tile
 refetch, and both large previews "for free."
 
-The `Math.max(0, Math.min(newStart, vidDur - dur))` clamp keeps the whole
-window (not just one edge) inside `[0, vidDur]` — nudging off either end
-of the movie stops there rather than letting `startT` go negative or
-`endT` exceed `vidDur`, and it never changes `dur`, so the clip length is
-never silently altered by a nudge.
+The `Math.max(0, Math.min(newStart, Math.max(0, vidDur - dur)))` clamp
+keeps the whole window (not just one edge) inside `[0, vidDur]` —
+nudging off either end of the movie stops there rather than letting
+`startT` go negative or `endT` exceed `vidDur`, and it never changes
+`dur`, so the clip length is never silently altered by a nudge. The
+inner `Math.max(0, vidDur - dur)` guards against `vidDur - dur` itself
+going negative (a clip whose duration exceeds a since-changed/short
+video's length), which would otherwise make the outer bound lower than
+the `0` floor and clamp `newStart` to a nonsensical negative value.
 
 ## CSS addition (in `injectPanelCss()`)
 
