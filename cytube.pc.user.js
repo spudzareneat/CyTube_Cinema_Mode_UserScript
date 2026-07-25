@@ -1206,6 +1206,9 @@
     const FILMSTRIP_TILES = 10;
     const OVERVIEW_NUDGE_SEC = 1;
     const OVERVIEW_NUDGE_SEC_FAST = 10;
+    const SELECTION_EDGE_ZONE_PX = 20;
+    const SELECTION_AUTOSCROLL_STEP = 0.2;
+    const SELECTION_AUTOSCROLL_INTERVAL_MS = 100;
 
     function openGifPanel(initialSec) {
         if (document.getElementById('sc-gif-panel')) return;
@@ -1330,6 +1333,7 @@
         const close = () => {
             clearTimeout(_filmstripTimer);
             Object.values(thumbTimers).forEach(clearTimeout);
+            stopSelectionAutoScroll();
             _revokeGifResult(); destroyScrubClone(); panel.remove();
         };
         $('#sc-gif-close').addEventListener('click', close);
@@ -1595,6 +1599,82 @@
         }
         wireFilmstripDrag(filmstripHandleStart, 'start');
         wireFilmstripDrag(filmstripHandleEnd, 'end');
+
+        let selectionDragging = false;
+        let selectionDragStartX = 0;
+        let selectionDragStartT0 = 0; // startT captured at pointerdown
+        let selectionAutoScrollTimer = null;
+        let selectionAutoScrollDir = 0; // -1 (backward), 0 (idle), 1 (forward)
+
+        function selectionShiftTo(newStart) {
+            const dur = endT - startT;
+            newStart = Math.max(0, Math.min(newStart, Math.max(0, vidDur - dur)));
+            startT = newStart;
+            endT = startT + dur;
+            render('both');
+        }
+        function stopSelectionAutoScroll() {
+            if (selectionAutoScrollTimer) { clearInterval(selectionAutoScrollTimer); selectionAutoScrollTimer = null; }
+            selectionAutoScrollDir = 0;
+        }
+        function startSelectionAutoScroll(dir) {
+            if (selectionAutoScrollDir === dir) return;
+            stopSelectionAutoScroll();
+            selectionAutoScrollDir = dir;
+            selectionAutoScrollTimer = setInterval(() => {
+                selectionShiftTo(startT + dir * SELECTION_AUTOSCROLL_STEP);
+                // render('both') above only re-arms the 220ms tile-refetch
+                // debounce, which this 100ms tick perpetually resets, so the
+                // filmstrip window itself would never reframe during a
+                // sustained hold. Force the cheap (no-network) reframe/
+                // reposition every tick so the visible window actually pans;
+                // tile thumbnails stay on the existing debounce and catch up
+                // shortly after the hold ends, same as they already do for a
+                // fast handle drag.
+                ensureFilmstripWindow();
+                renderFilmstripHandles();
+            }, SELECTION_AUTOSCROLL_INTERVAL_MS);
+        }
+
+        const selectionEl = $('#sc-gif-filmstrip-selection');
+        selectionEl.addEventListener('pointerdown', (e) => {
+            if (isBlob || !src || !isFinite(vidDur)) return;
+            if (e.button !== 0) return;
+            e.stopPropagation();
+            selectionDragging = true;
+            selectionDragStartX = e.clientX;
+            selectionDragStartT0 = startT;
+            selectionEl.setPointerCapture(e.pointerId);
+        });
+        selectionEl.addEventListener('pointermove', (e) => {
+            if (!selectionDragging || !_filmstripWindow) return;
+            const rect = filmstripStrip.getBoundingClientRect();
+            if (e.clientX <= rect.left + SELECTION_EDGE_ZONE_PX) { startSelectionAutoScroll(-1); return; }
+            if (e.clientX >= rect.right - SELECTION_EDGE_ZONE_PX) { startSelectionAutoScroll(1); return; }
+            if (selectionAutoScrollDir !== 0) {
+                // Leaving the edge zone after auto-scrolling -- resync the drag
+                // anchor to the current pointer position/time. Without this,
+                // the delta below would be computed against the position the
+                // drag originally started at, snapping the clip back to
+                // wherever it was before auto-scroll ran and discarding all
+                // of that movement.
+                selectionDragStartX = e.clientX;
+                selectionDragStartT0 = startT;
+            }
+            stopSelectionAutoScroll();
+            const win = _filmstripWindow;
+            const deltaPx = e.clientX - selectionDragStartX;
+            const deltaSec = deltaPx / rect.width * (win.windowEnd - win.windowStart);
+            selectionShiftTo(selectionDragStartT0 + deltaSec);
+        });
+        function endSelectionDrag(e) {
+            selectionDragging = false;
+            stopSelectionAutoScroll();
+            try { selectionEl.releasePointerCapture(e.pointerId); } catch (err) {}
+        }
+        selectionEl.addEventListener('pointerup', endSelectionDrag);
+        selectionEl.addEventListener('pointercancel', endSelectionDrag);
+        selectionEl.addEventListener('lostpointercapture', endSelectionDrag);
 
         function overviewTimeFromEvent(e) {
             const rect = overviewTrack.getBoundingClientRect();
