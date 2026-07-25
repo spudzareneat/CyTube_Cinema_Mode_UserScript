@@ -68,6 +68,15 @@ function startSelectionAutoScroll(dir) {
     selectionAutoScrollDir = dir;
     selectionAutoScrollTimer = setInterval(() => {
         selectionShiftTo(startT + dir * SELECTION_AUTOSCROLL_STEP);
+        // render('both') above only re-arms the 220ms tile-refetch debounce,
+        // which this 100ms tick perpetually resets, so the filmstrip window
+        // itself would never reframe during a sustained hold (see "Full
+        // wiring" below). Force the cheap (no-network) reframe/reposition
+        // every tick so the visible window actually pans; tile thumbnails
+        // stay on the existing debounce and catch up shortly after the hold
+        // ends, same as they already do for a fast handle drag.
+        ensureFilmstripWindow();
+        renderFilmstripHandles();
     }, SELECTION_AUTOSCROLL_INTERVAL_MS);
 }
 ```
@@ -126,6 +135,7 @@ function endSelectionDrag(e) {
 }
 selectionEl.addEventListener('pointerup', endSelectionDrag);
 selectionEl.addEventListener('pointercancel', endSelectionDrag);
+selectionEl.addEventListener('lostpointercapture', endSelectionDrag);
 ```
 
 Note the anchor-resync guard right after the edge-zone checks: `selectionDragStartX`/
@@ -155,17 +165,43 @@ Same disabled-state guard as every other interactive control in this
 panel (`isBlob || !src || !isFinite(vidDur)`), same `e.button !== 0`
 right-click guard as the overview scrubber (dragging with a right-click
 button held must not move the selection), same `stopPropagation()`
-pattern as every other drag handle in this file.
+pattern as every other drag handle in this file. `lostpointercapture` is
+wired alongside `pointerup`/`pointercancel` as the same safety net this
+bug class already required elsewhere on this branch: if capture is lost
+without either of those firing (browser-initiated capture loss), the
+drag/auto-scroll would otherwise never stop.
 
 `render('both')` — called from both the normal-drag path and the
-auto-scroll interval — is the panel's existing render function, so
-this gets the filmstrip window reframe (via the already-shipped
-`ensureFilmstripWindow()`/`refetchFilmstripTiles()`), the two large
-previews, and the duration line "for free." Tile refetching stays
-debounced (220ms) exactly as it already is for handle drags — a
-continuous drag or auto-scroll firing `render()` faster than the debounce
-interval simply keeps deferring the tile refetch until motion stops,
-identical to how `wireFilmstripDrag` already behaves today.
+auto-scroll interval — is the panel's existing render function, so a
+single click or a normal (non-edge) drag gets the filmstrip window
+reframe (via the already-shipped `ensureFilmstripWindow()`/
+`refetchFilmstripTiles()`), the two large previews, and the duration
+line "for free": those interactions settle, the 220ms tile-refetch
+debounce fires once motion stops, and `scheduleFilmstripRefresh()`'s
+own `renderFilmstripHandles()` call keeps the handles/band visually in
+sync in the meantime.
+
+That "for free" reframe does *not* hold for a sustained edge
+auto-scroll. The auto-scroll interval ticks every
+`SELECTION_AUTOSCROLL_INTERVAL_MS` (100ms), and each tick's
+`selectionShiftTo` → `render('both')` re-arms the same 220ms debounce
+timer that `ensureFilmstripWindow()`'s reframe is gated behind. Because
+100ms is shorter than the 220ms debounce, a sustained hold perpetually
+resets that timer before it ever fires — the filmstrip window
+(`_filmstripWindow`) never reframes for as long as the hold continues.
+Only the band's position *within* that stale, unchanging window keeps
+updating, and since that position is clamped to the window's bounds,
+the band visually collapses to zero width at the edge instead of the
+window panning forward/backward. `startSelectionAutoScroll`'s tick
+therefore calls `ensureFilmstripWindow()`/`renderFilmstripHandles()`
+directly (see above) instead of relying on the debounce — those two
+calls are cheap and side-effect-free (no network), so calling them
+every 100ms is fine. Tile refetching stays debounced (220ms) exactly
+as it already is for handle drags — a continuous drag or auto-scroll
+firing `render()` faster than the debounce interval simply keeps
+deferring the tile *refetch* until motion stops, identical to how
+`wireFilmstripDrag` already behaves today; only the window-reframe
+math needed to be pulled out from behind that debounce.
 
 ## Interaction with the handles
 
@@ -199,7 +235,11 @@ const close = () => {
 
 ## CSS changes (in `injectPanelCss()`)
 
-- `.sc-gif-filmstrip-selection`: `pointer-events: none` → `pointer-events: auto`, plus `cursor: grab`.
+- `.sc-gif-filmstrip-selection`: `pointer-events: none` → `pointer-events: auto`,
+  plus `cursor: grab` and `touch-action: none` (consistent with every other
+  draggable surface in this file — without it, a touch drag on the band can
+  be hijacked by the browser's default touch scroll/zoom gestures instead of
+  reaching the pointer handlers).
 - New rule: `.sc-gif-filmstrip-selection:active { cursor: grabbing; }`.
 
 No other visual changes — the existing amber tint/borders already make
