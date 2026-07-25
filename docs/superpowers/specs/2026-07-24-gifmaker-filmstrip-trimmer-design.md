@@ -91,7 +91,7 @@ const FILMSTRIP_TILES = 10;
 
 let _filmstripWindow = null; // { windowStart, windowEnd } — sticky across renders
 
-// Returns true if the window was (re)computed (i.e. tiles need refetching).
+// Returns true if the window actually changed (i.e. tiles need refetching).
 function ensureFilmstripWindow() {
     const needsReframe = !_filmstripWindow ||
         startT < _filmstripWindow.windowStart + FILMSTRIP_EDGE_PAD ||
@@ -102,17 +102,32 @@ function ensureFilmstripWindow() {
     let windowStart = Math.max(0, startT - FILMSTRIP_MARGIN);
     if (isFinite(vidDur)) windowStart = Math.min(windowStart, Math.max(0, vidDur - span));
     const windowEnd = isFinite(vidDur) ? Math.min(vidDur, windowStart + span) : windowStart + span;
+
+    // The predicate above can stay true forever near a video boundary (or on
+    // any video shorter than FILMSTRIP_MIN_WINDOW) even though the clamped
+    // window is unchanged — compare the actual values, not just the pad
+    // check, or every settled interaction near t=0/vidDur refetches all 10
+    // tiles for nothing.
+    const changed = !_filmstripWindow ||
+        _filmstripWindow.windowStart !== windowStart ||
+        _filmstripWindow.windowEnd   !== windowEnd;
     _filmstripWindow = { windowStart, windowEnd };
-    return true;
+    return changed;
 }
 ```
 
-This also means handle dragging effectively **auto-pans**: as you drag a
-handle toward the edge of the visible strip, the window reframes itself
-(with the usual margin) before you actually run out of room, rather than
-hard-stopping at a fixed boundary. No scroll physics needed — reframing is
-just "recompute + refetch," the same operation that already happens on
-open.
+This gives a **settle-triggered pan**, not a continuous one: `wireFilmstripDrag`
+clamps the pointer position to `[0, 1]` of the strip's own width every
+`pointermove` tick, so *mid-drag* the handle hard-stops at the currently
+visible edge — it does not scroll while your pointer keeps moving. Once you
+stop moving (or the debounce timer fires 220ms after the last tick) and the
+handle is within `FILMSTRIP_EDGE_PAD` of that edge, the window reframes and
+the tiles refetch; if you're still holding the handle at the edge, the next
+`pointermove` continues the drag from the newly-reframed window. Net effect:
+holding still at the edge pans once; jiggling right at the edge pans in
+`FILMSTRIP_MARGIN`-sized (3s) steps rather than smoothly. No scroll physics
+needed — reframing is just "recompute + refetch," the same operation that
+already happens on open.
 
 ### Handle position math (every `render()` call — cheap, no thumbnail fetch)
 
@@ -177,9 +192,10 @@ network-bound tile refetch is debounced and edge-gated.
   are deleted from the panel HTML entirely — the filmstrip replaces both.
 - `resetEndFromStart()` is deleted. Nothing calls it anymore.
 - The `start-current`/`start-minus`/`start-plus` button handlers now just
-  mutate `startT`, call `clampStart()`, and `render('both')` — they no
-  longer touch `endT` at all. `end-minus`/`end-plus` are unchanged (already
-  independent today).
+  mutate `startT`, call `clampStart()`, and `render('start')` — they no
+  longer touch `endT` at all, so there's no reason to refetch the END
+  preview alongside them. `end-minus`/`end-plus` are unchanged (already
+  independent today, already `render('end')`).
 
 ### New: a maximum clip length
 
@@ -204,10 +220,16 @@ function clampStart() {
     if (endT - startT > MAX_CLIP_LEN) startT = endT - MAX_CLIP_LEN;
 }
 function clampEnd() {
-    endT = Math.min(isFinite(vidDur) ? vidDur : endT, Math.max(endT, startT + MIN_CLIP_GAP));
+    endT = Math.max(endT, startT + MIN_CLIP_GAP);
+    if (isFinite(vidDur)) endT = Math.min(endT, vidDur);
     if (endT - startT > MAX_CLIP_LEN) endT = startT + MAX_CLIP_LEN;
 }
 ```
+
+(The naive `Math.min(isFinite(vidDur) ? vidDur : endT, Math.max(endT, startT + MIN_CLIP_GAP))` silently drops the
+min-gap enforcement whenever `vidDur` is `Infinity` — its first argument becomes `endT` itself, so the expression
+reduces to `endT = endT`. `vidDur` is `Infinity` whenever the panel opens before video metadata has loaded, not
+just for exotic live/HLS sources — this is a real, reachable path, not a hypothetical.)
 
 Both are called after every drag/button mutation to either handle, same as
 today's call sites.
@@ -261,8 +283,10 @@ branch work) — verification is `node --check cytube.gifmaker.user.js`
    correctly framing the default clip.
 2. Drag the start handle left and right; confirm: it can't cross the end
    handle minus the minimum gap, the selection band/dim overlays track it
-   live, the START large preview updates (debounced), and dragging stops
-   at the window edge rather than scrolling.
+   live, the START large preview updates (debounced), and dragging hard-stops
+   at the currently-visible window edge mid-drag — then, if held there,
+   reframes in ~3s steps once the debounce settles (see "Window framing"
+   above) rather than scrolling smoothly.
 3. Drag the end handle; confirm the same, plus that a duration beyond 10s
    is unreachable (handle stops at `start + 10`).
 4. Click "⤓ Now" / start ±0.5 / end ±0.5; confirm moving start no longer
