@@ -61,9 +61,10 @@ function overviewTimeFromEvent(e) {
 let overviewDragging = false;
 overviewTrack.addEventListener('pointerdown', (e) => {
     if (isBlob || !src || !isFinite(vidDur)) return;
+    e.stopPropagation();
     overviewDragging = true;
     overviewTrack.setPointerCapture(e.pointerId);
-    overviewGhost.style.display = 'block';
+    overviewGhost.style.setProperty('display', 'block', 'important');
     const pct = ((overviewTimeFromEvent(e)) / vidDur) * 100;
     overviewGhost.style.left = pct + '%';
 });
@@ -76,7 +77,8 @@ overviewTrack.addEventListener('pointermove', (e) => {
 function overviewCommit(e) {
     if (!overviewDragging) return;
     overviewDragging = false;
-    overviewGhost.style.display = 'none';
+    overviewGhost.style.setProperty('display', 'none', 'important');
+    try { overviewTrack.releasePointerCapture(e.pointerId); } catch (err) {}
     const t = overviewTimeFromEvent(e);
     startT = Math.max(0, t - DEFAULT_CLIP_LEN / 2);
     endT = Math.min(vidDur, startT + DEFAULT_CLIP_LEN);
@@ -85,9 +87,10 @@ function overviewCommit(e) {
     render('both');
 }
 overviewTrack.addEventListener('pointerup', overviewCommit);
-overviewTrack.addEventListener('pointercancel', () => {
+overviewTrack.addEventListener('pointercancel', (e) => {
     overviewDragging = false;
-    overviewGhost.style.display = 'none';
+    overviewGhost.style.setProperty('display', 'none', 'important');
+    try { overviewTrack.releasePointerCapture(e.pointerId); } catch (err) {}
     renderFilmstripHandles(); // restore the "Currently editing" label, no jump
 });
 ```
@@ -95,6 +98,15 @@ overviewTrack.addEventListener('pointercancel', () => {
 A plain click (no intervening `pointermove`) still fires `pointerdown` then
 `pointerup` at the same coordinate, so click-to-jump works with no extra
 code — the same commit path handles both click and drag.
+
+The `.sc-gif-overview-ghost` CSS rule (see below) sets `display: none
+!important`, matching every other rule in this file's stylesheet — so the
+JS toggle above must itself use `style.setProperty(prop, val, 'important')`
+rather than a plain `style.display = …` assignment, or the inline value is
+silently outranked by the stylesheet's `!important` and the ghost line
+never becomes visible. This exact class of bug (inline style losing to an
+author-stylesheet `!important` rule) has bitten this branch twice before —
+watch for it on every new dynamic style write against this panel's CSS.
 
 `render('both')` is the panel's existing render function — it already
 drives `scheduleFilmstripRefresh()` (window reframe + tile refetch via the
