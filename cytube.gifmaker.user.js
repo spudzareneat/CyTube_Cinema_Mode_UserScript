@@ -101,6 +101,7 @@
             }
             .sc-gif-thumb-43 { aspect-ratio: 4 / 3 !important; }
             .sc-gif-thumb-fit { background-size: contain !important; }
+            .sc-gif-thumb-readonly { border-style: dashed !important; opacity: 0.92 !important; }
             .sc-gif-cap {
                 position: absolute !important;
                 width: 92% !important;
@@ -709,11 +710,9 @@
                         </div>
                     </div>
                     <div class="sc-gif-mark">
-                        <div class="sc-gif-thumb" id="sc-gif-thumb-end">
+                        <div class="sc-gif-thumb sc-gif-thumb-readonly" id="sc-gif-thumb-end">
                             <div class="sc-gif-cap sc-gif-cap-top" id="sc-gif-cap-top-end"></div>
                             <div class="sc-gif-cap sc-gif-cap-bottom" id="sc-gif-cap-bottom-end"></div>
-                            <div class="sc-gif-cap-handle sc-gif-cap-handle-top" id="sc-gif-cap-handle-top-end" title="Drag top caption"></div>
-                            <div class="sc-gif-cap-handle sc-gif-cap-handle-bottom" id="sc-gif-cap-handle-bottom-end" title="Drag bottom caption"></div>
                         </div>
                         <div class="sc-gif-mark-label">END · <span id="sc-gif-time-end"></span></div>
                         <div class="sc-gif-mark-btns">
@@ -904,10 +903,8 @@
             handleEl.addEventListener('pointerup', endHandleDrag);
             handleEl.addEventListener('pointercancel', endHandleDrag);
         }
-        ['start', 'end'].forEach(which => {
-            ['top', 'bottom'].forEach(key => {
-                wireCapHandle($('#sc-gif-cap-handle-' + key + '-' + which), $('#sc-gif-thumb-' + which), key);
-            });
+        ['top', 'bottom'].forEach(key => {
+            wireCapHandle($('#sc-gif-cap-handle-' + key + '-start'), $('#sc-gif-thumb-start'), key);
         });
 
         renderCaptionPreviews();
