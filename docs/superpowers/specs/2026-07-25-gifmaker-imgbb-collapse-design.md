@@ -102,6 +102,19 @@ if (hasImgbbKey) {
 }
 ```
 
+**Accepted tradeoff, decided during review:** `hasImgbbKey` is latched
+once, at encode time, and never re-evaluated for that result. If a key is
+added or saved *after* a GIF has already finished generating without one,
+the Upload button does not retroactively appear on that result — the only
+way to get it is to click "● Make GIF" again (a full re-encode). This was
+raised during the final whole-branch review as a real usability
+regression versus the prior always-visible-Upload-with-a-hint behavior,
+and deliberately accepted as-is rather than fixed: the fix would require
+hoisting the upload click handler out of the `goBtn` closure so it could
+be reused/attached after the fact, which was judged not worth the added
+complexity for this script. Do not re-litigate this in a future review —
+it's a known, intentional limitation, not an oversight.
+
 The existing `if (!apiKey) { linkBox.innerHTML = '...enable uploads.'; return; }`
 check *inside* the upload click handler is left in place as a defensive
 fallback (the key could theoretically be cleared in the collapsed section

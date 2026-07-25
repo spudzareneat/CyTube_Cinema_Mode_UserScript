@@ -278,6 +278,7 @@
                 background: transparent !important; border: none !important; padding: 0 !important;
                 cursor: pointer !important; width: 100% !important; text-align: left !important;
             }
+            .sc-gif-imgbb-header:focus-visible { outline: 2px solid #ffcc44 !important; outline-offset: 1px !important; }
             .sc-gif-imgbb-toggle { color: rgba(255,255,255,0.5) !important; font-size: 11px !important; }
             .sc-gif-imgbb-body { display: none !important; flex-direction: column !important; gap: 4px !important; margin-top: 4px !important; }
             .sc-gif-imgbb-row.sc-gif-imgbb-open .sc-gif-imgbb-body { display: flex !important; }
@@ -806,7 +807,7 @@
                     </label>
                 </div>
                 <div class="sc-gif-imgbb-row" id="sc-gif-imgbb-row">
-                    <button type="button" class="sc-gif-imgbb-header" id="sc-gif-imgbb-header">
+                    <button type="button" class="sc-gif-imgbb-header" id="sc-gif-imgbb-header" aria-expanded="false">
                         <span class="sc-gif-imgbb-label">ImgBB key (for Upload)</span>
                         <span class="sc-gif-imgbb-toggle" id="sc-gif-imgbb-toggle">▸</span>
                     </button>
@@ -844,6 +845,7 @@
         imgbbHeader.addEventListener('click', () => {
             const open = imgbbRow.classList.toggle('sc-gif-imgbb-open');
             imgbbToggle.textContent = open ? '▾' : '▸';
+            imgbbHeader.setAttribute('aria-expanded', String(open));
         });
 
         const imgbbInput = $('#sc-gif-imgbb-key');
