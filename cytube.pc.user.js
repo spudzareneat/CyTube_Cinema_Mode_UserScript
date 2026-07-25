@@ -1220,9 +1220,9 @@
             ? initialSec
             : (v0 ? v0.currentTime : 0);
 
-        // Default: a 2s window ending at the current frame. Moving the start
-        // (scrubber, ⤓ Now, ±.5) re-anchors the end 2s later; the end mark
-        // only ever gets fine-tuned from there via its own ±.5 buttons.
+        // Default: a 2s window ending at the current frame. Start and end are
+        // then adjusted independently — via the filmstrip handles, the overview
+        // scrubber, or the ±.5 buttons.
         const DEFAULT_CLIP_LEN = 2;
         let startT = Math.max(0, now - DEFAULT_CLIP_LEN);
         let endT = Math.min(vidDur, startT + DEFAULT_CLIP_LEN);
@@ -1716,9 +1716,9 @@
             renderFilmstripHandles(); // restore the "Currently editing" label, no jump
         });
         overviewTrack.addEventListener('keydown', (e) => {
+            e.stopPropagation(); // stopPropagation on every key, not just arrows: pc.user.js's own document-level hotkey handler (Space/t/i/etc.) would otherwise fire while this track has focus
             if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
             e.preventDefault(); // arrows would otherwise scroll the page/chat behind the panel
-            e.stopPropagation(); // stop this same script's OWN document-level arrow-key video-seek handler from also firing, even in the disabled-state branch below
             if (isBlob || !src || !isFinite(vidDur)) return;
             const step = (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? OVERVIEW_NUDGE_SEC_FAST : OVERVIEW_NUDGE_SEC);
             const dur = endT - startT;
