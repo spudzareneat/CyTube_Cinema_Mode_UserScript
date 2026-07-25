@@ -1204,6 +1204,8 @@
     const FILMSTRIP_MIN_WINDOW = 12;
     const FILMSTRIP_EDGE_PAD = 1;
     const FILMSTRIP_TILES = 10;
+    const OVERVIEW_NUDGE_SEC = 1;
+    const OVERVIEW_NUDGE_SEC_FAST = 10;
 
     function openGifPanel(initialSec) {
         if (document.getElementById('sc-gif-panel')) return;
@@ -1322,6 +1324,7 @@
 
         const $ = id => panel.querySelector(id);
         const goBtn = $('#sc-gif-go'), status = $('#sc-gif-status'), result = $('#sc-gif-result');
+        $('#sc-gif-overview-total').textContent = isFinite(vidDur) ? _fmtClockTenths(vidDur) : '';
         const setStatus = (txt) => { status.textContent = txt || ''; };
 
         const close = () => {
@@ -1480,6 +1483,12 @@
         let _filmstripTimer = null;
         let _tilesWindowKey = null; // the window the on-screen tiles currently show
 
+        const overviewTrack = $('#sc-gif-overview-track');
+        const overviewViewport = $('#sc-gif-overview-viewport');
+        const overviewGhost = $('#sc-gif-overview-ghost');
+        const overviewCurrent = $('#sc-gif-overview-current');
+        let overviewDragging = false;
+
         for (let i = 0; i < FILMSTRIP_TILES; i++) {
             const tile = document.createElement('div');
             tile.className = 'sc-gif-filmstrip-tile';
@@ -1521,6 +1530,16 @@
             selection.style.width = (ep - sp) + '%';
             $('#sc-gif-filmstrip-range').textContent =
                 _fmtClockTenths(win.windowStart) + ' – ' + _fmtClockTenths(win.windowEnd);
+
+            if (isFinite(vidDur) && vidDur > 0) {
+                const ovStart = (win.windowStart / vidDur) * 100;
+                const ovEnd = (win.windowEnd / vidDur) * 100;
+                overviewViewport.style.left = ovStart + '%';
+                overviewViewport.style.width = Math.max(0.5, ovEnd - ovStart) + '%';
+            }
+            if (!overviewDragging) {
+                overviewCurrent.textContent = 'Currently editing: ' + _fmtClockTenths(startT);
+            }
         }
 
         function refetchFilmstripTiles() {
@@ -1576,6 +1595,62 @@
         }
         wireFilmstripDrag(filmstripHandleStart, 'start');
         wireFilmstripDrag(filmstripHandleEnd, 'end');
+
+        function overviewTimeFromEvent(e) {
+            const rect = overviewTrack.getBoundingClientRect();
+            const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            return pct * vidDur;
+        }
+        overviewTrack.addEventListener('pointerdown', (e) => {
+            if (isBlob || !src || !isFinite(vidDur)) return;
+            if (e.button !== 0) return; // ignore right-click/middle-click; pen and touch report button 0 on pointerdown
+            e.stopPropagation();
+            overviewDragging = true;
+            overviewTrack.setPointerCapture(e.pointerId);
+            overviewGhost.style.setProperty('display', 'block', 'important');
+            overviewGhost.style.left = (overviewTimeFromEvent(e) / vidDur * 100) + '%';
+        });
+        overviewTrack.addEventListener('pointermove', (e) => {
+            if (!overviewDragging) return;
+            const t = overviewTimeFromEvent(e);
+            overviewGhost.style.left = (t / vidDur * 100) + '%';
+            overviewCurrent.textContent = 'Jump to: ' + _fmtClockTenths(t) + ' (release to commit)';
+        });
+        function overviewCommit(e) {
+            if (!overviewDragging) return;
+            overviewDragging = false;
+            overviewGhost.style.setProperty('display', 'none', 'important');
+            try { overviewTrack.releasePointerCapture(e.pointerId); } catch (err) {}
+            const t = overviewTimeFromEvent(e);
+            startT = Math.max(0, t - DEFAULT_CLIP_LEN / 2);
+            endT = Math.min(vidDur, startT + DEFAULT_CLIP_LEN);
+            clampStart();
+            clampEnd();
+            render('both');
+        }
+        overviewTrack.addEventListener('pointerup', overviewCommit);
+        overviewTrack.addEventListener('pointercancel', (e) => {
+            overviewDragging = false;
+            overviewGhost.style.setProperty('display', 'none', 'important');
+            try { overviewTrack.releasePointerCapture(e.pointerId); } catch (err) {}
+            renderFilmstripHandles(); // restore the "Currently editing" label, no jump
+        });
+        overviewTrack.addEventListener('keydown', (e) => {
+            if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+            e.preventDefault(); // arrows would otherwise scroll the page/chat behind the panel
+            e.stopPropagation(); // stop this same script's OWN document-level arrow-key video-seek handler from also firing, even in the disabled-state branch below
+            if (isBlob || !src || !isFinite(vidDur)) return;
+            const step = (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? OVERVIEW_NUDGE_SEC_FAST : OVERVIEW_NUDGE_SEC);
+            const dur = endT - startT;
+            // Deliberately bypasses clampStart()/clampEnd() -- those can change
+            // dur (MAX_CLIP_LEN/MIN_CLIP_GAP), but a nudge must never alter the
+            // clip's length, only its position.
+            let newStart = startT + step;
+            newStart = Math.max(0, Math.min(newStart, Math.max(0, vidDur - dur)));
+            startT = newStart;
+            endT = startT + dur;
+            render('both');
+        });
 
         const render = (changed) => {
             $('#sc-gif-time-start').textContent = _fmtClockTenths(startT);
