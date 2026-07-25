@@ -103,6 +103,16 @@ selectionEl.addEventListener('pointermove', (e) => {
     const rect = filmstripStrip.getBoundingClientRect();
     if (e.clientX <= rect.left + SELECTION_EDGE_ZONE_PX) { startSelectionAutoScroll(-1); return; }
     if (e.clientX >= rect.right - SELECTION_EDGE_ZONE_PX) { startSelectionAutoScroll(1); return; }
+    if (selectionAutoScrollDir !== 0) {
+        // Leaving the edge zone after auto-scrolling -- resync the drag
+        // anchor to the current pointer position/time. Without this,
+        // the delta below would be computed against the position the
+        // drag originally started at, snapping the clip back to
+        // wherever it was before auto-scroll ran and discarding all
+        // of that movement.
+        selectionDragStartX = e.clientX;
+        selectionDragStartT0 = startT;
+    }
     stopSelectionAutoScroll();
     const win = _filmstripWindow;
     const deltaPx = e.clientX - selectionDragStartX;
@@ -117,6 +127,29 @@ function endSelectionDrag(e) {
 selectionEl.addEventListener('pointerup', endSelectionDrag);
 selectionEl.addEventListener('pointercancel', endSelectionDrag);
 ```
+
+Note the anchor-resync guard right after the edge-zone checks: `selectionDragStartX`/
+`selectionDragStartT0` are only set once, at `pointerdown`, and the auto-scroll
+interval moves the clip by writing `startT` directly — it never touches those
+anchor variables. If the user drags into an edge zone (auto-scroll takes over)
+and then moves back toward the middle *without releasing the pointer*, the code
+re-enters the delta-based branch below with a stale anchor: `deltaPx`/`deltaSec`
+would be computed against the original pointerdown position, and
+`selectionShiftTo(selectionDragStartT0 + deltaSec)` would snap the clip back to
+wherever it was *before* auto-scroll ran, discarding all of that scrolled
+movement. Since dragging to an edge and correcting back toward the middle
+without releasing the button is the natural way to use this control, that isn't
+an edge case — it's the common path.
+
+The fix relies on `selectionAutoScrollDir` still being nonzero on the exact
+`pointermove` event where the cursor exits the edge zone (it's only reset to 0
+inside `stopSelectionAutoScroll()`, called on the next line). That lets the new
+`if` block detect "auto-scroll was just active" and resync the anchor to the
+*current* pointer position and *current* (post-auto-scroll) `startT` before the
+delta calculation runs. For that same event, `deltaPx` then computes to `0`,
+so `selectionShiftTo` is called with the position auto-scroll already reached —
+a no-op that preserves it rather than reverting it. Every subsequent
+`pointermove` drags normally from this fresh anchor.
 
 Same disabled-state guard as every other interactive control in this
 panel (`isBlob || !src || !isFinite(vidDur)`), same `e.button !== 0`
