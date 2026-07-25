@@ -184,8 +184,9 @@
                 position: absolute !important; top: 0 !important; bottom: 0 !important;
                 background: rgba(255,204,68,0.08) !important;
                 border-left: 2px solid #ffcc44 !important; border-right: 2px solid #ffcc44 !important;
-                pointer-events: none !important;
+                pointer-events: auto !important; cursor: grab !important;
             }
+            .sc-gif-filmstrip-selection:active { cursor: grabbing !important; }
             .sc-gif-filmstrip-handle {
                 position: absolute !important; top: 0 !important; bottom: 0 !important; width: 14px !important; margin-left: -7px !important;
                 cursor: ew-resize !important; display: flex !important; align-items: center !important; justify-content: center !important;
@@ -684,6 +685,9 @@
     const FILMSTRIP_TILES = 10;
     const OVERVIEW_NUDGE_SEC = 1;
     const OVERVIEW_NUDGE_SEC_FAST = 10;
+    const SELECTION_EDGE_ZONE_PX = 20;
+    const SELECTION_AUTOSCROLL_STEP = 0.2;
+    const SELECTION_AUTOSCROLL_INTERVAL_MS = 100;
 
     function openGifPanel(initialSec) {
         if (document.getElementById('sc-gif-panel')) return;
@@ -816,6 +820,7 @@
         const close = () => {
             clearTimeout(_filmstripTimer);
             Object.values(thumbTimers).forEach(clearTimeout);
+            stopSelectionAutoScroll();
             _revokeGifResult(); destroyScrubClone(); panel.remove();
         };
         $('#sc-gif-close').addEventListener('click', close);
@@ -1085,6 +1090,61 @@
         }
         wireFilmstripDrag(filmstripHandleStart, 'start');
         wireFilmstripDrag(filmstripHandleEnd, 'end');
+
+        let selectionDragging = false;
+        let selectionDragStartX = 0;
+        let selectionDragStartT0 = 0; // startT captured at pointerdown
+        let selectionAutoScrollTimer = null;
+        let selectionAutoScrollDir = 0; // -1 (backward), 0 (idle), 1 (forward)
+
+        function selectionShiftTo(newStart) {
+            const dur = endT - startT;
+            newStart = Math.max(0, Math.min(newStart, Math.max(0, vidDur - dur)));
+            startT = newStart;
+            endT = startT + dur;
+            render('both');
+        }
+        function stopSelectionAutoScroll() {
+            if (selectionAutoScrollTimer) { clearInterval(selectionAutoScrollTimer); selectionAutoScrollTimer = null; }
+            selectionAutoScrollDir = 0;
+        }
+        function startSelectionAutoScroll(dir) {
+            if (selectionAutoScrollDir === dir) return;
+            stopSelectionAutoScroll();
+            selectionAutoScrollDir = dir;
+            selectionAutoScrollTimer = setInterval(() => {
+                selectionShiftTo(startT + dir * SELECTION_AUTOSCROLL_STEP);
+            }, SELECTION_AUTOSCROLL_INTERVAL_MS);
+        }
+
+        const selectionEl = $('#sc-gif-filmstrip-selection');
+        selectionEl.addEventListener('pointerdown', (e) => {
+            if (isBlob || !src || !isFinite(vidDur)) return;
+            if (e.button !== 0) return;
+            e.stopPropagation();
+            selectionDragging = true;
+            selectionDragStartX = e.clientX;
+            selectionDragStartT0 = startT;
+            selectionEl.setPointerCapture(e.pointerId);
+        });
+        selectionEl.addEventListener('pointermove', (e) => {
+            if (!selectionDragging || !_filmstripWindow) return;
+            const rect = filmstripStrip.getBoundingClientRect();
+            if (e.clientX <= rect.left + SELECTION_EDGE_ZONE_PX) { startSelectionAutoScroll(-1); return; }
+            if (e.clientX >= rect.right - SELECTION_EDGE_ZONE_PX) { startSelectionAutoScroll(1); return; }
+            stopSelectionAutoScroll();
+            const win = _filmstripWindow;
+            const deltaPx = e.clientX - selectionDragStartX;
+            const deltaSec = deltaPx / rect.width * (win.windowEnd - win.windowStart);
+            selectionShiftTo(selectionDragStartT0 + deltaSec);
+        });
+        function endSelectionDrag(e) {
+            selectionDragging = false;
+            stopSelectionAutoScroll();
+            try { selectionEl.releasePointerCapture(e.pointerId); } catch (err) {}
+        }
+        selectionEl.addEventListener('pointerup', endSelectionDrag);
+        selectionEl.addEventListener('pointercancel', endSelectionDrag);
 
         function overviewTimeFromEvent(e) {
             const rect = overviewTrack.getBoundingClientRect();
