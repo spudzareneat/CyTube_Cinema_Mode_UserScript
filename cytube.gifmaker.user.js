@@ -1088,6 +1088,7 @@
         }
         overviewTrack.addEventListener('pointerdown', (e) => {
             if (isBlob || !src || !isFinite(vidDur)) return;
+            if (e.button !== 0) return; // ignore right-click/middle-click; pen and touch report button 0 on pointerdown
             e.stopPropagation();
             overviewDragging = true;
             overviewTrack.setPointerCapture(e.pointerId);
