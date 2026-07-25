@@ -8,6 +8,7 @@
 // @grant        GM_xmlhttpRequest
 // @require      https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js
 // @connect      cdnjs.cloudflare.com
+// @connect      cdn.jsdelivr.net
 // @connect      api.imgbb.com
 // @run-at       document-start
 // ==/UserScript==
@@ -20,8 +21,10 @@
        STORAGE
     ========================================================== */
     const LS_IMGBB = 'sc_imgbb_key';
+    const LS_GIF_OPTIMIZE = 'sc_gif_optimize'; // shared with cytube.pc.user.js
     const getKey = id => localStorage.getItem(id) || '';
     const setKey = (id, v) => localStorage.setItem(id, v.trim());
+    const gifOptimizeEnabled = () => getKey(LS_GIF_OPTIMIZE) !== 'off'; // default ON
 
     /* ==========================================================
        PLAYER / MEDIA-TYPE DETECTION
@@ -291,6 +294,8 @@
             }
             .sc-gif-imgbb-test-btn:hover:not(:disabled) { background: rgba(255,255,255,0.2) !important; }
             .sc-gif-imgbb-status { font-size: 11px !important; min-height: 13px !important; }
+            .sc-gif-optimize-row { display: flex !important; align-items: center !important; gap: 6px !important; }
+            .sc-gif-optimize-row label { color: rgba(255,255,255,0.8) !important; font-size: 12px !important; }
             .sc-test-ok      { color: #7dffa0 !important; }
             .sc-test-bad     { color: #ff8080 !important; }
             .sc-test-pending { color: rgba(255,255,255,0.55) !important; }
@@ -538,6 +543,32 @@
         if (typeof window !== 'undefined' && window.GIF) return window.GIF;
         return null;
     }
+
+    // gifsicle-wasm-browser is ~35x the size of gif.js — lazy-fetch it only
+    // when a GIF is actually being optimized, never @require it. It assigns
+    // a bare top-level `let gifsicle = {...}`; running its source inside a
+    // Function body whose own last statement returns that binding captures
+    // the export without touching any outer/global scope.
+    const GIFSICLE_URL = 'https://cdn.jsdelivr.net/npm/gifsicle-wasm-browser@1.5.19/dist/gifsicle.min.js';
+    let _gifsicleCtor = null;
+    function getGifsicleCtor() {
+        if (_gifsicleCtor) return Promise.resolve(_gifsicleCtor);
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'GET', url: GIFSICLE_URL,
+                onload: r => {
+                    if (r.status < 200 || r.status >= 300) { reject(new Error('gifsicle HTTP ' + r.status)); return; }
+                    try {
+                        _gifsicleCtor = new Function(r.responseText + '\n;return typeof gifsicle !== "undefined" ? gifsicle : null;')();
+                        if (!_gifsicleCtor) { reject(new Error('gifsicle export not found')); return; }
+                        resolve(_gifsicleCtor);
+                    } catch (e) { reject(e); }
+                },
+                onerror: () => reject(new Error('gifsicle fetch failed')),
+            });
+        });
+    }
+
     function encodeGif({ frames, w, h, delay }, onProgress) {
         return getGifWorkerUrl().then(workerScript => new Promise((resolve, reject) => {
             const Ctor = getGifCtor();
@@ -549,6 +580,24 @@
             gif.on('abort', () => reject(new Error('encode aborted')));
             gif.render();
         }));
+    }
+
+    // Optional lossless size-shrink via gifsicle -O3, run after encodeGif().
+    // Any failure anywhere in here falls back to the original blob silently
+    // — this step is strictly additive and must never break Make GIF.
+    async function maybeOptimizeGif(blob) {
+        if (!gifOptimizeEnabled()) return blob;
+        try {
+            const gifsicle = await getGifsicleCtor();
+            const out = await gifsicle.run({
+                input: [{ file: blob, name: 'in.gif' }],
+                command: ['-O3 in.gif -o /out/out.gif'],
+            });
+            return (out && out[0]) ? out[0] : blob;
+        } catch (e) {
+            console.warn('[GIFMaker] GIF optimize failed, using unoptimized output:', e);
+            return blob;
+        }
     }
 
     let _gifResultUrl = null;
@@ -820,6 +869,10 @@
                         <span id="sc-gif-imgbb-status" class="sc-gif-imgbb-status"></span>
                     </div>
                 </div>
+                <div class="sc-gif-optimize-row">
+                    <input type="checkbox" id="sc-gif-optimize" ${gifOptimizeEnabled() ? 'checked' : ''} />
+                    <label for="sc-gif-optimize">Optimize GIF before upload</label>
+                </div>
                 <button id="sc-gif-go" type="button">● Make GIF</button>
                 <div id="sc-gif-status"></div>
                 <div id="sc-gif-result"></div>
@@ -829,6 +882,10 @@
         const $ = id => panel.querySelector(id);
         const goBtn = $('#sc-gif-go'), status = $('#sc-gif-status'), result = $('#sc-gif-result');
         $('#sc-gif-overview-total').textContent = isFinite(vidDur) ? _fmtClockTenths(vidDur) : '';
+        const optimizeCheckbox = $('#sc-gif-optimize');
+        optimizeCheckbox.addEventListener('change', () => {
+            setKey(LS_GIF_OPTIMIZE, optimizeCheckbox.checked ? 'on' : 'off');
+        });
         const setStatus = (txt) => { status.textContent = txt || ''; };
 
         const close = () => {
@@ -1306,7 +1363,9 @@
                     { src, startT, endT, fps, width, aspect, captions },
                     p => setWork('Capturing frames… ' + Math.round(p * 100) + '%'));
                 setWork('Encoding GIF… (' + cap.frames.length + ' frames)');
-                const blob = await encodeGif(cap, p => setWork('Encoding GIF… ' + Math.round(p * 100) + '%'));
+                let blob = await encodeGif(cap, p => setWork('Encoding GIF… ' + Math.round(p * 100) + '%'));
+                if (gifOptimizeEnabled()) setWork('Optimizing…');
+                blob = await maybeOptimizeGif(blob);
                 _gifResultUrl = URL.createObjectURL(blob);
                 const kb = Math.round(blob.size / 1024);
                 const slug = gifTitleSlug();
