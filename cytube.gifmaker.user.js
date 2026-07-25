@@ -184,7 +184,7 @@
                 position: absolute !important; top: 0 !important; bottom: 0 !important;
                 background: rgba(255,204,68,0.08) !important;
                 border-left: 2px solid #ffcc44 !important; border-right: 2px solid #ffcc44 !important;
-                pointer-events: auto !important; cursor: grab !important;
+                pointer-events: auto !important; cursor: grab !important; touch-action: none !important;
             }
             .sc-gif-filmstrip-selection:active { cursor: grabbing !important; }
             .sc-gif-filmstrip-handle {
@@ -1114,6 +1114,16 @@
             selectionAutoScrollDir = dir;
             selectionAutoScrollTimer = setInterval(() => {
                 selectionShiftTo(startT + dir * SELECTION_AUTOSCROLL_STEP);
+                // render('both') above only re-arms the 220ms tile-refetch
+                // debounce, which this 100ms tick perpetually resets, so the
+                // filmstrip window itself would never reframe during a
+                // sustained hold. Force the cheap (no-network) reframe/
+                // reposition every tick so the visible window actually pans;
+                // tile thumbnails stay on the existing debounce and catch up
+                // shortly after the hold ends, same as they already do for a
+                // fast handle drag.
+                ensureFilmstripWindow();
+                renderFilmstripHandles();
             }, SELECTION_AUTOSCROLL_INTERVAL_MS);
         }
 
@@ -1155,6 +1165,7 @@
         }
         selectionEl.addEventListener('pointerup', endSelectionDrag);
         selectionEl.addEventListener('pointercancel', endSelectionDrag);
+        selectionEl.addEventListener('lostpointercapture', endSelectionDrag);
 
         function overviewTimeFromEvent(e) {
             const rect = overviewTrack.getBoundingClientRect();
