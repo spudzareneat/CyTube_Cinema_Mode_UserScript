@@ -61,6 +61,7 @@ function overviewTimeFromEvent(e) {
 let overviewDragging = false;
 overviewTrack.addEventListener('pointerdown', (e) => {
     if (isBlob || !src || !isFinite(vidDur)) return;
+    if (e.button !== 0) return; // ignore right-click/middle-click; pen and touch report button 0 on pointerdown
     e.stopPropagation();
     overviewDragging = true;
     overviewTrack.setPointerCapture(e.pointerId);
@@ -98,6 +99,17 @@ overviewTrack.addEventListener('pointercancel', (e) => {
 A plain click (no intervening `pointermove`) still fires `pointerdown` then
 `pointerup` at the same coordinate, so click-to-jump works with no extra
 code — the same commit path handles both click and drag.
+
+The `e.button !== 0` guard matters more here than on the panel's other,
+smaller drag handles: this track spans the full width of the panel, so
+*any* right-click on it — e.g. to open the browser/OS context menu — would
+otherwise set `overviewDragging = true`, and the OS's synthetic
+`pointerup` for that right-click release would run `overviewCommit()` and
+silently teleport the user's trimmed `startT`/`endT` selection to wherever
+they right-clicked, with no undo. Ignoring non-primary buttons at
+`pointerdown` keeps the track inert for right-click/middle-click while
+still treating pen and touch input (which report `button === 0` on
+`pointerdown`) as normal presses.
 
 The `.sc-gif-overview-ghost` CSS rule (see below) sets `display: none
 !important`, matching every other rule in this file's stylesheet — so the
