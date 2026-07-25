@@ -1088,9 +1088,10 @@
         }
         overviewTrack.addEventListener('pointerdown', (e) => {
             if (isBlob || !src || !isFinite(vidDur)) return;
+            e.stopPropagation();
             overviewDragging = true;
             overviewTrack.setPointerCapture(e.pointerId);
-            overviewGhost.style.display = 'block';
+            overviewGhost.style.setProperty('display', 'block', 'important');
             overviewGhost.style.left = (overviewTimeFromEvent(e) / vidDur * 100) + '%';
         });
         overviewTrack.addEventListener('pointermove', (e) => {
@@ -1102,7 +1103,7 @@
         function overviewCommit(e) {
             if (!overviewDragging) return;
             overviewDragging = false;
-            overviewGhost.style.display = 'none';
+            overviewGhost.style.setProperty('display', 'none', 'important');
             try { overviewTrack.releasePointerCapture(e.pointerId); } catch (err) {}
             const t = overviewTimeFromEvent(e);
             startT = Math.max(0, t - DEFAULT_CLIP_LEN / 2);
@@ -1112,9 +1113,10 @@
             render('both');
         }
         overviewTrack.addEventListener('pointerup', overviewCommit);
-        overviewTrack.addEventListener('pointercancel', () => {
+        overviewTrack.addEventListener('pointercancel', (e) => {
             overviewDragging = false;
-            overviewGhost.style.display = 'none';
+            overviewGhost.style.setProperty('display', 'none', 'important');
+            try { overviewTrack.releasePointerCapture(e.pointerId); } catch (err) {}
             renderFilmstripHandles(); // restore the "Currently editing" label, no jump
         });
 
