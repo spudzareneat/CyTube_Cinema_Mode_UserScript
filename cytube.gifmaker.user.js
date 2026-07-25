@@ -134,6 +134,28 @@
                 border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important; padding: 2px 4px !important;
             }
             .sc-gif-cap-hint { text-align: center !important; color: rgba(255,255,255,0.4) !important; font-size: 11px !important; }
+            .sc-gif-overview { display: flex !important; flex-direction: column !important; gap: 4px !important; margin-bottom: 2px !important; }
+            .sc-gif-overview-track {
+                position: relative !important; height: 16px !important; border-radius: 4px !important;
+                background: #17171a !important; border: 1px solid rgba(255,255,255,0.14) !important;
+                cursor: pointer !important; user-select: none !important; touch-action: none !important;
+            }
+            .sc-gif-overview-viewport {
+                position: absolute !important; top: 0 !important; bottom: 0 !important;
+                background: rgba(255,204,68,0.55) !important;
+                border-left: 1px solid #ffcc44 !important; border-right: 1px solid #ffcc44 !important;
+                border-radius: 2px !important; pointer-events: none !important;
+            }
+            .sc-gif-overview-ghost {
+                position: absolute !important; top: -3px !important; bottom: -3px !important; width: 2px !important;
+                background: #fff !important; box-shadow: 0 0 4px rgba(255,255,255,0.8) !important;
+                display: none !important; pointer-events: none !important;
+            }
+            .sc-gif-overview-labels {
+                display: flex !important; justify-content: space-between !important;
+                color: rgba(255,255,255,0.4) !important; font-size: 10px !important;
+            }
+            .sc-gif-overview-current { color: rgba(255,204,68,0.85) !important; font-weight: 600 !important; }
             .sc-gif-filmstrip { display: flex !important; flex-direction: column !important; gap: 6px !important; }
             .sc-gif-filmstrip-window-label { text-align: center !important; color: rgba(255,255,255,0.55) !important; font-size: 11px !important; }
             .sc-gif-filmstrip-strip {
@@ -683,6 +705,17 @@
                 <button id="sc-gif-close" type="button">✕</button>
             </div>
             <div id="sc-gif-body">
+                <div class="sc-gif-overview">
+                    <div class="sc-gif-overview-track" id="sc-gif-overview-track">
+                        <div class="sc-gif-overview-viewport" id="sc-gif-overview-viewport"></div>
+                        <div class="sc-gif-overview-ghost" id="sc-gif-overview-ghost"></div>
+                    </div>
+                    <div class="sc-gif-overview-labels">
+                        <span>0:00</span>
+                        <span class="sc-gif-overview-current" id="sc-gif-overview-current"></span>
+                        <span id="sc-gif-overview-total"></span>
+                    </div>
+                </div>
                 <div class="sc-gif-filmstrip">
                     <div class="sc-gif-filmstrip-window-label">Window: <span id="sc-gif-filmstrip-range"></span></div>
                     <div class="sc-gif-filmstrip-strip" id="sc-gif-filmstrip-strip">
@@ -772,6 +805,7 @@
 
         const $ = id => panel.querySelector(id);
         const goBtn = $('#sc-gif-go'), status = $('#sc-gif-status'), result = $('#sc-gif-result');
+        $('#sc-gif-overview-total').textContent = isFinite(vidDur) ? _fmtClockTenths(vidDur) : '';
         const setStatus = (txt) => { status.textContent = txt || ''; };
 
         const close = () => {
@@ -934,6 +968,12 @@
         let _filmstripTimer = null;
         let _tilesWindowKey = null; // the window the on-screen tiles currently show
 
+        const overviewTrack = $('#sc-gif-overview-track');
+        const overviewViewport = $('#sc-gif-overview-viewport');
+        const overviewGhost = $('#sc-gif-overview-ghost');
+        const overviewCurrent = $('#sc-gif-overview-current');
+        let overviewDragging = false;
+
         for (let i = 0; i < FILMSTRIP_TILES; i++) {
             const tile = document.createElement('div');
             tile.className = 'sc-gif-filmstrip-tile';
@@ -975,6 +1015,16 @@
             selection.style.width = (ep - sp) + '%';
             $('#sc-gif-filmstrip-range').textContent =
                 _fmtClockTenths(win.windowStart) + ' – ' + _fmtClockTenths(win.windowEnd);
+
+            if (isFinite(vidDur) && vidDur > 0) {
+                const ovStart = (win.windowStart / vidDur) * 100;
+                const ovEnd = (win.windowEnd / vidDur) * 100;
+                overviewViewport.style.left = ovStart + '%';
+                overviewViewport.style.width = Math.max(0.5, ovEnd - ovStart) + '%';
+            }
+            if (!overviewDragging) {
+                overviewCurrent.textContent = _fmtClockTenths(startT);
+            }
         }
 
         function refetchFilmstripTiles() {
@@ -1030,6 +1080,43 @@
         }
         wireFilmstripDrag(filmstripHandleStart, 'start');
         wireFilmstripDrag(filmstripHandleEnd, 'end');
+
+        function overviewTimeFromEvent(e) {
+            const rect = overviewTrack.getBoundingClientRect();
+            const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            return pct * vidDur;
+        }
+        overviewTrack.addEventListener('pointerdown', (e) => {
+            if (isBlob || !src || !isFinite(vidDur)) return;
+            overviewDragging = true;
+            overviewTrack.setPointerCapture(e.pointerId);
+            overviewGhost.style.display = 'block';
+            overviewGhost.style.left = (overviewTimeFromEvent(e) / vidDur * 100) + '%';
+        });
+        overviewTrack.addEventListener('pointermove', (e) => {
+            if (!overviewDragging) return;
+            const t = overviewTimeFromEvent(e);
+            overviewGhost.style.left = (t / vidDur * 100) + '%';
+            overviewCurrent.textContent = 'Jump to: ' + _fmtClockTenths(t) + ' (release to commit)';
+        });
+        function overviewCommit(e) {
+            if (!overviewDragging) return;
+            overviewDragging = false;
+            overviewGhost.style.display = 'none';
+            try { overviewTrack.releasePointerCapture(e.pointerId); } catch (err) {}
+            const t = overviewTimeFromEvent(e);
+            startT = Math.max(0, t - DEFAULT_CLIP_LEN / 2);
+            endT = Math.min(vidDur, startT + DEFAULT_CLIP_LEN);
+            clampStart();
+            clampEnd();
+            render('both');
+        }
+        overviewTrack.addEventListener('pointerup', overviewCommit);
+        overviewTrack.addEventListener('pointercancel', () => {
+            overviewDragging = false;
+            overviewGhost.style.display = 'none';
+            renderFilmstripHandles(); // restore the "Currently editing" label, no jump
+        });
 
         const render = (changed) => {
             $('#sc-gif-time-start').textContent = _fmtClockTenths(startT);
