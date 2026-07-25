@@ -733,7 +733,7 @@
                         <label>Top size <input type="number" id="sc-gif-cap-top-size" min="4" max="40" step="1" value="16">%</label>
                         <label>Bottom size <input type="number" id="sc-gif-cap-bottom-size" min="4" max="40" step="1" value="16">%</label>
                     </div>
-                    <div class="sc-gif-cap-hint">Drag the dots on the previews to position each caption.</div>
+                    <div class="sc-gif-cap-hint">Drag the dots on the START preview to position each caption.</div>
                 </div>
                 <div class="sc-gif-opts">
                     <label>FPS
@@ -774,7 +774,11 @@
         const goBtn = $('#sc-gif-go'), status = $('#sc-gif-status'), result = $('#sc-gif-result');
         const setStatus = (txt) => { status.textContent = txt || ''; };
 
-        const close = () => { _revokeGifResult(); destroyScrubClone(); panel.remove(); };
+        const close = () => {
+            clearTimeout(_filmstripTimer);
+            Object.values(thumbTimers).forEach(clearTimeout);
+            _revokeGifResult(); destroyScrubClone(); panel.remove();
+        };
         $('#sc-gif-close').addEventListener('click', close);
 
         const imgbbInput = $('#sc-gif-imgbb-key');
@@ -935,7 +939,7 @@
             $('#sc-gif-filmstrip-tiles').appendChild(tile);
         }
 
-        // Returns true if the window was (re)computed (i.e. tiles need refetching).
+        // Returns true if the window actually changed (i.e. tiles need refetching).
         function ensureFilmstripWindow() {
             const needsReframe = !_filmstripWindow ||
                 startT < _filmstripWindow.windowStart + FILMSTRIP_EDGE_PAD ||
@@ -946,8 +950,12 @@
             let windowStart = Math.max(0, startT - FILMSTRIP_MARGIN);
             if (isFinite(vidDur)) windowStart = Math.min(windowStart, Math.max(0, vidDur - span));
             const windowEnd = isFinite(vidDur) ? Math.min(vidDur, windowStart + span) : windowStart + span;
+
+            const changed = !_filmstripWindow ||
+                _filmstripWindow.windowStart !== windowStart ||
+                _filmstripWindow.windowEnd   !== windowEnd;
             _filmstripWindow = { windowStart, windowEnd };
-            return true;
+            return changed;
         }
 
         function renderFilmstripHandles() {
@@ -991,6 +999,7 @@
         function wireFilmstripDrag(handleEl, which) {
             let dragging = false;
             handleEl.addEventListener('pointerdown', (e) => {
+                e.stopPropagation();
                 dragging = true;
                 handleEl.setPointerCapture(e.pointerId);
             });
@@ -1000,7 +1009,7 @@
                 const rect = filmstripStrip.getBoundingClientRect();
                 const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
                 const t = win.windowStart + pct * (win.windowEnd - win.windowStart);
-                if (which === 'start') { startT = t; clampStart(); render('both'); }
+                if (which === 'start') { startT = t; clampStart(); render('start'); }
                 else { endT = t; clampEnd(); render('end'); }
             });
             const endDrag = (e) => {
@@ -1018,7 +1027,7 @@
             $('#sc-gif-time-end').textContent = _fmtClockTenths(endT);
             const dur = Math.max(0, endT - startT);
             $('#sc-gif-dur-val').textContent = dur.toFixed(1) + 's';
-            goBtn.disabled = isBlob || !src || dur < 0.1;
+            goBtn.disabled = isBlob || !src || dur < MIN_CLIP_GAP;
             if (changed === 'start' || changed === 'both') refreshThumb('start');
             if (changed === 'end' || changed === 'both') refreshThumb('end');
             scheduleFilmstripRefresh();
@@ -1031,7 +1040,8 @@
             if (endT - startT > MAX_CLIP_LEN) startT = endT - MAX_CLIP_LEN;
         };
         const clampEnd = () => {
-            endT = Math.min(isFinite(vidDur) ? vidDur : endT, Math.max(endT, startT + MIN_CLIP_GAP));
+            endT = Math.max(endT, startT + MIN_CLIP_GAP);
+            if (isFinite(vidDur)) endT = Math.min(endT, vidDur);
             if (endT - startT > MAX_CLIP_LEN) endT = startT + MAX_CLIP_LEN;
         };
 
@@ -1041,9 +1051,9 @@
             const live = getPlayerVideoEl();
             const cur = live ? live.currentTime : 0;
             switch (btn.dataset.act) {
-                case 'start-current': startT = cur; clampStart(); render('both'); break;
-                case 'start-minus':   startT -= 0.5; clampStart(); render('both'); break;
-                case 'start-plus':    startT += 0.5; clampStart(); render('both'); break;
+                case 'start-current': startT = cur; clampStart(); render('start'); break;
+                case 'start-minus':   startT -= 0.5; clampStart(); render('start'); break;
+                case 'start-plus':    startT += 0.5; clampStart(); render('start'); break;
                 case 'end-minus':     endT -= 0.5; clampEnd(); render('end'); break;
                 case 'end-plus':      endT += 0.5; clampEnd(); render('end'); break;
             }
@@ -1059,7 +1069,7 @@
                 top: { text: capTopInput.value.trim(), size: getCapSizePct('top'), x: capPos.top.x, y: capPos.top.y },
                 bottom: { text: capBottomInput.value.trim(), size: getCapSizePct('bottom'), x: capPos.bottom.x, y: capPos.bottom.y },
             };
-            if (endT - startT < 0.1) { setStatus('End must be after start.'); return; }
+            if (endT - startT < MIN_CLIP_GAP) { setStatus('End must be after start.'); return; }
 
             _revokeGifResult();
             result.innerHTML = '<div class="sc-gif-working"><span class="sc-gif-spinner"></span><span id="sc-gif-working-txt">Capturing frames…</span></div>';
@@ -1123,6 +1133,7 @@
             }
         });
 
+        ensureFilmstripWindow();
         render('both');
     }
 
