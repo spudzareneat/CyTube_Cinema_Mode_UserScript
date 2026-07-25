@@ -940,7 +940,8 @@
             $('#sc-gif-filmstrip-tiles').appendChild(tile);
         }
 
-        // Returns true if the window actually changed (i.e. tiles need refetching).
+        // Return value is advisory only — tile refetching is decided by
+        // refetchFilmstripTiles() via _tilesWindowKey, not by this return value.
         function ensureFilmstripWindow() {
             const needsReframe = !_filmstripWindow ||
                 startT < _filmstripWindow.windowStart + FILMSTRIP_EDGE_PAD ||

@@ -91,7 +91,8 @@ const FILMSTRIP_TILES = 10;
 
 let _filmstripWindow = null; // { windowStart, windowEnd } — sticky across renders
 
-// Returns true if the window actually changed (i.e. tiles need refetching).
+// Return value is advisory only — tile refetching is decided by
+// refetchFilmstripTiles() via _tilesWindowKey, not by this return value.
 function ensureFilmstripWindow() {
     const needsReframe = !_filmstripWindow ||
         startT < _filmstripWindow.windowStart + FILMSTRIP_EDGE_PAD ||
