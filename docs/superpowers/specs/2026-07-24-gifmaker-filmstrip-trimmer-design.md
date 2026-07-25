@@ -184,7 +184,39 @@ Called from the existing `render()` function (which already runs on every
 start/end change, from every interaction path: marks buttons, filmstrip
 drag, "⤓ Now"). `renderFilmstripHandles()` runs eagerly (not debounced) so
 handle position/dim/selection tracking always feels immediate; only the
-network-bound tile refetch is debounced and edge-gated.
+network-bound tile fetch is debounced and gated.
+
+That fetch is gated on a comparison independent of `ensureFilmstripWindow`'s
+own return value — a window-identity key (`_tilesWindowKey`, a simple
+`windowStart|windowEnd` string), compared against whatever window the
+on-screen tiles were last fetched for:
+
+```js
+let _tilesWindowKey = null; // the window the on-screen tiles currently show
+
+function refetchFilmstripTiles() {
+    const win = _filmstripWindow;
+    if (!win || isBlob || !src) return;
+    const key = win.windowStart + '|' + win.windowEnd;
+    if (key === _tilesWindowKey) return; // tiles already match this window
+    _tilesWindowKey = key;
+    // ...fetch each tile via grabPreviewFrame, same as before
+}
+```
+
+This separation matters at open time specifically: `openGifPanel` calls
+`ensureFilmstripWindow()` once, synchronously, before the very first
+`render('both')`, purely so the handles/selection band paint in the correct
+position on the first frame instead of sitting at the strip's left edge for
+one debounce cycle. If tile fetching were gated on `ensureFilmstripWindow`'s
+*return value* instead of `_tilesWindowKey`, that synchronous pre-seed would
+consume the "window changed" signal, and the debounced callback moments
+later would see no change and skip the fetch entirely — the filmstrip would
+open with 10 empty placeholders and never load real thumbnails until a drag
+forced a second, unrelated reframe. `_tilesWindowKey` starts `null`, so the
+very first fetch attempt — regardless of which call path triggers it —
+always sees a mismatch and fetches; every later call only refetches when the
+window the tiles show has actually changed.
 
 ### Removed: the old scrubber and auto-reset
 
