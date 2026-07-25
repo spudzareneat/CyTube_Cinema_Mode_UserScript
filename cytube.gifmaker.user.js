@@ -1132,6 +1132,16 @@
             const rect = filmstripStrip.getBoundingClientRect();
             if (e.clientX <= rect.left + SELECTION_EDGE_ZONE_PX) { startSelectionAutoScroll(-1); return; }
             if (e.clientX >= rect.right - SELECTION_EDGE_ZONE_PX) { startSelectionAutoScroll(1); return; }
+            if (selectionAutoScrollDir !== 0) {
+                // Leaving the edge zone after auto-scrolling -- resync the drag
+                // anchor to the current pointer position/time. Without this,
+                // the delta below would be computed against the position the
+                // drag originally started at, snapping the clip back to
+                // wherever it was before auto-scroll ran and discarding all
+                // of that movement.
+                selectionDragStartX = e.clientX;
+                selectionDragStartT0 = startT;
+            }
             stopSelectionAutoScroll();
             const win = _filmstripWindow;
             const deltaPx = e.clientX - selectionDragStartX;
