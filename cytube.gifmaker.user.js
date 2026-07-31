@@ -728,12 +728,32 @@
         });
     }
 
-    function encodeGif({ frames, w, h, delay }, onProgress) {
+    // Resolves one output position to a filtered frame. Clones the source
+    // before filtering (only when a filter is actually enabled) because
+    // boomerang/freeze-hold reuse the same sourceFrames[i] entry at
+    // multiple sequence positions, and applyDeepFry/applyVhs mutate their
+    // input in place — without the clone, a repeated frame would be
+    // filtered again every time it recurs.
+    function renderSequenceFrame(sourceFrames, sequence, i, w, h, filters) {
+        const frameIndex = sequence[i];
+        const source = sourceFrames[frameIndex];
+        const hasAnyFilter = !!(filters && (
+            (filters.zoomShake && filters.zoomShake.enabled) ||
+            (filters.deepFry && filters.deepFry.enabled) ||
+            (filters.vhs && filters.vhs.enabled)));
+        if (!hasAnyFilter) return source;
+        return applyFilters(cloneImageData(source), w, h, filters, i, sequence.length);
+    }
+
+    function encodeGif({ frames, w, h, delay, playback, filters }, onProgress) {
         return getGifWorkerUrl().then(workerScript => new Promise((resolve, reject) => {
             const Ctor = getGifCtor();
             if (!Ctor) { reject(new Error('gif.js not loaded (@require missing?)')); return; }
             const gif = new Ctor({ workers: 2, quality: 10, width: w, height: h, workerScript, repeat: 0 });
-            frames.forEach(f => gif.addFrame(f, { delay }));
+            const sequence = buildPlaybackSequence(frames.length, playback || {});
+            for (let i = 0; i < sequence.length; i++) {
+                gif.addFrame(renderSequenceFrame(frames, sequence, i, w, h, filters || {}), { delay });
+            }
             gif.on('progress', p => onProgress && onProgress(p));
             gif.on('finished', blob => resolve(blob));
             gif.on('abort', () => reject(new Error('encode aborted')));
