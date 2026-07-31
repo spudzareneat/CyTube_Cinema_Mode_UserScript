@@ -296,6 +296,30 @@
             .sc-gif-imgbb-status { font-size: 11px !important; min-height: 13px !important; }
             .sc-gif-optimize-row { display: flex !important; align-items: center !important; gap: 6px !important; }
             .sc-gif-optimize-row label { color: rgba(255,255,255,0.8) !important; font-size: 12px !important; }
+            .sc-gif-fx { display: flex !important; flex-direction: column !important; gap: 8px !important; }
+            .sc-gif-fx-row { display: flex !important; align-items: center !important; gap: 10px !important; }
+            .sc-gif-fx-row label { flex: 1 1 0 !important; }
+            .sc-gif-fx-row input[type=number] {
+                width: 64px !important; background: #1f1f22 !important; color: white !important;
+                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important; padding: 2px 4px !important;
+            }
+            .sc-gif-fx-filters { display: flex !important; flex-direction: column !important; gap: 6px !important; }
+            .sc-gif-fx-filter { display: flex !important; align-items: center !important; gap: 8px !important; }
+            .sc-gif-fx-filter label { flex: 1 1 auto !important; color: rgba(255,255,255,0.8) !important; font-size: 12px !important; }
+            .sc-gif-fx-filter input[type=range] { flex: 1 1 auto !important; accent-color: #ffcc44 !important; }
+            .sc-gif-preview { display: flex !important; flex-direction: column !important; gap: 6px !important; }
+            .sc-gif-preview canvas {
+                width: 100% !important; background: #000 !important; border-radius: 6px !important;
+                border: 1px solid rgba(255,255,255,0.18) !important; display: block !important;
+            }
+            .sc-gif-preview-controls { display: flex !important; align-items: center !important; gap: 8px !important; }
+            .sc-gif-preview-controls input[type=range] { flex: 1 1 auto !important; accent-color: #ffcc44 !important; }
+            .sc-gif-preview-controls button {
+                background: rgba(255,255,255,0.1) !important; color: white !important;
+                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important;
+                padding: 4px 10px !important; font-size: 12px !important; cursor: pointer !important;
+            }
+            .sc-gif-preview-status { color: rgba(255,255,255,0.5) !important; font-size: 11px !important; text-align: center !important; }
             .sc-test-ok      { color: #7dffa0 !important; }
             .sc-test-bad     { color: #ff8080 !important; }
             .sc-test-pending { color: rgba(255,255,255,0.55) !important; }
@@ -1034,6 +1058,60 @@
                         </select>
                     </label>
                 </div>
+                <div class="sc-gif-fx">
+                    <div class="sc-gif-fx-row">
+                        <label>Playback
+                            <select id="sc-gif-fx-mode">
+                                <option value="normal" selected>Normal</option>
+                                <option value="reverse">Reverse</option>
+                                <option value="boomerang">Boomerang</option>
+                            </select>
+                        </label>
+                        <label>Speed
+                            <select id="sc-gif-fx-speed">
+                                <option value="0.5">0.5x</option>
+                                <option value="1" selected>1x</option>
+                                <option value="1.5">1.5x</option>
+                                <option value="2">2x</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="sc-gif-fx-row">
+                        <label>Freeze hold (ms)
+                            <input type="number" id="sc-gif-fx-freeze" min="0" max="3000" step="100" value="0">
+                        </label>
+                    </div>
+                    <div class="sc-gif-fx-filters">
+                        <div class="sc-gif-fx-filter">
+                            <input type="checkbox" id="sc-gif-fx-deepfry-on">
+                            <label for="sc-gif-fx-deepfry-on">Deep-fry</label>
+                            <input type="range" id="sc-gif-fx-deepfry-amt" min="0" max="100" value="60">
+                        </div>
+                        <div class="sc-gif-fx-filter">
+                            <input type="checkbox" id="sc-gif-fx-vhs-on">
+                            <label for="sc-gif-fx-vhs-on">VHS / glitch</label>
+                            <input type="range" id="sc-gif-fx-vhs-amt" min="0" max="100" value="60">
+                        </div>
+                        <div class="sc-gif-fx-filter">
+                            <input type="checkbox" id="sc-gif-fx-zoomshake-on">
+                            <label for="sc-gif-fx-zoomshake-on">Zoom / Shake</label>
+                            <select id="sc-gif-fx-zoomshake-mode">
+                                <option value="zoom" selected>Zoom-in</option>
+                                <option value="shake">Shake</option>
+                            </select>
+                            <input type="range" id="sc-gif-fx-zoomshake-amt" min="0" max="100" value="60">
+                        </div>
+                    </div>
+                    <div class="sc-gif-preview">
+                        <canvas id="sc-gif-fx-canvas"></canvas>
+                        <div class="sc-gif-preview-controls">
+                            <button type="button" id="sc-gif-fx-play">▶</button>
+                            <input type="range" id="sc-gif-fx-scrub" min="0" max="0" value="0" step="1" disabled>
+                        </div>
+                        <div class="sc-gif-preview-status" id="sc-gif-fx-status">Click Preview to load frames</div>
+                        <button type="button" id="sc-gif-fx-preview-btn">Preview effects</button>
+                    </div>
+                </div>
                 <div class="sc-gif-imgbb-row" id="sc-gif-imgbb-row">
                     <button type="button" class="sc-gif-imgbb-header" id="sc-gif-imgbb-header" aria-expanded="false">
                         <span class="sc-gif-imgbb-label">ImgBB key (for Upload)</span>
@@ -1215,6 +1293,33 @@
         });
 
         renderCaptionPreviews();
+
+        const fx = {
+            mode: 'normal', speed: 1, freezeHoldMs: 0,
+            deepFry: { enabled: false, intensity: 60 },
+            vhs: { enabled: false, intensity: 60 },
+            zoomShake: { enabled: false, mode: 'zoom', intensity: 60 },
+        };
+        const fxModeSel = $('#sc-gif-fx-mode'), fxSpeedSel = $('#sc-gif-fx-speed'), fxFreezeInput = $('#sc-gif-fx-freeze');
+        const fxDeepFryOn = $('#sc-gif-fx-deepfry-on'), fxDeepFryAmt = $('#sc-gif-fx-deepfry-amt');
+        const fxVhsOn = $('#sc-gif-fx-vhs-on'), fxVhsAmt = $('#sc-gif-fx-vhs-amt');
+        const fxZsOn = $('#sc-gif-fx-zoomshake-on'), fxZsMode = $('#sc-gif-fx-zoomshake-mode'), fxZsAmt = $('#sc-gif-fx-zoomshake-amt');
+
+        function syncFxState() {
+            fx.mode = fxModeSel.value;
+            fx.speed = parseFloat(fxSpeedSel.value) || 1;
+            fx.freezeHoldMs = Math.max(0, parseInt(fxFreezeInput.value, 10) || 0);
+            fx.deepFry.enabled = fxDeepFryOn.checked;
+            fx.deepFry.intensity = parseInt(fxDeepFryAmt.value, 10) || 0;
+            fx.vhs.enabled = fxVhsOn.checked;
+            fx.vhs.intensity = parseInt(fxVhsAmt.value, 10) || 0;
+            fx.zoomShake.enabled = fxZsOn.checked;
+            fx.zoomShake.mode = fxZsMode.value;
+            fx.zoomShake.intensity = parseInt(fxZsAmt.value, 10) || 0;
+        }
+        [fxModeSel, fxSpeedSel, fxFreezeInput, fxDeepFryOn, fxDeepFryAmt, fxVhsOn, fxVhsAmt, fxZsOn, fxZsMode, fxZsAmt]
+            .forEach(el => el.addEventListener('input', syncFxState));
+        syncFxState();
 
         const thumbTimers = {};
         const refreshThumb = (which) => {
