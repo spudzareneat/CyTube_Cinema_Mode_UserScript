@@ -520,6 +520,160 @@
         });
     }
 
+    /* ==========================================================
+       REACTION EFFECTS — playback sequencing + visual filters.
+       sourceFrames captured above is never mutated: buildPlaybackSequence
+       only computes which frame index plays at each output position, and
+       renderSequenceFrame (added later) clones before filtering so a
+       frame reused by boomerang/freeze-hold is never double-filtered.
+    ========================================================== */
+    function buildPlaybackSequence(frameCount, playback) {
+        const mode = (playback && playback.mode) || 'normal';
+        const speed = (playback && playback.speed) || 1;
+        const freezeHoldMs = (playback && playback.freezeHoldMs) || 0;
+        const fps = (playback && playback.fps) || 12;
+
+        let seq;
+        if (mode === 'reverse') {
+            seq = [];
+            for (let i = frameCount - 1; i >= 0; i--) seq.push(i);
+        } else if (mode === 'boomerang') {
+            const forward = [];
+            for (let i = 0; i < frameCount; i++) forward.push(i);
+            const middle = forward.slice(1, -1).reverse();
+            seq = forward.concat(middle);
+        } else {
+            seq = [];
+            for (let i = 0; i < frameCount; i++) seq.push(i);
+        }
+
+        if (speed > 1) {
+            const sped = [];
+            for (let i = 0; i * speed < seq.length; i++) sped.push(seq[Math.floor(i * speed)]);
+            seq = sped.length ? sped : [seq[seq.length - 1]];
+        } else if (speed < 1 && speed > 0) {
+            const repeatCount = Math.max(1, Math.round(1 / speed));
+            const slowed = [];
+            seq.forEach(idx => { for (let r = 0; r < repeatCount; r++) slowed.push(idx); });
+            seq = slowed;
+        }
+
+        if (freezeHoldMs > 0 && seq.length) {
+            const holdFrames = Math.round((freezeHoldMs / 1000) * fps);
+            const lastIdx = seq[seq.length - 1];
+            for (let r = 0; r < holdFrames; r++) seq.push(lastIdx);
+        }
+
+        return seq.length ? seq : [0];
+    }
+
+    // Deterministic pseudo-random 0..1, never Math.random() — the live
+    // preview and the final render must produce identical noise/jitter
+    // for the same frame, or the two would visibly diverge.
+    function _seededNoise(seed) {
+        const x = Math.sin(seed) * 10000;
+        return x - Math.floor(x);
+    }
+
+    function cloneImageData(imageData) {
+        return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+    }
+
+    function applyDeepFry(imageData, intensity) {
+        const amt = Math.max(0, Math.min(100, intensity || 0)) / 100;
+        if (amt <= 0) return imageData;
+        const d = imageData.data;
+        const contrast = 1 + amt * 1.5;
+        const satBoost = 1 + amt * 1.2;
+        const noiseAmt = amt * 40;
+        for (let i = 0; i < d.length; i += 4) {
+            let r = d[i], g = d[i + 1], b = d[i + 2];
+            r = (r - 128) * contrast + 128;
+            g = (g - 128) * contrast + 128;
+            b = (b - 128) * contrast + 128;
+            const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+            r = gray + (r - gray) * satBoost;
+            g = gray + (g - gray) * satBoost;
+            b = gray + (b - gray) * satBoost;
+            const n = (_seededNoise(i * 0.9973 + 1) - 0.5) * noiseAmt;
+            d[i]     = Math.max(0, Math.min(255, r + n));
+            d[i + 1] = Math.max(0, Math.min(255, g + n));
+            d[i + 2] = Math.max(0, Math.min(255, b + n));
+        }
+        return imageData;
+    }
+
+    function applyVhs(imageData, intensity, seqPosition) {
+        const amt = Math.max(0, Math.min(100, intensity || 0)) / 100;
+        if (amt <= 0) return imageData;
+        const d = imageData.data, w = imageData.width, h = imageData.height;
+        const shift = Math.round(amt * 4);
+        const scanlineDark = amt * 0.35;
+        const srcCopy = new Uint8ClampedArray(d);
+        for (let y = 0; y < h; y++) {
+            const rowJitter = shift > 0
+                ? Math.round((_seededNoise(y * 12.9898 + seqPosition * 78.233) - 0.5) * amt * 6) : 0;
+            for (let x = 0; x < w; x++) {
+                const di = (y * w + x) * 4;
+                const rx = Math.max(0, Math.min(w - 1, x - shift + rowJitter));
+                const bx = Math.max(0, Math.min(w - 1, x + shift + rowJitter));
+                const ri = (y * w + rx) * 4, bi = (y * w + bx) * 4;
+                d[di]     = srcCopy[ri];
+                d[di + 1] = srcCopy[di + 1];
+                d[di + 2] = srcCopy[bi + 2];
+                if (y % 2 === 0) {
+                    d[di]     *= (1 - scanlineDark);
+                    d[di + 1] *= (1 - scanlineDark);
+                    d[di + 2] *= (1 - scanlineDark);
+                }
+            }
+        }
+        return imageData;
+    }
+
+    let _fxScratchCanvas = null;
+    function getFxScratchCanvas(w, h) {
+        if (!_fxScratchCanvas) _fxScratchCanvas = document.createElement('canvas');
+        _fxScratchCanvas.width = w; _fxScratchCanvas.height = h;
+        return _fxScratchCanvas;
+    }
+    function applyZoomShake(imageData, w, h, mode, intensity, seqPosition, seqLength) {
+        const amt = Math.max(0, Math.min(100, intensity || 0)) / 100;
+        if (amt <= 0) return imageData;
+        const srcCanvas = getFxScratchCanvas(w, h);
+        const sctx = srcCanvas.getContext('2d');
+        sctx.putImageData(imageData, 0, 0);
+        const out = document.createElement('canvas');
+        out.width = w; out.height = h;
+        const octx = out.getContext('2d');
+        if (mode === 'shake') {
+            const dx = (_seededNoise(seqPosition * 17.23 + 3) - 0.5) * amt * 0.08 * w;
+            const dy = (_seededNoise(seqPosition * 41.11 + 7) - 0.5) * amt * 0.08 * h;
+            octx.drawImage(srcCanvas, dx, dy);
+        } else {
+            const progress = seqLength > 1 ? seqPosition / (seqLength - 1) : 0;
+            const scale = 1 + progress * amt * 0.35;
+            const sw = w / scale, sh = h / scale;
+            const sx = (w - sw) / 2, sy = (h - sh) / 2;
+            octx.drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, w, h);
+        }
+        return octx.getImageData(0, 0, w, h);
+    }
+
+    function applyFilters(imageData, w, h, filters, seqPosition, seqLength) {
+        let out = imageData;
+        if (filters && filters.zoomShake && filters.zoomShake.enabled) {
+            out = applyZoomShake(out, w, h, filters.zoomShake.mode, filters.zoomShake.intensity, seqPosition, seqLength);
+        }
+        if (filters && filters.deepFry && filters.deepFry.enabled) {
+            out = applyDeepFry(out, filters.deepFry.intensity);
+        }
+        if (filters && filters.vhs && filters.vhs.enabled) {
+            out = applyVhs(out, filters.vhs.intensity, seqPosition);
+        }
+        return out;
+    }
+
     const GIF_WORKER_URL = 'https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js';
     let _gifWorkerBlobUrl = null;
     function getGifWorkerUrl() {
