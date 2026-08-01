@@ -551,7 +551,9 @@
        renderSequenceFrame (added later) clones before filtering so a
        frame reused by boomerang/freeze-hold is never double-filtered.
     ========================================================== */
+    const MAX_SEQ_FRAMES = 400;
     function buildPlaybackSequence(frameCount, playback) {
+        if (!frameCount || frameCount <= 0) return [];
         const mode = (playback && playback.mode) || 'normal';
         const speed = (playback && playback.speed) || 1;
         const freezeHoldMs = (playback && playback.freezeHoldMs) || 0;
@@ -587,6 +589,8 @@
             const lastIdx = seq[seq.length - 1];
             for (let r = 0; r < holdFrames; r++) seq.push(lastIdx);
         }
+
+        if (seq.length > MAX_SEQ_FRAMES) seq = seq.slice(0, MAX_SEQ_FRAMES);
 
         return seq.length ? seq : [0];
     }
@@ -661,15 +665,21 @@
         _fxScratchCanvas.width = w; _fxScratchCanvas.height = h;
         return _fxScratchCanvas;
     }
+    let _fxOutCanvas = null;
+    function getFxOutCanvas(w, h) {
+        if (!_fxOutCanvas) _fxOutCanvas = document.createElement('canvas');
+        _fxOutCanvas.width = w; _fxOutCanvas.height = h;
+        return _fxOutCanvas;
+    }
     function applyZoomShake(imageData, w, h, mode, intensity, seqPosition, seqLength) {
         const amt = Math.max(0, Math.min(100, intensity || 0)) / 100;
         if (amt <= 0) return imageData;
         const srcCanvas = getFxScratchCanvas(w, h);
         const sctx = srcCanvas.getContext('2d');
         sctx.putImageData(imageData, 0, 0);
-        const out = document.createElement('canvas');
-        out.width = w; out.height = h;
+        const out = getFxOutCanvas(w, h);
         const octx = out.getContext('2d');
+        octx.clearRect(0, 0, w, h);
         if (mode === 'shake') {
             const dx = (_seededNoise(seqPosition * 17.23 + 3) - 0.5) * amt * 0.08 * w;
             const dy = (_seededNoise(seqPosition * 41.11 + 7) - 0.5) * amt * 0.08 * h;
@@ -766,7 +776,16 @@
             (filters.deepFry && filters.deepFry.enabled) ||
             (filters.vhs && filters.vhs.enabled)));
         if (!hasAnyFilter) return source;
-        return applyFilters(cloneImageData(source), w, h, filters, i, sequence.length);
+        // applyZoomShake never mutates its input — it reads it via putImageData
+        // and always returns a brand-new ImageData from a separate canvas — so
+        // when zoom/shake is enabled it already guarantees a fresh, non-shared
+        // buffer for the mutate-in-place filters (deepFry/vhs) that may run
+        // after it. Only clone here when zoom/shake will NOT run, since in
+        // that case the first filter to touch the frame would otherwise
+        // mutate the shared sourceFrames[frameIndex] entry in place.
+        const zoomShakeWillRun = !!(filters.zoomShake && filters.zoomShake.enabled);
+        const input = zoomShakeWillRun ? source : cloneImageData(source);
+        return applyFilters(input, w, h, filters, i, sequence.length);
     }
 
     function encodeGif({ frames, w, h, delay, playback, filters }, onProgress) {
@@ -1230,7 +1249,9 @@
                 el.classList.toggle('sc-gif-thumb-fit', mode === 'fit');
             });
         };
-        aspectSel.addEventListener('change', () => { applyThumbAspect(); renderCaptionPreviews(); });
+        aspectSel.addEventListener('change', () => { applyThumbAspect(); renderCaptionPreviews(); markPreviewStale(); });
+        $('#sc-gif-fps').addEventListener('change', markPreviewStale);
+        $('#sc-gif-width').addEventListener('change', markPreviewStale);
         applyThumbAspect();
 
         const capTopInput = $('#sc-gif-cap-top');
@@ -1261,11 +1282,11 @@
             });
         }
         function renderCaptionPreviews() { renderCaptionPreview('start'); renderCaptionPreview('end'); }
-        capTopInput.addEventListener('input', renderCaptionPreviews);
-        capBottomInput.addEventListener('input', renderCaptionPreviews);
-        capSizeInputs.top.addEventListener('input', renderCaptionPreviews);
-        capSizeInputs.bottom.addEventListener('input', renderCaptionPreviews);
-        panel.querySelectorAll('input[name="sc-gif-cap-color"]').forEach(r => r.addEventListener('change', renderCaptionPreviews));
+        capTopInput.addEventListener('input', () => { renderCaptionPreviews(); markPreviewStale(); });
+        capBottomInput.addEventListener('input', () => { renderCaptionPreviews(); markPreviewStale(); });
+        capSizeInputs.top.addEventListener('input', () => { renderCaptionPreviews(); markPreviewStale(); });
+        capSizeInputs.bottom.addEventListener('input', () => { renderCaptionPreviews(); markPreviewStale(); });
+        panel.querySelectorAll('input[name="sc-gif-cap-color"]').forEach(r => r.addEventListener('change', () => { renderCaptionPreviews(); markPreviewStale(); }));
 
         function wireCapHandle(handleEl, thumbEl, key) {
             let dragging = false;
@@ -1335,6 +1356,16 @@
                 $('#sc-gif-aspect').value, capTopInput.value, capBottomInput.value,
                 getCapColor(), getCapSizePct('top'), getCapSizePct('bottom'),
                 capPos.top.x, capPos.top.y, capPos.bottom.x, capPos.bottom.y].join('|');
+        }
+
+        // Cosmetic only — does not affect capture/cache/render logic, which
+        // already re-derives correctness from the fingerprint on every
+        // capture/encode. This just keeps the visible status text honest
+        // when the underlying settings have drifted since the last preview.
+        function markPreviewStale() {
+            if (_previewFrames && currentCaptureFingerprint() !== _previewFrames.fingerprint) {
+                fxStatus.textContent = 'Preview out of date — click Preview effects';
+            }
         }
 
         function stopPreviewPlayback() {
@@ -1700,6 +1731,7 @@
             if (changed === 'start' || changed === 'both') refreshThumb('start');
             if (changed === 'end' || changed === 'both') refreshThumb('end');
             scheduleFilmstripRefresh();
+            markPreviewStale();
         };
 
         const clampStart = () => {
