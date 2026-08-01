@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube GIF Maker
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
+// @version      1.3.0
 // @description  Standalone scene-to-GIF capture with meme captions and ImgBB upload — a record button in the video's own control bar, hidden during YouTube playback.
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -15,7 +15,7 @@
 
 (function () {
     'use strict';
-    console.log('[GIFMaker] cytube.gifmaker v1.2.0 loaded');
+    console.log('[GIFMaker] cytube.gifmaker v1.3.0 loaded');
 
     /* ==========================================================
        STORAGE
@@ -232,7 +232,7 @@
             .sc-gif-captions { display: flex !important; flex-direction: column !important; gap: 8px !important; }
             .sc-gif-tag-row { display: flex !important; align-items: center !important; gap: 8px !important; }
             .sc-gif-tag-row label { color: rgba(244,244,242,0.62) !important; font-size: 12px !important; font-weight: 500 !important; flex: none !important; }
-            .sc-gif-tag-input { flex: 1 1 auto !important; width: auto !important; }
+            .sc-gif-tag-input { flex: 1 1 auto !important; min-width: 0 !important; }
             .sc-gif-cap-input {
                 background: #1f1f22 !important; color: #f4f4f2 !important;
                 border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 4px !important;
@@ -360,9 +360,8 @@
             .sc-gif-mid-header:hover { color: #f4f4f2 !important; }
             .sc-gif-mid-header:hover .sc-gif-mid-toggle { color: #f4f4f2 !important; }
             .sc-gif-mid-header:focus-visible { outline: 2px solid #ffb020 !important; outline-offset: 1px !important; }
-            .sc-gif-mid-header { margin-bottom: -8px !important; }
             .sc-gif-mid-toggle { color: rgba(244,244,242,0.34) !important; font-size: 11px !important; }
-            .sc-gif-cols { display: flex !important; flex-wrap: wrap !important; gap: 16px !important; }
+            .sc-gif-cols { display: flex !important; flex-wrap: wrap !important; gap: 16px !important; margin-top: -8px !important; }
             .sc-gif-cols.sc-gif-mid-collapsed { display: none !important; }
             .sc-gif-col-left, .sc-gif-col-right {
                 flex: 1 1 260px !important; min-width: 0 !important;
@@ -444,7 +443,7 @@
     function gifTitleSlug() {
         const raw = currentRawTitle();
         if (!raw) return '';
-        return raw.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '');
+        return raw.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 60);
     }
 
     function _fmtClockTenths(sec) {
@@ -1780,6 +1779,8 @@
                 bottom: { text: capBottomInput.value.trim(), size: getCapSizePct('bottom'), x: capPos.bottom.x, y: capPos.bottom.y },
             };
             if (endT - startT < MIN_CLIP_GAP) { setStatus('End must be after start.'); return; }
+            const clipStartForName = startT;
+            const clipTagForName = $('#sc-gif-tag').value.trim().replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '');
             if (!midBody.classList.contains('sc-gif-mid-collapsed')) {
                 midBody.classList.add('sc-gif-mid-collapsed');
                 midToggle.textContent = '▸';
@@ -1806,14 +1807,13 @@
                 _gifResultUrl = URL.createObjectURL(blob);
                 const kb = Math.round(blob.size / 1024);
                 const slug = gifTitleSlug();
-                const tag = $('#sc-gif-tag').value.trim().replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '');
-                const fnameBase = (slug || 'gif') + '-' + _fmtFilenameTimestamp(startT) + (tag ? '-' + tag : '');
+                const fnameBase = (slug || 'gif') + '-' + _fmtFilenameTimestamp(clipStartForName) + (clipTagForName ? '-' + clipTagForName : '');
                 const fname = fnameBase + '.gif';
                 const hasImgbbKey = !!getKey(LS_IMGBB);
                 result.innerHTML =
                     `<img src="${_gifResultUrl}" alt="GIF preview">` +
                     `<div id="sc-gif-actions">` +
-                    `<a id="sc-gif-dl" href="${_gifResultUrl}" download="${fname}">⬇ Download</a>` +
+                    `<a id="sc-gif-dl" href="${_gifResultUrl}" download="${_escHtml(fname)}">⬇ Download</a>` +
                     (hasImgbbKey ? `<button id="sc-gif-upload" type="button">☁ Upload</button>` : '') +
                     `<span id="sc-gif-size">${kb} KB</span></div>` +
                     (hasImgbbKey ? `<div id="sc-gif-link"></div>` : '');
