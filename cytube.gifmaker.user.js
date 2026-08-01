@@ -94,7 +94,7 @@
             #sc-gif-body select option {
                 background-color: #1f1f22 !important; color: white !important;
             }
-            .sc-gif-marks { display: flex !important; gap: 10px !important; }
+            .sc-gif-marks { display: flex !important; gap: 10px !important; max-width: 420px !important; margin: 0 auto !important; }
             .sc-gif-mark {
                 flex: 1 1 0 !important; min-width: 0 !important;
                 display: flex !important; flex-direction: column !important; gap: 6px !important;
@@ -133,7 +133,7 @@
             .sc-gif-cap-handle:active { cursor: grabbing !important; }
             .sc-gif-cap-handle-top { left: var(--cx-top, 50%) !important; top: var(--cy-top, 10%) !important; }
             .sc-gif-cap-handle-bottom { left: var(--cx-bottom, 50%) !important; top: var(--cy-bottom, 90%) !important; }
-            .sc-gif-cap-sizes { display: flex !important; gap: 14px !important; justify-content: center !important; }
+            .sc-gif-cap-sizes { display: flex !important; flex-wrap: wrap !important; gap: 14px !important; justify-content: center !important; }
             .sc-gif-cap-sizes label {
                 display: flex !important; align-items: center !important; gap: 4px !important;
                 color: rgba(255,255,255,0.8) !important; font-size: 12px !important;
@@ -262,6 +262,7 @@
             }
             #sc-gif-dur-line b { color: #fff !important; }
             .sc-gif-opts { display: flex !important; gap: 12px !important; }
+            .sc-gif-col-right .sc-gif-opts { flex-direction: column !important; gap: 6px !important; }
             .sc-gif-opts label { flex: 1 1 0 !important; }
             #sc-gif-go {
                 background: rgba(255,200,50,0.18) !important; color: #ffcc44 !important;
@@ -304,7 +305,7 @@
             .sc-gif-optimize-row label { color: rgba(255,255,255,0.8) !important; font-size: 12px !important; }
             .sc-gif-cols { display: flex !important; flex-wrap: wrap !important; gap: 14px !important; }
             .sc-gif-col-left, .sc-gif-col-right {
-                flex: 1 1 240px !important; min-width: 0 !important;
+                flex: 1 1 260px !important; min-width: 0 !important;
                 display: flex !important; flex-direction: column !important; gap: 10px !important;
             }
             .sc-gif-fx-header {
