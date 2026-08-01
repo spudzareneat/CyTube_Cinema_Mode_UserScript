@@ -525,40 +525,67 @@
         const widest = lines.reduce((m, l) => Math.max(m, ctx.measureText(l).width), 0);
         return { lines, widest };
     }
-    function applyCaptionCtxStyle(ctx, fontPx, color) {
+    function applyCaptionCtxStyle(ctx, fontPx, color, progress) {
         ctx.font = 'bold ' + fontPx + 'px ' + CAPTION_FONT_STACK;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'alphabetic';
         ctx.lineJoin = 'round';
         ctx.miterLimit = 2;
-        ctx.fillStyle = color === 'yellow' ? '#ffe135' : '#ffffff';
+        if (color === 'rainbow') {
+            ctx.fillStyle = 'hsl(' + Math.round((progress || 0) * 360) + ', 90%, 60%)';
+        } else {
+            ctx.fillStyle = color === 'yellow' ? '#ffe135' : '#ffffff';
+        }
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = Math.max(2, Math.round(fontPx / 14));
     }
-    function drawCaptionBlockAdvanced(ctx, w, h, text, color, sizePct, xPct, yPct) {
+    // Wiggle offsets the block center with a progress-driven sine wobble
+    // (not per-frame random jitter) because GIF capture runs at low fps
+    // (8-15) — random jitter at that rate reads as flicker, not motion.
+    // Different x/y frequencies avoid a simple circular path.
+    function drawCaptionBlockAdvanced(ctx, w, h, text, color, sizePct, xPct, yPct, progress, fx) {
         if (!text) return;
         const fontPx = Math.max(4, Math.round(h * (sizePct || 16) / 100));
         const { lines } = wrapCaptionAtSize(getCaptionMeasureCtx(), text.toUpperCase(), fontPx, w * 0.92);
         const lineHeight = Math.round(fontPx * 1.15);
         ctx.save();
-        applyCaptionCtxStyle(ctx, fontPx, color);
-        const cx = w * ((xPct == null ? 50 : xPct) / 100);
-        const cy = h * ((yPct == null ? 50 : yPct) / 100);
+        applyCaptionCtxStyle(ctx, fontPx, color, progress);
+        let cx = w * ((xPct == null ? 50 : xPct) / 100);
+        let cy = h * ((yPct == null ? 50 : yPct) / 100);
+        if (fx && fx.wiggle && fx.wiggle.enabled) {
+            const amp = Math.max(0, Math.min(100, fx.wiggle.intensity || 0)) / 100 * fontPx * 0.35;
+            cx += Math.sin((progress || 0) * Math.PI * 2 * 3) * amp;
+            cy += Math.cos((progress || 0) * Math.PI * 2 * 2.3) * amp;
+        }
         const blockH = lines.length * lineHeight;
         const firstBaselineY = cy - blockH / 2 + fontPx * 0.8;
+        // Shadow is applied under the stroke pass only, then cleared before
+        // the fill pass — canvas shadow would otherwise render twice
+        // (once per draw call) and look doubled/blurred.
+        if (fx && fx.shadow && fx.shadow.enabled) {
+            const amt = Math.max(0, Math.min(100, fx.shadow.intensity || 0)) / 100;
+            ctx.shadowColor = 'rgba(0,0,0,0.7)';
+            ctx.shadowBlur = amt * 14;
+            ctx.shadowOffsetX = amt * 5;
+            ctx.shadowOffsetY = amt * 5;
+        }
         lines.forEach((line, i) => {
             const ly = firstBaselineY + i * lineHeight;
             ctx.strokeText(line, cx, ly);
+        });
+        ctx.shadowColor = 'transparent';
+        lines.forEach((line, i) => {
+            const ly = firstBaselineY + i * lineHeight;
             ctx.fillText(line, cx, ly);
         });
         ctx.restore();
     }
-    function drawCaptions(ctx, w, h, captions) {
+    function drawCaptions(ctx, w, h, captions, progress) {
         if (!captions) return;
         ['top', 'bottom'].forEach(key => {
             const line = captions[key];
             if (!line || !line.text) return;
-            drawCaptionBlockAdvanced(ctx, w, h, line.text, captions.color, line.size, line.x, line.y);
+            drawCaptionBlockAdvanced(ctx, w, h, line.text, captions.color, line.size, line.x, line.y, progress, captions.fx);
         });
     }
 
@@ -626,7 +653,8 @@
                     if (geom.src) ctx.drawImage(vid, geom.src[0], geom.src[1], geom.src[2], geom.src[3],
                                                      geom.dst[0], geom.dst[1], geom.dst[2], geom.dst[3]);
                     else ctx.drawImage(vid, geom.dst[0], geom.dst[1], geom.dst[2], geom.dst[3]);
-                    drawCaptions(ctx, w, h, captions);
+                    const capProgress = Math.min(1, Math.max(0, (t - startT) / span));
+                    drawCaptions(ctx, w, h, captions, capProgress);
                     frames.push(ctx.getImageData(0, 0, w, h));
                     if (onProgress) onProgress(Math.min(0.999, (t - startT) / span));
                 }
