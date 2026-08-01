@@ -209,6 +209,11 @@
                 width: 40px !important; min-width: 0 !important; background: #1f1f22 !important; color: #f4f4f2 !important;
                 border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 4px !important; padding: 2px 4px !important;
                 transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
+                -moz-appearance: textfield !important;
+            }
+            .sc-gif-cap-sizes input[type=number]::-webkit-inner-spin-button,
+            .sc-gif-cap-sizes input[type=number]::-webkit-outer-spin-button {
+                -webkit-appearance: none !important; margin: 0 !important;
             }
             .sc-gif-cap-sizes input[type=number]:hover, .sc-gif-cap-sizes input[type=number]:focus { border-color: rgba(255,176,32,0.5) !important; }
             .sc-gif-cap-hint { text-align: center !important; color: rgba(244,244,242,0.34) !important; font-size: 11px !important; }
