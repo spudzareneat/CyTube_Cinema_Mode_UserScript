@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube GIF Maker
 // @namespace    http://tampermonkey.net/
-// @version      1.4.0
+// @version      1.4.1
 // @description  Standalone scene-to-GIF capture with meme captions and ImgBB upload — a record button (in the video's own control bar, or floating if cytube.pc.user.js is also installed), disabled during YouTube playback. Integrates with cytube.pc.user.js when installed.
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -15,7 +15,7 @@
 
 (function () {
     'use strict';
-    console.log('[GIFMaker] cytube.gifmaker v1.4.0 loaded');
+    console.log('[GIFMaker] cytube.gifmaker v1.4.1 loaded');
 
     /* ==========================================================
        STORAGE
@@ -1935,11 +1935,11 @@
             #sc-gif-btn:hover { color: white !important; background: rgba(255,255,255,0.22) !important; }
             body.sc-horizontal #sc-gif-btn {
                 bottom: 6px !important;
-                right: calc(var(--sc-chat-w) + 1vw + 80px) !important;
+                right: calc(var(--sc-chat-w) + 1vw + 116px) !important;
             }
             body.sc-vertical #sc-gif-btn {
                 bottom: calc(var(--sc-chat-h) + 1vh) !important;
-                right: 80px !important;
+                right: 116px !important;
             }
             #sc-gif-btn:disabled {
                 opacity: 0.35 !important; cursor: default !important; pointer-events: none !important;
