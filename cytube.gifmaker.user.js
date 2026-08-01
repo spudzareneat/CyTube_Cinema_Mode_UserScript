@@ -1646,8 +1646,11 @@
                 const cap = await captureGifFrames(
                     { src, startT, endT, fps, width, aspect, captions },
                     p => setWork('Capturing frames… ' + Math.round(p * 100) + '%'));
+                syncFxState();
+                const playback = { mode: fx.mode, speed: fx.speed, freezeHoldMs: fx.freezeHoldMs, fps };
+                const filters = { deepFry: fx.deepFry, vhs: fx.vhs, zoomShake: fx.zoomShake };
                 setWork('Encoding GIF… (' + cap.frames.length + ' frames)');
-                let blob = await encodeGif(cap, p => setWork('Encoding GIF… ' + Math.round(p * 100) + '%'));
+                let blob = await encodeGif({ ...cap, playback, filters }, p => setWork('Encoding GIF… ' + Math.round(p * 100) + '%'));
                 if (gifOptimizeEnabled()) setWork('Optimizing…');
                 blob = await maybeOptimizeGif(blob);
                 _gifResultUrl = URL.createObjectURL(blob);
