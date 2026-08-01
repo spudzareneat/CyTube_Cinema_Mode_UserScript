@@ -94,6 +94,7 @@
                 padding: 3px 8px !important; font-size: 13px !important;
                 transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
             }
+            #sc-gif-body select:hover, #sc-gif-body select:focus { border-color: rgba(255,176,32,0.5) !important; }
             #sc-gif-body select option {
                 background-color: #1f1f22 !important; color: #f4f4f2 !important;
             }
@@ -157,6 +158,7 @@
                 border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 4px !important; padding: 2px 4px !important;
                 transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
             }
+            .sc-gif-cap-sizes input[type=number]:hover, .sc-gif-cap-sizes input[type=number]:focus { border-color: rgba(255,176,32,0.5) !important; }
             .sc-gif-cap-hint { text-align: center !important; color: rgba(244,244,242,0.34) !important; font-size: 11px !important; }
             .sc-gif-overview { display: flex !important; flex-direction: column !important; gap: 4px !important; margin-bottom: 2px !important; }
             .sc-gif-overview-track {
@@ -229,6 +231,7 @@
                 box-sizing: border-box !important;
                 transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
             }
+            .sc-gif-cap-input:hover, .sc-gif-cap-input:focus { border-color: rgba(255,176,32,0.5) !important; }
             .sc-gif-cap-input::placeholder { color: rgba(244,244,242,0.34) !important; }
             .sc-gif-cap-color {
                 display: flex !important; align-items: center !important; gap: 14px !important; justify-content: center !important;
@@ -315,6 +318,8 @@
                 cursor: pointer !important; width: 100% !important; text-align: left !important;
                 transition: color 120ms ease !important;
             }
+            .sc-gif-imgbb-header:hover .sc-gif-imgbb-label,
+            .sc-gif-imgbb-header:hover .sc-gif-imgbb-toggle { color: #f4f4f2 !important; }
             .sc-gif-imgbb-header:focus-visible { outline: 2px solid #ffb020 !important; outline-offset: 1px !important; }
             .sc-gif-imgbb-toggle { color: rgba(244,244,242,0.34) !important; font-size: 11px !important; }
             .sc-gif-imgbb-body { display: none !important; flex-direction: column !important; gap: 8px !important; margin-top: 4px !important; }
@@ -350,6 +355,8 @@
                 text-transform: uppercase !important; letter-spacing: 0.06em !important;
                 transition: color 120ms ease !important;
             }
+            .sc-gif-fx-header:hover { color: #f4f4f2 !important; }
+            .sc-gif-fx-header:hover .sc-gif-fx-toggle { color: #f4f4f2 !important; }
             .sc-gif-fx-header:focus-visible { outline: 2px solid #ffb020 !important; outline-offset: 1px !important; }
             .sc-gif-fx-toggle { color: rgba(244,244,242,0.34) !important; font-size: 11px !important; }
             .sc-gif-fx { display: none !important; flex-direction: column !important; gap: 8px !important; }
@@ -361,6 +368,7 @@
                 border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 4px !important; padding: 2px 4px !important;
                 transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
             }
+            .sc-gif-fx-row input[type=number]:hover, .sc-gif-fx-row input[type=number]:focus { border-color: rgba(255,176,32,0.5) !important; }
             .sc-gif-fx-filters { display: flex !important; flex-direction: column !important; gap: 6px !important; }
             .sc-gif-fx-filter { display: flex !important; align-items: center !important; gap: 8px !important; }
             .sc-gif-fx-filter label { flex: 1 1 auto !important; color: rgba(244,244,242,0.62) !important; font-size: 12px !important; }
@@ -1076,7 +1084,7 @@
                     </div>
                     <div class="sc-gif-overview-labels">
                         <span>0:00</span>
-                        <span class="sc-gif-overview-current">Currently editing: <span id="sc-gif-overview-current" class="sc-gif-mono"></span></span>
+                        <span class="sc-gif-overview-current"><span id="sc-gif-overview-label">Currently editing:</span> <span id="sc-gif-overview-current" class="sc-gif-mono"></span><span id="sc-gif-overview-hint"></span></span>
                         <span id="sc-gif-overview-total"></span>
                     </div>
                 </div>
@@ -1163,7 +1171,7 @@
                         </button>
                     </div>
                 </div>
-                <div class="sc-gif-fx" id="sc-gif-fx-body">
+                <div class="sc-gif-fx sc-gif-card" id="sc-gif-fx-body">
                     <div class="sc-gif-fx-row">
                         <label>Playback
                             <select id="sc-gif-fx-mode">
@@ -1578,6 +1586,8 @@
         const overviewViewport = $('#sc-gif-overview-viewport');
         const overviewGhost = $('#sc-gif-overview-ghost');
         const overviewCurrent = $('#sc-gif-overview-current');
+        const overviewLabel = $('#sc-gif-overview-label');
+        const overviewHint = $('#sc-gif-overview-hint');
         let overviewDragging = false;
 
         for (let i = 0; i < FILMSTRIP_TILES; i++) {
@@ -1629,7 +1639,9 @@
                 overviewViewport.style.width = Math.max(0.5, ovEnd - ovStart) + '%';
             }
             if (!overviewDragging) {
+                overviewLabel.textContent = 'Currently editing:';
                 overviewCurrent.textContent = _fmtClockTenths(startT);
+                overviewHint.textContent = '';
             }
         }
 
@@ -1781,7 +1793,9 @@
             if (!overviewDragging) return;
             const t = overviewTimeFromEvent(e);
             overviewGhost.style.left = (t / vidDur * 100) + '%';
-            overviewCurrent.textContent = 'Jump to: ' + _fmtClockTenths(t) + ' (release to commit)';
+            overviewLabel.textContent = 'Jump to:';
+            overviewCurrent.textContent = _fmtClockTenths(t);
+            overviewHint.textContent = ' (release to commit)';
         });
         function overviewCommit(e) {
             if (!overviewDragging) return;
