@@ -58,41 +58,55 @@
                 width: 600px !important; max-width: 92vw !important;
                 max-height: 88vh !important;
                 display: flex !important; flex-direction: column !important;
-                background: rgba(18,18,20,0.98) !important;
-                border: 1px solid rgba(255,255,255,0.16) !important;
-                border-radius: 10px !important;
+                background: #0c0c0e !important;
+                border: 1px solid rgba(244,244,242,0.14) !important;
+                border-radius: 12px !important;
                 box-shadow: 0 12px 40px rgba(0,0,0,0.6) !important;
-                color: #eee !important; font-size: 13px !important;
+                color: #f4f4f2 !important; font-size: 13px !important;
+                font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif !important;
             }
             #sc-gif-head {
                 display: flex !important; align-items: center !important; justify-content: space-between !important;
                 flex: none !important;
-                padding: 10px 14px !important;
-                border-bottom: 1px solid rgba(255,255,255,0.1) !important;
-                font-weight: 600 !important; color: #ffcc44 !important;
+                padding: 10px 16px !important;
+                border-bottom: 1px solid rgba(244,244,242,0.08) !important;
+                font-weight: 600 !important; font-size: 14px !important; color: #ffb020 !important;
                 cursor: grab !important; user-select: none !important; touch-action: none !important;
             }
             #sc-gif-head.sc-gif-dragging { cursor: grabbing !important; }
             #sc-gif-close {
-                background: transparent !important; border: none !important; color: rgba(255,255,255,0.6) !important;
+                background: transparent !important; border: none !important; color: rgba(244,244,242,0.62) !important;
                 font-size: 15px !important; cursor: pointer !important; padding: 0 4px !important;
+                transition: color 120ms ease !important;
             }
-            #sc-gif-close:hover { color: white !important; }
+            #sc-gif-close:hover { color: #f4f4f2 !important; }
             #sc-gif-body {
-                padding: 12px 14px !important; display: flex !important; flex-direction: column !important; gap: 10px !important;
+                padding: 16px !important; display: flex !important; flex-direction: column !important; gap: 16px !important;
                 flex: 1 1 auto !important; min-height: 0 !important; overflow-y: auto !important;
             }
             #sc-gif-body label {
                 display: flex !important; align-items: center !important; justify-content: space-between !important;
-                color: rgba(255,255,255,0.8) !important; font-weight: 500 !important;
+                color: rgba(244,244,242,0.62) !important; font-weight: 500 !important;
             }
             #sc-gif-body select {
-                background: #1f1f22 !important; color: white !important;
-                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important;
+                background: #1f1f22 !important; color: #f4f4f2 !important;
+                border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 4px !important;
                 padding: 3px 8px !important; font-size: 13px !important;
+                transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
             }
             #sc-gif-body select option {
-                background-color: #1f1f22 !important; color: white !important;
+                background-color: #1f1f22 !important; color: #f4f4f2 !important;
+            }
+            .sc-gif-card {
+                background: rgba(244,244,242,0.02) !important;
+                border: 1px solid rgba(244,244,242,0.06) !important;
+                border-radius: 8px !important;
+                padding: 12px !important;
+                display: flex !important; flex-direction: column !important; gap: 8px !important;
+            }
+            .sc-gif-mono, #sc-gif-time-start, #sc-gif-time-end, #sc-gif-dur-line b,
+            #sc-gif-overview-total, #sc-gif-filmstrip-range, .sc-gif-fx-row input[type=number] {
+                font-family: "SF Mono", "Cascadia Code", Consolas, monospace !important;
             }
             .sc-gif-marks { display: flex !important; gap: 10px !important; max-width: 420px !important; margin: 0 auto !important; }
             .sc-gif-mark {
@@ -105,7 +119,7 @@
                 background-position: center !important;
                 background-size: cover !important;
                 background-repeat: no-repeat !important;
-                border: 1px solid rgba(255,255,255,0.18) !important; border-radius: 6px !important;
+                border: 1px solid rgba(244,244,242,0.08) !important; border-radius: 8px !important;
                 position: relative !important;
             }
             .sc-gif-thumb-43 { aspect-ratio: 4 / 3 !important; }
@@ -126,7 +140,7 @@
             .sc-gif-cap-yellow { color: #ffe135 !important; }
             .sc-gif-cap-handle {
                 position: absolute !important; width: 14px !important; height: 14px !important;
-                border-radius: 50% !important; background: rgba(255,204,68,0.9) !important;
+                border-radius: 50% !important; background: rgba(255,176,32,0.9) !important;
                 border: 2px solid #000 !important; transform: translate(-50%, -50%) !important;
                 cursor: grab !important; pointer-events: auto !important; touch-action: none !important;
             }
@@ -136,50 +150,51 @@
             .sc-gif-cap-sizes { display: flex !important; flex-wrap: wrap !important; gap: 14px !important; justify-content: center !important; }
             .sc-gif-cap-sizes label {
                 display: flex !important; align-items: center !important; gap: 4px !important;
-                color: rgba(255,255,255,0.8) !important; font-size: 12px !important;
+                color: rgba(244,244,242,0.62) !important; font-size: 12px !important;
             }
             .sc-gif-cap-sizes input[type=number] {
-                width: 48px !important; background: #1f1f22 !important; color: white !important;
-                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important; padding: 2px 4px !important;
+                width: 48px !important; background: #1f1f22 !important; color: #f4f4f2 !important;
+                border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 4px !important; padding: 2px 4px !important;
+                transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
             }
-            .sc-gif-cap-hint { text-align: center !important; color: rgba(255,255,255,0.4) !important; font-size: 11px !important; }
+            .sc-gif-cap-hint { text-align: center !important; color: rgba(244,244,242,0.34) !important; font-size: 11px !important; }
             .sc-gif-overview { display: flex !important; flex-direction: column !important; gap: 4px !important; margin-bottom: 2px !important; }
             .sc-gif-overview-track {
                 position: relative !important; height: 16px !important; border-radius: 4px !important;
-                background: #17171a !important; border: 1px solid rgba(255,255,255,0.14) !important;
+                background: #17171a !important; border: 1px solid rgba(244,244,242,0.14) !important;
                 cursor: pointer !important; user-select: none !important; touch-action: none !important;
             }
             .sc-gif-overview-track:focus {
-                outline: 2px solid #ffcc44 !important; outline-offset: 1px !important;
+                outline: 2px solid #ffb020 !important; outline-offset: 1px !important;
             }
             .sc-gif-overview-viewport {
                 position: absolute !important; top: 0 !important; bottom: 0 !important;
-                background: rgba(255,204,68,0.55) !important;
-                border-left: 1px solid #ffcc44 !important; border-right: 1px solid #ffcc44 !important;
+                background: rgba(255,176,32,0.55) !important;
+                border-left: 1px solid #ffb020 !important; border-right: 1px solid #ffb020 !important;
                 border-radius: 2px !important; pointer-events: none !important;
             }
             .sc-gif-overview-ghost {
                 position: absolute !important; top: -3px !important; bottom: -3px !important; width: 2px !important;
-                background: #fff !important; box-shadow: 0 0 4px rgba(255,255,255,0.8) !important;
+                background: #f4f4f2 !important; box-shadow: 0 0 4px rgba(244,244,242,0.8) !important;
                 display: none !important; pointer-events: none !important;
             }
             .sc-gif-overview-labels {
                 display: flex !important; justify-content: space-between !important;
-                color: rgba(255,255,255,0.4) !important; font-size: 10px !important;
+                color: rgba(244,244,242,0.34) !important; font-size: 11px !important;
             }
-            .sc-gif-overview-current { color: rgba(255,204,68,0.85) !important; font-weight: 600 !important; }
+            .sc-gif-overview-current { color: rgba(255,176,32,0.85) !important; font-weight: 600 !important; }
             .sc-gif-filmstrip { display: flex !important; flex-direction: column !important; gap: 6px !important; }
-            .sc-gif-filmstrip-window-label { text-align: center !important; color: rgba(255,255,255,0.55) !important; font-size: 11px !important; }
+            .sc-gif-filmstrip-window-label { text-align: center !important; color: rgba(244,244,242,0.34) !important; font-size: 11px !important; }
             .sc-gif-filmstrip-strip {
-                position: relative !important; height: 64px !important; border-radius: 6px !important;
-                overflow: hidden !important; border: 1px solid rgba(255,255,255,0.18) !important; user-select: none !important;
+                position: relative !important; height: 64px !important; border-radius: 8px !important;
+                overflow: hidden !important; border: 1px solid rgba(244,244,242,0.08) !important; user-select: none !important;
             }
             .sc-gif-filmstrip-tiles { position: absolute !important; inset: 0 !important; display: flex !important; }
             .sc-gif-filmstrip-tile {
                 flex: 1 1 0 !important;
                 background-color: #1a1a1e !important;
                 background-position: center !important; background-size: cover !important; background-repeat: no-repeat !important;
-                border-right: 1px solid rgba(255,255,255,0.06) !important;
+                border-right: 1px solid rgba(244,244,242,0.06) !important;
                 position: relative !important;
             }
             .sc-gif-filmstrip-tile:last-child { border-right: 0 !important; }
@@ -191,8 +206,8 @@
             .sc-gif-filmstrip-dim-right { right: 0 !important; }
             .sc-gif-filmstrip-selection {
                 position: absolute !important; top: 0 !important; bottom: 0 !important;
-                background: rgba(255,204,68,0.08) !important;
-                border-left: 2px solid #ffcc44 !important; border-right: 2px solid #ffcc44 !important;
+                background: rgba(255,176,32,0.08) !important;
+                border-left: 2px solid #ffb020 !important; border-right: 2px solid #ffb020 !important;
                 pointer-events: auto !important; cursor: grab !important; touch-action: none !important;
             }
             .sc-gif-filmstrip-selection:active { cursor: grabbing !important; }
@@ -203,20 +218,21 @@
             }
             .sc-gif-filmstrip-handle-grip {
                 width: 6px !important; height: 28px !important; border-radius: 3px !important;
-                background: #ffcc44 !important; border: 1px solid #000 !important;
-                box-shadow: 0 0 0 3px rgba(255,204,68,0.15) !important;
+                background: #ffb020 !important; border: 1px solid #000 !important;
+                box-shadow: 0 0 0 3px rgba(255,176,32,0.15) !important;
             }
-            .sc-gif-captions { display: flex !important; flex-direction: column !important; gap: 6px !important; }
+            .sc-gif-captions { display: flex !important; flex-direction: column !important; gap: 8px !important; }
             .sc-gif-cap-input {
-                background: #1f1f22 !important; color: white !important;
-                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important;
+                background: #1f1f22 !important; color: #f4f4f2 !important;
+                border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 4px !important;
                 padding: 6px 8px !important; font-size: 13px !important; width: 100% !important;
                 box-sizing: border-box !important;
+                transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
             }
-            .sc-gif-cap-input::placeholder { color: rgba(255,255,255,0.35) !important; }
+            .sc-gif-cap-input::placeholder { color: rgba(244,244,242,0.34) !important; }
             .sc-gif-cap-color {
                 display: flex !important; align-items: center !important; gap: 14px !important; justify-content: center !important;
-                color: rgba(255,255,255,0.8) !important; font-size: 12px !important;
+                color: rgba(244,244,242,0.62) !important; font-size: 12px !important;
             }
             .sc-gif-cap-color label { display: flex !important; align-items: center !important; gap: 4px !important; cursor: pointer !important; }
             .sc-gif-thumb-loading::after {
@@ -225,8 +241,8 @@
                 top: 50% !important; left: 50% !important;
                 width: 22px !important; height: 22px !important;
                 margin: -11px 0 0 -11px !important;
-                border: 2px solid rgba(255,255,255,0.25) !important;
-                border-top-color: #ffcc44 !important;
+                border: 2px solid rgba(244,244,242,0.25) !important;
+                border-top-color: #ffb020 !important;
                 border-radius: 50% !important;
                 animation: sc-gif-spin 0.8s linear infinite !important;
             }
@@ -234,8 +250,8 @@
             .sc-gif-spinner {
                 display: inline-block !important;
                 width: 18px !important; height: 18px !important;
-                border: 2px solid rgba(255,255,255,0.25) !important;
-                border-top-color: #ffcc44 !important;
+                border: 2px solid rgba(244,244,242,0.25) !important;
+                border-top-color: #ffb020 !important;
                 border-radius: 50% !important;
                 animation: sc-gif-spin 0.8s linear infinite !important;
                 flex: none !important;
@@ -243,107 +259,141 @@
             .sc-gif-spinner-sm { width: 13px !important; height: 13px !important; }
             .sc-gif-working {
                 display: flex !important; align-items: center !important; gap: 10px !important;
-                padding: 14px 4px !important; color: rgba(255,255,255,0.75) !important; font-size: 13px !important;
+                padding: 14px 4px !important; color: rgba(244,244,242,0.62) !important; font-size: 13px !important;
             }
             .sc-gif-mark-label {
-                color: #ffcc44 !important; font-size: 11px !important; font-weight: 700 !important;
-                letter-spacing: 0.04em !important; text-align: center !important;
+                color: #ffb020 !important; font-size: 11px !important; font-weight: 700 !important;
+                letter-spacing: 0.06em !important; text-align: center !important;
             }
             .sc-gif-mark-btns { display: flex !important; gap: 4px !important; }
             .sc-gif-mark-btns button {
                 flex: 1 1 0 !important; min-width: 0 !important;
-                background: rgba(255,255,255,0.1) !important; color: white !important;
-                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important;
+                background: transparent !important; color: rgba(244,244,242,0.62) !important;
+                border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 4px !important;
                 padding: 4px 0 !important; font-size: 11px !important; cursor: pointer !important;
+                transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
             }
-            .sc-gif-mark-btns button:hover { background: rgba(255,255,255,0.22) !important; }
+            .sc-gif-mark-btns button:hover {
+                background: rgba(255,176,32,0.14) !important; border-color: #ffb020 !important; color: #f4f4f2 !important;
+            }
             #sc-gif-dur-line {
-                text-align: center !important; color: rgba(255,255,255,0.7) !important; font-size: 12px !important;
+                text-align: center !important; color: rgba(244,244,242,0.62) !important; font-size: 12px !important;
             }
-            #sc-gif-dur-line b { color: #fff !important; }
+            #sc-gif-dur-line b { color: #f4f4f2 !important; }
             .sc-gif-opts { display: flex !important; gap: 12px !important; }
             .sc-gif-col-right .sc-gif-opts { flex-direction: column !important; gap: 6px !important; }
             .sc-gif-opts label { flex: 1 1 0 !important; }
             #sc-gif-go {
-                background: rgba(255,200,50,0.18) !important; color: #ffcc44 !important;
-                border: 1px solid rgba(255,200,50,0.45) !important; border-radius: 6px !important;
-                padding: 8px 12px !important; font-size: 13px !important; font-weight: 600 !important;
+                background: #ffb020 !important; color: #0c0c0e !important;
+                border: none !important; border-radius: 8px !important;
+                padding: 8px 16px !important; font-size: 13px !important; font-weight: 600 !important;
                 cursor: pointer !important;
+                transition: box-shadow 120ms ease, opacity 120ms ease !important;
             }
-            #sc-gif-go:hover:not(:disabled) { background: rgba(255,200,50,0.28) !important; }
+            #sc-gif-go:hover:not(:disabled), #sc-gif-go:focus-visible:not(:disabled) {
+                box-shadow: 0 0 0 3px rgba(255,176,32,0.14) !important;
+            }
             #sc-gif-go:disabled { opacity: 0.5 !important; cursor: default !important; }
-            #sc-gif-status { color: rgba(255,255,255,0.65) !important; font-size: 12px !important; min-height: 14px !important; }
-            #sc-gif-result img { width: 100% !important; border-radius: 6px !important; display: block !important; }
+            #sc-gif-status { color: rgba(244,244,242,0.62) !important; font-size: 12px !important; min-height: 14px !important; }
+            #sc-gif-result img { width: 100% !important; border-radius: 8px !important; display: block !important; }
             #sc-gif-actions { display: flex !important; align-items: center !important; gap: 10px !important; margin-top: 8px !important; }
-            #sc-gif-dl { background: rgba(255,255,255,0.1) !important; color: white !important;
-                         border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important;
+            #sc-gif-dl { background: transparent !important; color: rgba(244,244,242,0.62) !important;
+                         border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 8px !important;
                          padding: 5px 12px !important; font-size: 12px !important; cursor: pointer !important;
-                         text-decoration: none !important; }
-            #sc-gif-dl:hover { background: rgba(255,255,255,0.2) !important; }
-            #sc-gif-size { color: rgba(255,255,255,0.45) !important; font-size: 11px !important; margin-left: auto !important; }
+                         text-decoration: none !important;
+                         transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important; }
+            #sc-gif-dl:hover { background: rgba(255,176,32,0.14) !important; border-color: #ffb020 !important; color: #f4f4f2 !important; }
+            #sc-gif-size { color: rgba(244,244,242,0.34) !important; font-size: 11px !important; margin-left: auto !important; }
             .sc-gif-imgbb-row { display: flex !important; flex-direction: column !important; gap: 4px !important; }
-            .sc-gif-imgbb-label { color: rgba(255,255,255,0.8) !important; font-size: 12px !important; font-weight: 500 !important; }
+            .sc-gif-imgbb-label {
+                color: rgba(244,244,242,0.62) !important; font-size: 12px !important; font-weight: 500 !important;
+                text-transform: uppercase !important; letter-spacing: 0.06em !important;
+            }
             .sc-gif-imgbb-header {
                 display: flex !important; align-items: center !important; justify-content: space-between !important;
                 background: transparent !important; border: none !important; padding: 0 !important;
                 cursor: pointer !important; width: 100% !important; text-align: left !important;
+                transition: color 120ms ease !important;
             }
-            .sc-gif-imgbb-header:focus-visible { outline: 2px solid #ffcc44 !important; outline-offset: 1px !important; }
-            .sc-gif-imgbb-toggle { color: rgba(255,255,255,0.5) !important; font-size: 11px !important; }
-            .sc-gif-imgbb-body { display: none !important; flex-direction: column !important; gap: 4px !important; margin-top: 4px !important; }
+            .sc-gif-imgbb-header:focus-visible { outline: 2px solid #ffb020 !important; outline-offset: 1px !important; }
+            .sc-gif-imgbb-toggle { color: rgba(244,244,242,0.34) !important; font-size: 11px !important; }
+            .sc-gif-imgbb-body { display: none !important; flex-direction: column !important; gap: 8px !important; margin-top: 4px !important; }
             .sc-gif-imgbb-row.sc-gif-imgbb-open .sc-gif-imgbb-body { display: flex !important; }
             .sc-gif-imgbb-input-row { display: flex !important; gap: 6px !important; }
             .sc-gif-imgbb-input { flex: 1 1 auto !important; }
             .sc-gif-imgbb-test-btn {
-                background: rgba(255,255,255,0.1) !important; color: white !important;
-                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important;
+                background: transparent !important; color: rgba(244,244,242,0.62) !important;
+                border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 8px !important;
                 padding: 5px 12px !important; font-size: 12px !important; cursor: pointer !important;
+                transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
             }
-            .sc-gif-imgbb-test-btn:hover:not(:disabled) { background: rgba(255,255,255,0.2) !important; }
+            .sc-gif-imgbb-test-btn:hover:not(:disabled) {
+                background: rgba(255,176,32,0.14) !important; border-color: #ffb020 !important; color: #f4f4f2 !important;
+            }
             .sc-gif-imgbb-status { font-size: 11px !important; min-height: 13px !important; }
             .sc-gif-optimize-row { display: flex !important; align-items: center !important; gap: 6px !important; }
-            .sc-gif-optimize-row label { color: rgba(255,255,255,0.8) !important; font-size: 12px !important; }
-            .sc-gif-cols { display: flex !important; flex-wrap: wrap !important; gap: 14px !important; }
+            .sc-gif-optimize-row label { color: rgba(244,244,242,0.62) !important; font-size: 12px !important; }
+            .sc-gif-cols { display: flex !important; flex-wrap: wrap !important; gap: 16px !important; }
             .sc-gif-col-left, .sc-gif-col-right {
                 flex: 1 1 260px !important; min-width: 0 !important;
-                display: flex !important; flex-direction: column !important; gap: 10px !important;
+                display: flex !important; flex-direction: column !important; gap: 8px !important;
+                background: rgba(244,244,242,0.02) !important;
+                border: 1px solid rgba(244,244,242,0.06) !important;
+                border-radius: 8px !important;
+                padding: 12px !important;
             }
             .sc-gif-fx-header {
                 display: flex !important; align-items: center !important; justify-content: space-between !important;
                 background: transparent !important; border: none !important; padding: 0 !important;
                 cursor: pointer !important; width: 100% !important; text-align: left !important;
-                color: rgba(255,255,255,0.8) !important; font-size: 12px !important; font-weight: 500 !important;
+                color: rgba(244,244,242,0.62) !important; font-size: 12px !important; font-weight: 500 !important;
+                text-transform: uppercase !important; letter-spacing: 0.06em !important;
+                transition: color 120ms ease !important;
             }
-            .sc-gif-fx-header:focus-visible { outline: 2px solid #ffcc44 !important; outline-offset: 1px !important; }
-            .sc-gif-fx-toggle { color: rgba(255,255,255,0.5) !important; font-size: 11px !important; }
+            .sc-gif-fx-header:focus-visible { outline: 2px solid #ffb020 !important; outline-offset: 1px !important; }
+            .sc-gif-fx-toggle { color: rgba(244,244,242,0.34) !important; font-size: 11px !important; }
             .sc-gif-fx { display: none !important; flex-direction: column !important; gap: 8px !important; }
             .sc-gif-fx.sc-gif-fx-open { display: flex !important; }
             .sc-gif-fx-row { display: flex !important; align-items: center !important; gap: 10px !important; }
             .sc-gif-fx-row label { flex: 1 1 0 !important; }
             .sc-gif-fx-row input[type=number] {
-                width: 64px !important; background: #1f1f22 !important; color: white !important;
-                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important; padding: 2px 4px !important;
+                width: 64px !important; background: #1f1f22 !important; color: #f4f4f2 !important;
+                border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 4px !important; padding: 2px 4px !important;
+                transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
             }
             .sc-gif-fx-filters { display: flex !important; flex-direction: column !important; gap: 6px !important; }
             .sc-gif-fx-filter { display: flex !important; align-items: center !important; gap: 8px !important; }
-            .sc-gif-fx-filter label { flex: 1 1 auto !important; color: rgba(255,255,255,0.8) !important; font-size: 12px !important; }
-            .sc-gif-fx-filter input[type=range] { flex: 1 1 auto !important; accent-color: #ffcc44 !important; }
+            .sc-gif-fx-filter label { flex: 1 1 auto !important; color: rgba(244,244,242,0.62) !important; font-size: 12px !important; }
+            .sc-gif-fx-filter input[type=range] { flex: 1 1 auto !important; accent-color: #ffb020 !important; }
             .sc-gif-preview { display: flex !important; flex-direction: column !important; gap: 6px !important; }
             .sc-gif-preview canvas {
-                width: 100% !important; background: #000 !important; border-radius: 6px !important;
-                border: 1px solid rgba(255,255,255,0.18) !important; display: block !important;
+                width: 100% !important; background: #000 !important; border-radius: 8px !important;
+                border: 1px solid rgba(244,244,242,0.08) !important; display: block !important;
             }
             .sc-gif-preview-controls { display: flex !important; align-items: center !important; gap: 8px !important; }
-            .sc-gif-preview-controls input[type=range] { flex: 1 1 auto !important; accent-color: #ffcc44 !important; }
+            .sc-gif-preview-controls input[type=range] { flex: 1 1 auto !important; accent-color: #ffb020 !important; }
             .sc-gif-preview-controls button {
-                background: rgba(255,255,255,0.1) !important; color: white !important;
-                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important;
+                background: transparent !important; color: rgba(244,244,242,0.62) !important;
+                border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 4px !important;
                 padding: 4px 10px !important; font-size: 12px !important; cursor: pointer !important;
+                transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
             }
-            .sc-gif-preview-status { color: rgba(255,255,255,0.5) !important; font-size: 11px !important; text-align: center !important; }
+            .sc-gif-preview-controls button:hover {
+                background: rgba(255,176,32,0.14) !important; border-color: #ffb020 !important; color: #f4f4f2 !important;
+            }
+            #sc-gif-fx-preview-btn {
+                background: transparent !important; color: rgba(244,244,242,0.62) !important;
+                border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 8px !important;
+                padding: 5px 12px !important; font-size: 12px !important; cursor: pointer !important;
+                transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
+            }
+            #sc-gif-fx-preview-btn:hover {
+                background: rgba(255,176,32,0.14) !important; border-color: #ffb020 !important; color: #f4f4f2 !important;
+            }
+            .sc-gif-preview-status { color: rgba(244,244,242,0.34) !important; font-size: 11px !important; text-align: center !important; }
             .sc-test-ok      { color: #7dffa0 !important; }
             .sc-test-bad     { color: #ff8080 !important; }
-            .sc-test-pending { color: rgba(255,255,255,0.55) !important; }
+            .sc-test-pending { color: rgba(244,244,242,0.34) !important; }
             #sc-gif-link {
                 display: flex !important; align-items: center !important; gap: 8px !important;
                 flex-wrap: wrap !important; margin-top: 8px !important;
@@ -353,13 +403,16 @@
                 text-decoration: none !important;
             }
             .sc-gif-link-url:hover { text-decoration: underline !important; }
-            .sc-gif-link-msg { color: rgba(255,255,255,0.6) !important; font-size: 12px !important; }
+            .sc-gif-link-msg { color: rgba(244,244,242,0.62) !important; font-size: 12px !important; }
             #sc-gif-copylink, #sc-gif-upload {
-                background: rgba(255,255,255,0.1) !important; color: white !important;
-                border: 1px solid rgba(255,255,255,0.2) !important; border-radius: 5px !important;
+                background: transparent !important; color: rgba(244,244,242,0.62) !important;
+                border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 8px !important;
                 padding: 5px 12px !important; font-size: 12px !important; cursor: pointer !important;
+                transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
             }
-            #sc-gif-copylink:hover, #sc-gif-upload:hover:not(:disabled) { background: rgba(255,255,255,0.2) !important; }
+            #sc-gif-copylink:hover, #sc-gif-upload:hover:not(:disabled) {
+                background: rgba(255,176,32,0.14) !important; border-color: #ffb020 !important; color: #f4f4f2 !important;
+            }
             #sc-gif-upload:disabled { opacity: 0.5 !important; cursor: default !important; }
         `;
         document.head.appendChild(style);
