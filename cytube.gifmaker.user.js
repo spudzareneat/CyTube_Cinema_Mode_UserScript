@@ -783,7 +783,7 @@
         // after it. Only clone here when zoom/shake will NOT run, since in
         // that case the first filter to touch the frame would otherwise
         // mutate the shared sourceFrames[frameIndex] entry in place.
-        const zoomShakeWillRun = !!(filters.zoomShake && filters.zoomShake.enabled);
+        const zoomShakeWillRun = !!(filters.zoomShake && filters.zoomShake.enabled && filters.zoomShake.intensity > 0);
         const input = zoomShakeWillRun ? source : cloneImageData(source);
         return applyFilters(input, w, h, filters, i, sequence.length);
     }
