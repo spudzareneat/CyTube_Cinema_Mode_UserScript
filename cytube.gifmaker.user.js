@@ -83,7 +83,14 @@
             #sc-gif-body {
                 padding: 16px !important; display: flex !important; flex-direction: column !important; gap: 16px !important;
                 flex: 1 1 auto !important; min-height: 0 !important; overflow-y: auto !important;
+                scrollbar-width: thin !important; scrollbar-color: rgba(244,244,242,0.2) #000 !important;
             }
+            #sc-gif-body::-webkit-scrollbar { width: 10px !important; }
+            #sc-gif-body::-webkit-scrollbar-track { background: #000 !important; }
+            #sc-gif-body::-webkit-scrollbar-thumb {
+                background: rgba(244,244,242,0.2) !important; border-radius: 6px !important; border: 2px solid #000 !important;
+            }
+            #sc-gif-body::-webkit-scrollbar-thumb:hover { background: #ffb020 !important; }
             #sc-gif-body label {
                 display: flex !important; align-items: center !important; justify-content: space-between !important;
                 color: rgba(244,244,242,0.62) !important; font-weight: 500 !important;
@@ -339,7 +346,19 @@
             .sc-gif-imgbb-status { font-size: 11px !important; min-height: 13px !important; }
             .sc-gif-optimize-row { display: flex !important; align-items: center !important; gap: 6px !important; }
             .sc-gif-optimize-row label { color: rgba(244,244,242,0.62) !important; font-size: 12px !important; }
+            .sc-gif-mid-header {
+                display: flex !important; align-items: center !important; justify-content: space-between !important;
+                background: transparent !important; border: none !important; padding: 0 !important;
+                cursor: pointer !important; width: 100% !important; text-align: left !important;
+                color: rgba(244,244,242,0.62) !important; font-size: 12px !important; font-weight: 500 !important;
+                text-transform: uppercase !important; letter-spacing: 0.06em !important;
+                transition: color 120ms ease !important;
+            }
+            .sc-gif-mid-header:hover { color: #f4f4f2 !important; }
+            .sc-gif-mid-header:focus-visible { outline: 2px solid #ffb020 !important; outline-offset: 1px !important; }
+            .sc-gif-mid-toggle { color: rgba(244,244,242,0.34) !important; font-size: 11px !important; }
             .sc-gif-cols { display: flex !important; flex-wrap: wrap !important; gap: 16px !important; }
+            .sc-gif-cols.sc-gif-mid-collapsed { display: none !important; }
             .sc-gif-col-left, .sc-gif-col-right {
                 flex: 1 1 260px !important; min-width: 0 !important;
                 display: flex !important; flex-direction: column !important; gap: 8px !important;
@@ -1103,7 +1122,11 @@
                 </div>
                 <div id="sc-gif-dur-line">Duration <b id="sc-gif-dur-val"></b></div>
                 </div>
-                <div class="sc-gif-cols">
+                <button type="button" class="sc-gif-mid-header" id="sc-gif-mid-header" aria-expanded="true">
+                    <span>Captions &amp; Format</span>
+                    <span class="sc-gif-mid-toggle" id="sc-gif-mid-toggle">▾</span>
+                </button>
+                <div class="sc-gif-cols" id="sc-gif-mid-body">
                     <div class="sc-gif-col-left">
                         <div class="sc-gif-captions">
                             <input type="text" id="sc-gif-cap-top" class="sc-gif-cap-input" placeholder="TOP TEXT (optional)" maxlength="120">
@@ -1191,6 +1214,9 @@
                         </div>
                     </div>
                 </div>
+                <div id="sc-gif-status"></div>
+                <div id="sc-gif-result"></div>
+                <button id="sc-gif-go" type="button">● Make GIF</button>
                 <div class="sc-gif-card">
                 <div class="sc-gif-imgbb-row" id="sc-gif-imgbb-row">
                     <button type="button" class="sc-gif-imgbb-header" id="sc-gif-imgbb-header" aria-expanded="false">
@@ -1211,9 +1237,6 @@
                     <label for="sc-gif-optimize">Optimize GIF before upload</label>
                 </div>
                 </div>
-                <button id="sc-gif-go" type="button">● Make GIF</button>
-                <div id="sc-gif-status"></div>
-                <div id="sc-gif-result"></div>
             </div>`;
         document.body.appendChild(panel);
 
@@ -1250,6 +1273,15 @@
             const open = fxBodyEl.classList.toggle('sc-gif-fx-open');
             fxToggle.textContent = open ? '▾' : '▸';
             fxHeader.setAttribute('aria-expanded', String(open));
+        });
+
+        const midHeader = $('#sc-gif-mid-header');
+        const midToggle = $('#sc-gif-mid-toggle');
+        const midBody = $('#sc-gif-mid-body');
+        midHeader.addEventListener('click', () => {
+            const collapsed = midBody.classList.toggle('sc-gif-mid-collapsed');
+            midToggle.textContent = collapsed ? '▸' : '▾';
+            midHeader.setAttribute('aria-expanded', String(!collapsed));
         });
 
         const imgbbInput = $('#sc-gif-imgbb-key');
@@ -1722,6 +1754,11 @@
 
         goBtn.addEventListener('click', async () => {
             if (isBlob || !src) return;
+            if (!midBody.classList.contains('sc-gif-mid-collapsed')) {
+                midBody.classList.add('sc-gif-mid-collapsed');
+                midToggle.textContent = '▸';
+                midHeader.setAttribute('aria-expanded', 'false');
+            }
             const fps    = parseInt($('#sc-gif-fps').value, 10);
             const width  = parseInt($('#sc-gif-width').value, 10);
             const aspect = $('#sc-gif-aspect').value;
