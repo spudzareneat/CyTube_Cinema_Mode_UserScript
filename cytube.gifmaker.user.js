@@ -1149,6 +1149,7 @@
             clearTimeout(_filmstripTimer);
             Object.values(thumbTimers).forEach(clearTimeout);
             stopSelectionAutoScroll();
+            stopPreviewPlayback();
             _revokeGifResult(); destroyScrubClone(); panel.remove();
         };
         $('#sc-gif-close').addEventListener('click', close);
@@ -1317,8 +1318,111 @@
             fx.zoomShake.mode = fxZsMode.value;
             fx.zoomShake.intensity = parseInt(fxZsAmt.value, 10) || 0;
         }
+        let _previewFrames = null; // { frames, w, h, delay, fingerprint }
+        let _previewSeq = null;
+        let _previewPlaying = false;
+        let _previewTimer = null;
+
+        const fxCanvas = $('#sc-gif-fx-canvas');
+        const fxCtx = fxCanvas.getContext('2d');
+        const fxScrub = $('#sc-gif-fx-scrub');
+        const fxPlayBtn = $('#sc-gif-fx-play');
+        const fxStatus = $('#sc-gif-fx-status');
+        const fxPreviewBtn = $('#sc-gif-fx-preview-btn');
+
+        function currentCaptureFingerprint() {
+            return [startT.toFixed(2), endT.toFixed(2), $('#sc-gif-fps').value, $('#sc-gif-width').value,
+                $('#sc-gif-aspect').value, capTopInput.value, capBottomInput.value,
+                getCapColor(), getCapSizePct('top'), getCapSizePct('bottom'),
+                capPos.top.x, capPos.top.y, capPos.bottom.x, capPos.bottom.y].join('|');
+        }
+
+        function stopPreviewPlayback() {
+            _previewPlaying = false;
+            clearTimeout(_previewTimer);
+            fxPlayBtn.textContent = '▶';
+        }
+
+        function rebuildPreviewSequence() {
+            if (!_previewFrames) return;
+            _previewSeq = buildPlaybackSequence(_previewFrames.frames.length,
+                { mode: fx.mode, speed: fx.speed, freezeHoldMs: fx.freezeHoldMs, fps: parseInt($('#sc-gif-fps').value, 10) });
+            fxScrub.max = String(_previewSeq.length - 1);
+            if (parseInt(fxScrub.value, 10) > _previewSeq.length - 1) fxScrub.value = '0';
+        }
+
+        function drawPreviewFrame(i) {
+            if (!_previewFrames || !_previewSeq || !_previewSeq.length) return;
+            const idx = Math.max(0, Math.min(_previewSeq.length - 1, i));
+            const filters = { deepFry: fx.deepFry, vhs: fx.vhs, zoomShake: fx.zoomShake };
+            const imgData = renderSequenceFrame(_previewFrames.frames, _previewSeq, idx, _previewFrames.w, _previewFrames.h, filters);
+            fxCanvas.width = _previewFrames.w;
+            fxCanvas.height = _previewFrames.h;
+            fxCtx.putImageData(imgData, 0, 0);
+        }
+
+        function refreshPreviewFrame() {
+            if (!_previewFrames) return;
+            rebuildPreviewSequence();
+            drawPreviewFrame(parseInt(fxScrub.value, 10) || 0);
+        }
+
+        fxScrub.addEventListener('input', () => { stopPreviewPlayback(); drawPreviewFrame(parseInt(fxScrub.value, 10) || 0); });
+
+        function stepPreviewPlayback() {
+            if (!_previewPlaying || !_previewSeq) return;
+            let next = parseInt(fxScrub.value, 10) + 1;
+            if (next > _previewSeq.length - 1) next = 0;
+            fxScrub.value = String(next);
+            drawPreviewFrame(next);
+            const fps = parseInt($('#sc-gif-fps').value, 10) || 12;
+            _previewTimer = setTimeout(stepPreviewPlayback, Math.round(1000 / fps));
+        }
+        fxPlayBtn.addEventListener('click', () => {
+            if (!_previewSeq) return;
+            if (_previewPlaying) { stopPreviewPlayback(); return; }
+            _previewPlaying = true;
+            fxPlayBtn.textContent = '⏸';
+            stepPreviewPlayback();
+        });
+
+        async function ensurePreviewFrames() {
+            if (isBlob || !src) return null;
+            const fp = currentCaptureFingerprint();
+            if (_previewFrames && _previewFrames.fingerprint === fp) return _previewFrames;
+            stopPreviewPlayback();
+            fxStatus.textContent = 'Capturing preview frames…';
+            fxPreviewBtn.disabled = true;
+            const fps = parseInt($('#sc-gif-fps').value, 10);
+            const width = parseInt($('#sc-gif-width').value, 10);
+            const aspect = $('#sc-gif-aspect').value;
+            const captions = {
+                color: getCapColor(),
+                top: { text: capTopInput.value.trim(), size: getCapSizePct('top'), x: capPos.top.x, y: capPos.top.y },
+                bottom: { text: capBottomInput.value.trim(), size: getCapSizePct('bottom'), x: capPos.bottom.x, y: capPos.bottom.y },
+            };
+            try {
+                const cap = await captureGifFrames({ src, startT, endT, fps, width, aspect, captions },
+                    p => { fxStatus.textContent = 'Capturing preview frames… ' + Math.round(p * 100) + '%'; });
+                cap.fingerprint = fp;
+                _previewFrames = cap;
+                fxScrub.disabled = false;
+                fxStatus.textContent = _previewFrames.frames.length + ' frames loaded';
+                rebuildPreviewSequence();
+                fxScrub.value = '0';
+                drawPreviewFrame(0);
+                return _previewFrames;
+            } catch (e) {
+                fxStatus.textContent = 'Preview failed: ' + (e.message || e);
+                return null;
+            } finally {
+                fxPreviewBtn.disabled = false;
+            }
+        }
+        fxPreviewBtn.addEventListener('click', () => { ensurePreviewFrames(); });
+
         [fxModeSel, fxSpeedSel, fxFreezeInput, fxDeepFryOn, fxDeepFryAmt, fxVhsOn, fxVhsAmt, fxZsOn, fxZsMode, fxZsAmt]
-            .forEach(el => el.addEventListener('input', syncFxState));
+            .forEach(el => el.addEventListener('input', () => { syncFxState(); refreshPreviewFrame(); }));
         syncFxState();
 
         const thumbTimers = {};
@@ -1643,9 +1747,15 @@
             goBtn.disabled = true;
             try {
                 setStatus('');
-                const cap = await captureGifFrames(
-                    { src, startT, endT, fps, width, aspect, captions },
-                    p => setWork('Capturing frames… ' + Math.round(p * 100) + '%'));
+                const fp = currentCaptureFingerprint();
+                let cap = (_previewFrames && _previewFrames.fingerprint === fp) ? _previewFrames : null;
+                if (!cap) {
+                    cap = await captureGifFrames(
+                        { src, startT, endT, fps, width, aspect, captions },
+                        p => setWork('Capturing frames… ' + Math.round(p * 100) + '%'));
+                } else {
+                    setWork('Using previewed frames… (' + cap.frames.length + ' frames)');
+                }
                 syncFxState();
                 const playback = { mode: fx.mode, speed: fx.speed, freezeHoldMs: fx.freezeHoldMs, fps };
                 const filters = { deepFry: fx.deepFry, vhs: fx.vhs, zoomShake: fx.zoomShake };
