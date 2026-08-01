@@ -2,7 +2,7 @@
 // @name         CyTube GIF Maker
 // @namespace    http://tampermonkey.net/
 // @version      1.4.0
-// @description  Standalone scene-to-GIF capture with meme captions and ImgBB upload — a record button in the video's own control bar, hidden during YouTube playback.
+// @description  Standalone scene-to-GIF capture with meme captions and ImgBB upload — a record button (in the video's own control bar, or floating if cytube.pc.user.js is also installed), disabled during YouTube playback. Integrates with cytube.pc.user.js when installed.
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
 // @grant        GM_xmlhttpRequest
@@ -46,7 +46,7 @@
     }
     function activeTitleSlug() {
         if (PC_MODE && _pcBridge) {
-            try { return _pcBridge.getTitleSlug() || ''; } catch (e) { return ''; }
+            try { return _pcBridge.getTitleSlug() || gifTitleSlug(); } catch (e) { return gifTitleSlug(); }
         }
         return gifTitleSlug();
     }
@@ -2023,8 +2023,8 @@
                 elapsed += PC_BRIDGE_POLL_MS;
                 const lateBridge = readPcBridge();
                 if (lateBridge) {
-                    clearInterval(pollTimer);
                     upgradeToPcMode(lateBridge);
+                    if (PC_MODE || elapsed >= PC_BRIDGE_POLL_TIMEOUT_MS) clearInterval(pollTimer);
                 } else if (elapsed >= PC_BRIDGE_POLL_TIMEOUT_MS) {
                     clearInterval(pollTimer);
                 }

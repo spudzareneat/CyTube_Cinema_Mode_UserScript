@@ -128,6 +128,8 @@ Every username in the chat buffer is assigned a consistent, deterministic color 
 
 Capture any scene as an animated GIF, straight from the player — no external tools.
 
+> Requires installing **`cytube.gifmaker.user.js`** as a separate userscript (see Setup below) — it owns the actual capture/encode/upload logic. When it's installed alongside `cytube.pc.user.js`, the GIF button becomes the floating **◉** button described here, and the ImgBB API key field / Optimize toggle move into `cytube.pc.user.js`'s Settings Modal instead of appearing inline in the GIF panel. Installed on its own, `cytube.gifmaker.user.js` still works standalone, with those fields inline and the record button in the video's own control bar.
+
 - Click the **◉** floating button to open the GIF maker
 - **Lock in the start and end** of the clip with live preview thumbnails of each frame — use **⤓ Now** to grab the current playback position, or nudge each mark by ±0.5s
 - Live **duration** readout, plus **FPS** and **Width** controls to balance quality vs. size
@@ -146,7 +148,7 @@ Capture any scene as an animated GIF, straight from the player — no external t
 
 **Right-click any chat message** for two options based on roughly when that message was posted (minus a 5-second lead-in):
 - **⤺ Jump movie to...** desyncs you from the group stream and rewinds to that moment
-- **◉ Create a GIF from here** opens the GIF Maker with its start mark already scrubbed to that moment
+- **◉ Create a GIF from here** opens the GIF Maker with its start mark already scrubbed to that moment (requires `cytube.gifmaker.user.js`)
 
 Messages from a previous movie are detected and don't offer either option.
 
@@ -161,7 +163,7 @@ A row of buttons is fixed to the screen at all times, positioned relative to the
 | ⛶ | Toggle browser fullscreen |
 | ▦ | Open the CyTube emote picker |
 | ⟳ | Free watch — desync from the group stream, click again to re-sync |
-| ◉ | Open the GIF maker |
+| ◉ | Open the GIF maker (requires `cytube.gifmaker.user.js`) |
 | ⚙ | Open the script settings modal |
 
 ---
@@ -197,6 +199,16 @@ You need a browser extension that can run userscripts. The most common options:
 2. Delete the placeholder content and paste in the full contents of `cytube.pc.user.js`
 3. Save with **Ctrl+S** (or **Cmd+S**)
 4. Navigate to `https://cytu.be/r/420Grindhouse` — the script runs automatically
+
+### 2b. Install GIF Maker (optional, recommended)
+
+GIF capture lives in its own userscript. Repeat the steps above with `cytube.gifmaker.user.js` to add it:
+
+1. Open Tampermonkey's dashboard and click **Create a new script**
+2. Delete the placeholder content and paste in the full contents of `cytube.gifmaker.user.js`
+3. Save with **Ctrl+S** (or **Cmd+S**)
+
+It can run alone or alongside `cytube.pc.user.js`. With both installed, the GIF button becomes the floating **◉** button and the ImgBB key / Optimize toggle move into `cytube.pc.user.js`'s Settings Modal (see GIF Maker above).
 
 ### 3. Enter your API keys (first run)
 

@@ -52,8 +52,15 @@
        own openGifPanel once it boots. Two separate Tampermonkey
        sandboxes can't see each other's plain `window` properties,
        so this goes on unsafeWindow — the real, shared page window.
+       Note: under Firefox's Xray vision, functions exposed via
+       unsafeWindow from one userscript sandbox aren't directly
+       callable from another sandbox without exportFunction/cloneInto,
+       so in practice this bridge only works Chrome-family browsers —
+       it degrades gracefully since both consumers null/type-check
+       before calling.
     ========================================================== */
-    unsafeWindow.__SC_GIF_BRIDGE__ = {
+    const _uw = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+    _uw.__SC_GIF_BRIDGE__ = {
         version: 1,
         getTitleSlug: () => _gifTitleSlug(),
         openGifPanel: undefined, // filled in by cytube.gifmaker.user.js once it boots
@@ -803,7 +810,7 @@
         });
         menu.appendChild(jumpItem);
 
-        const gifBridge = unsafeWindow.__SC_GIF_BRIDGE__;
+        const gifBridge = _uw.__SC_GIF_BRIDGE__;
         if (gifBridge && typeof gifBridge.openGifPanel === 'function') {
             const gifItem = document.createElement('button');
             gifItem.type = 'button';
@@ -1775,14 +1782,14 @@
                             <input type="checkbox" id="sc-input-gifoptimize" ${gifOptimizeEnabled() ? 'checked' : ''} />
                             <span class="sc-toggle-text">Optimize GIFs before upload</span>
                         </span>
-                        <span class="sc-settings-note">Losslessly shrinks the file with gifsicle before Download/Upload — adds a couple seconds</span>
+                        <span class="sc-settings-note">Losslessly shrinks the file with gifsicle before Download/Upload — adds a couple seconds (requires cytube.gifmaker.user.js)</span>
                     </label>
                 </div>
 
                 <div class="sc-settings-group sc-settings-divider">
                     <label class="sc-settings-label">
                         ImgBB GIF upload
-                        <span class="sc-settings-note">Optional — lets the ☁ Upload button in the GIF maker host a GIF and give you a shareable link</span>
+                        <span class="sc-settings-note">Optional — lets the ☁ Upload button in the GIF maker host a GIF and give you a shareable link (requires cytube.gifmaker.user.js)</span>
                     </label>
                     <div class="sc-settings-input-row">
                         <input id="sc-input-imgbb" class="sc-settings-input" type="text"
@@ -4040,6 +4047,19 @@
                 right: 44px !important;
             }
 
+            #fs-toggle-btn, #sc-emote-proxy {
+                position: fixed !important;
+                z-index: 20002 !important;
+                background: rgba(255,255,255,0.08) !important;
+                color: rgba(255,255,255,0.55) !important;
+                border: 1px solid rgba(255,255,255,0.18) !important;
+                border-radius: 50% !important;
+                width: 28px !important; height: 28px !important;
+                padding: 0 !important; font-size: 15px !important;
+                cursor: pointer !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
+                transition: color 0.3s ease, background 0.3s ease !important;
+            }
             /* Gap buttons slide out to the right on idle */
             #fs-toggle-btn {
                 transition: color 0.3s ease, background 0.3s ease, transform 0.3s ease, opacity 0.3s ease !important;
