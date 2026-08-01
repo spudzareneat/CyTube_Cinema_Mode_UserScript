@@ -27,6 +27,31 @@
     const gifOptimizeEnabled = () => getKey(LS_GIF_OPTIMIZE) !== 'off'; // default ON
 
     /* ==========================================================
+       PC-SCRIPT INTEGRATION BRIDGE
+       cytube.pc.user.js (when installed) exposes a small object on
+       the real page window (via unsafeWindow — two separate
+       Tampermonkey sandboxes can't see each other's plain `window`
+       properties) so this script can defer to its TMDB-aware title
+       logic and match its floating-button placement instead of
+       duplicating that functionality. Detection happens in
+       waitForBody() at the bottom of this file; PC_MODE and
+       _pcBridge are set there.
+    ========================================================== */
+    let PC_MODE = false;
+    let _pcBridge = null;
+    function readPcBridge() {
+        const w = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+        const b = w.__SC_GIF_BRIDGE__;
+        return (b && typeof b.getTitleSlug === 'function') ? b : null;
+    }
+    function activeTitleSlug() {
+        if (PC_MODE && _pcBridge) {
+            try { return _pcBridge.getTitleSlug() || ''; } catch (e) { return ''; }
+        }
+        return gifTitleSlug();
+    }
+
+    /* ==========================================================
        PLAYER / MEDIA-TYPE DETECTION
     ========================================================== */
     function getPlayerVideoEl() {
@@ -1235,6 +1260,7 @@
                 <div id="sc-gif-status"></div>
                 <div id="sc-gif-result"></div>
                 <button id="sc-gif-go" type="button">● Make GIF</button>
+                ${PC_MODE ? '' : `
                 <div class="sc-gif-card">
                 <div class="sc-gif-imgbb-row" id="sc-gif-imgbb-row">
                     <button type="button" class="sc-gif-imgbb-header" id="sc-gif-imgbb-header" aria-expanded="false">
@@ -1255,6 +1281,7 @@
                     <label for="sc-gif-optimize">Optimize GIF before upload</label>
                 </div>
                 </div>
+                `}
             </div>`;
         document.body.appendChild(panel);
 
@@ -1262,9 +1289,11 @@
         const goBtn = $('#sc-gif-go'), status = $('#sc-gif-status'), result = $('#sc-gif-result');
         $('#sc-gif-overview-total').textContent = isFinite(vidDur) ? _fmtClockTenths(vidDur) : '';
         const optimizeCheckbox = $('#sc-gif-optimize');
-        optimizeCheckbox.addEventListener('change', () => {
-            setKey(LS_GIF_OPTIMIZE, optimizeCheckbox.checked ? 'on' : 'off');
-        });
+        if (optimizeCheckbox) {
+            optimizeCheckbox.addEventListener('change', () => {
+                setKey(LS_GIF_OPTIMIZE, optimizeCheckbox.checked ? 'on' : 'off');
+            });
+        }
         const setStatus = (txt) => { status.textContent = txt || ''; };
 
         const close = () => {
@@ -1278,11 +1307,13 @@
         const imgbbRow = $('#sc-gif-imgbb-row');
         const imgbbHeader = $('#sc-gif-imgbb-header');
         const imgbbToggle = $('#sc-gif-imgbb-toggle');
-        imgbbHeader.addEventListener('click', () => {
-            const open = imgbbRow.classList.toggle('sc-gif-imgbb-open');
-            imgbbToggle.textContent = open ? '▾' : '▸';
-            imgbbHeader.setAttribute('aria-expanded', String(open));
-        });
+        if (imgbbHeader) {
+            imgbbHeader.addEventListener('click', () => {
+                const open = imgbbRow.classList.toggle('sc-gif-imgbb-open');
+                imgbbToggle.textContent = open ? '▾' : '▸';
+                imgbbHeader.setAttribute('aria-expanded', String(open));
+            });
+        }
 
         const fxHeader = $('#sc-gif-fx-header');
         const fxToggle = $('#sc-gif-fx-toggle');
@@ -1305,23 +1336,25 @@
         const imgbbInput = $('#sc-gif-imgbb-key');
         const imgbbStatus = $('#sc-gif-imgbb-status');
         const imgbbTestBtn = $('#sc-gif-imgbb-test');
-        imgbbInput.addEventListener('change', () => setKey(LS_IMGBB, imgbbInput.value.trim()));
-        imgbbTestBtn.addEventListener('click', async () => {
-            const key = imgbbInput.value.trim();
-            if (!key) { imgbbStatus.textContent = 'Enter an API key first'; imgbbStatus.className = 'sc-gif-imgbb-status sc-test-bad'; return; }
-            imgbbTestBtn.disabled = true;
-            imgbbStatus.textContent = 'Checking…'; imgbbStatus.className = 'sc-gif-imgbb-status sc-test-pending';
-            const verdict = await validateImgbbKey(key);
-            imgbbTestBtn.disabled = false;
-            if (verdict === 'valid') {
-                imgbbStatus.textContent = '✓ Valid API key'; imgbbStatus.className = 'sc-gif-imgbb-status sc-test-ok';
-                setKey(LS_IMGBB, key);
-            } else if (verdict === 'invalid') {
-                imgbbStatus.textContent = '✗ Invalid API key'; imgbbStatus.className = 'sc-gif-imgbb-status sc-test-bad';
-            } else {
-                imgbbStatus.textContent = '⚠ Couldn\'t reach ImgBB'; imgbbStatus.className = 'sc-gif-imgbb-status sc-test-bad';
-            }
-        });
+        if (imgbbInput) {
+            imgbbInput.addEventListener('change', () => setKey(LS_IMGBB, imgbbInput.value.trim()));
+            imgbbTestBtn.addEventListener('click', async () => {
+                const key = imgbbInput.value.trim();
+                if (!key) { imgbbStatus.textContent = 'Enter an API key first'; imgbbStatus.className = 'sc-gif-imgbb-status sc-test-bad'; return; }
+                imgbbTestBtn.disabled = true;
+                imgbbStatus.textContent = 'Checking…'; imgbbStatus.className = 'sc-gif-imgbb-status sc-test-pending';
+                const verdict = await validateImgbbKey(key);
+                imgbbTestBtn.disabled = false;
+                if (verdict === 'valid') {
+                    imgbbStatus.textContent = '✓ Valid API key'; imgbbStatus.className = 'sc-gif-imgbb-status sc-test-ok';
+                    setKey(LS_IMGBB, key);
+                } else if (verdict === 'invalid') {
+                    imgbbStatus.textContent = '✗ Invalid API key'; imgbbStatus.className = 'sc-gif-imgbb-status sc-test-bad';
+                } else {
+                    imgbbStatus.textContent = '⚠ Couldn\'t reach ImgBB'; imgbbStatus.className = 'sc-gif-imgbb-status sc-test-bad';
+                }
+            });
+        }
 
         const head = $('#sc-gif-head');
         let dragging = false, dragDX = 0, dragDY = 0;
@@ -1809,7 +1842,7 @@
                 blob = await maybeOptimizeGif(blob);
                 _gifResultUrl = URL.createObjectURL(blob);
                 const kb = Math.round(blob.size / 1024);
-                const slug = gifTitleSlug();
+                const slug = activeTitleSlug();
                 const fnameBase = (slug || 'gif') + '-' + _fmtFilenameTimestamp(clipStartForName) + (clipTagForName ? '-' + clipTagForName : '');
                 const fname = fnameBase + '.gif';
                 const hasImgbbKey = !!getKey(LS_IMGBB);
@@ -1865,13 +1898,68 @@
     }
 
     /* ==========================================================
-       RECORD BUTTON — attached into CyTube's own #videocontrols
-       .btn-group (the reload/fullscreen/voteskip row under the
-       player), styled with CyTube's native .btn.btn-sm.btn-default
-       so it reads as one of the built-in controls rather than an
-       overlay.
+       RECORD BUTTON
+       Standalone (no cytube.pc.user.js detected): attached into
+       CyTube's own #videocontrols .btn-group (the reload/fullscreen/
+       voteskip row under the player), styled with CyTube's native
+       .btn.btn-sm.btn-default so it reads as one of the built-in
+       controls rather than an overlay.
+
+       PC mode (cytube.pc.user.js detected): a floating #sc-gif-btn,
+       matching cytube.pc.user.js's own former floating GIF button
+       exactly (same id/style/position), so it participates in that
+       script's existing auto-dim-on-inactivity system with no
+       changes needed there.
     ========================================================== */
+    function injectFloatingButtonCss() {
+        if (document.getElementById('scgm-floatbtn-style')) return;
+        const style = document.createElement('style');
+        style.id = 'scgm-floatbtn-style';
+        style.textContent = `
+            #sc-gif-btn {
+                position: fixed !important;
+                z-index: 20002 !important;
+                background: rgba(255,255,255,0.08) !important;
+                color: rgba(255,255,255,0.55) !important;
+                border: 1px solid rgba(255,255,255,0.18) !important;
+                border-radius: 50% !important;
+                width: 28px !important; height: 28px !important;
+                padding: 0 !important; font-size: 14px !important;
+                cursor: pointer !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
+                transition: color 0.3s ease, background 0.3s ease, transform 0.3s ease, opacity 0.3s ease !important;
+            }
+            #sc-gif-btn.sc-bar-dim {
+                transform: translateX(60px) !important; opacity: 0 !important; pointer-events: none !important;
+            }
+            #sc-gif-btn:hover { color: white !important; background: rgba(255,255,255,0.22) !important; }
+            body.sc-horizontal #sc-gif-btn {
+                bottom: 6px !important;
+                right: calc(var(--sc-chat-w) + 1vw + 80px) !important;
+            }
+            body.sc-vertical #sc-gif-btn {
+                bottom: calc(var(--sc-chat-h) + 1vh) !important;
+                right: 80px !important;
+            }
+            #sc-gif-btn:disabled {
+                opacity: 0.35 !important; cursor: default !important; pointer-events: none !important;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
     function ensureRecordButton() {
+        if (PC_MODE) {
+            if (document.getElementById('sc-gif-btn')) return;
+            injectFloatingButtonCss();
+            const btn = document.createElement('button');
+            btn.id = 'sc-gif-btn';
+            btn.textContent = '◉';
+            btn.title = 'Make a GIF of this scene';
+            btn.addEventListener('click', () => openGifPanel());
+            document.body.appendChild(btn);
+            return;
+        }
         const group = document.getElementById('videocontrols');
         if (!group) return;
         let btn = document.getElementById('scgm-record-btn');
@@ -1889,30 +1977,66 @@
         }
     }
 
-    function updateRecordButtonVisibility() {
-        const btn = document.getElementById('scgm-record-btn');
+    function updateRecordButtonState() {
+        const btn = document.getElementById(PC_MODE ? 'sc-gif-btn' : 'scgm-record-btn');
         if (!btn) return;
-        // .btn's own display: inline-block isn't !important, but setting the
-        // inline override with importance here too costs nothing and avoids
-        // ever depending on that staying true.
-        btn.style.setProperty('display', isYouTubeMedia() ? 'none' : 'inline-block', 'important');
+        btn.disabled = isYouTubeMedia();
     }
 
     /* ==========================================================
        BOOT
     ========================================================== */
+    const PC_BRIDGE_POLL_MS = 50;
+    const PC_BRIDGE_POLL_TIMEOUT_MS = 1500;
+
+    function upgradeToPcMode(bridge) {
+        if (PC_MODE) return;
+        if (document.getElementById('sc-gif-panel')) return; // don't rip the DOM out from under an open panel
+        const oldBtn = document.getElementById('scgm-record-btn');
+        if (oldBtn) oldBtn.remove();
+        PC_MODE = true;
+        _pcBridge = bridge;
+        bridge.openGifPanel = openGifPanel;
+        ensureRecordButton();
+        updateRecordButtonState();
+    }
+
     function waitForBody() {
         if (!document.body) { requestAnimationFrame(waitForBody); return; }
 
+        const bridge = readPcBridge();
+        if (bridge) {
+            PC_MODE = true;
+            _pcBridge = bridge;
+            bridge.openGifPanel = openGifPanel;
+        }
+
         ensureRecordButton();
-        updateRecordButtonVisibility();
+        updateRecordButtonState();
+
+        if (!PC_MODE) {
+            // cytube.pc.user.js may still be loading (both scripts run at
+            // document-start with no guaranteed order) — poll briefly for
+            // its bridge before settling permanently into standalone mode.
+            let elapsed = 0;
+            const pollTimer = setInterval(() => {
+                elapsed += PC_BRIDGE_POLL_MS;
+                const lateBridge = readPcBridge();
+                if (lateBridge) {
+                    clearInterval(pollTimer);
+                    upgradeToPcMode(lateBridge);
+                } else if (elapsed >= PC_BRIDGE_POLL_TIMEOUT_MS) {
+                    clearInterval(pollTimer);
+                }
+            }, PC_BRIDGE_POLL_MS);
+        }
 
         new MutationObserver(() => {
             ensureRecordButton();
-            updateRecordButtonVisibility();
+            updateRecordButtonState();
         }).observe(document.body, { childList: true, subtree: true });
 
-        setInterval(updateRecordButtonVisibility, 800);
+        setInterval(updateRecordButtonState, 800);
     }
 
     waitForBody();
