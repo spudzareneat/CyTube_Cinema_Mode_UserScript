@@ -173,11 +173,11 @@
             .sc-gif-cap-yellow { color: #ffe135 !important; }
             .sc-gif-cap-rainbow { animation: sc-gif-cap-rainbow-cycle 3s linear infinite !important; }
             @keyframes sc-gif-cap-rainbow-cycle {
-                0%   { color: hsl(0, 90%, 60%); }
-                25%  { color: hsl(90, 90%, 60%); }
-                50%  { color: hsl(180, 90%, 60%); }
-                75%  { color: hsl(270, 90%, 60%); }
-                100% { color: hsl(360, 90%, 60%); }
+                0%   { -webkit-text-fill-color: hsl(0, 90%, 60%); }
+                25%  { -webkit-text-fill-color: hsl(90, 90%, 60%); }
+                50%  { -webkit-text-fill-color: hsl(180, 90%, 60%); }
+                75%  { -webkit-text-fill-color: hsl(270, 90%, 60%); }
+                100% { -webkit-text-fill-color: hsl(360, 90%, 60%); }
             }
             .sc-gif-cap-shadow { filter: drop-shadow(3px 4px 3px rgba(0,0,0,0.75)) !important; }
             .sc-gif-cap-wiggle { animation: sc-gif-cap-wiggle-cycle 1.4s ease-in-out infinite !important; }
@@ -185,11 +185,11 @@
                 animation: sc-gif-cap-rainbow-cycle 3s linear infinite, sc-gif-cap-wiggle-cycle 1.4s ease-in-out infinite !important;
             }
             @keyframes sc-gif-cap-wiggle-cycle {
-                0%   { transform: translate(-50%, -50%) translate(0, 0); }
-                25%  { transform: translate(-50%, -50%) translate(4px, -3px); }
-                50%  { transform: translate(-50%, -50%) translate(-3px, 3px); }
-                75%  { transform: translate(-50%, -50%) translate(3px, 2px); }
-                100% { transform: translate(-50%, -50%) translate(0, 0); }
+                0%   { translate: 0 0; }
+                25%  { translate: 4px -3px; }
+                50%  { translate: -3px 3px; }
+                75%  { translate: 3px 2px; }
+                100% { translate: 0 0; }
             }
             .sc-gif-cap-handle {
                 position: absolute !important; width: 14px !important; height: 14px !important;
@@ -575,7 +575,7 @@
         if (fx && fx.wiggle && fx.wiggle.enabled) {
             const amp = Math.max(0, Math.min(100, fx.wiggle.intensity || 0)) / 100 * fontPx * 0.35;
             cx += Math.sin((progress || 0) * Math.PI * 2 * 3) * amp;
-            cy += Math.cos((progress || 0) * Math.PI * 2 * 2.3) * amp;
+            cy += Math.sin((progress || 0) * Math.PI * 2 * 2) * amp;
         }
         const blockH = lines.length * lineHeight;
         const firstBaselineY = cy - blockH / 2 + fontPx * 0.8;
