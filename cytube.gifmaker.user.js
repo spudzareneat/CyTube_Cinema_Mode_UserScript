@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube GIF Maker
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
+// @version      1.2.0
 // @description  Standalone scene-to-GIF capture with meme captions and ImgBB upload — a record button in the video's own control bar, hidden during YouTube playback.
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -15,7 +15,7 @@
 
 (function () {
     'use strict';
-    console.log('[GIFMaker] cytube.gifmaker v1.1.0 loaded');
+    console.log('[GIFMaker] cytube.gifmaker v1.2.0 loaded');
 
     /* ==========================================================
        STORAGE
@@ -355,7 +355,9 @@
                 transition: color 120ms ease !important;
             }
             .sc-gif-mid-header:hover { color: #f4f4f2 !important; }
+            .sc-gif-mid-header:hover .sc-gif-mid-toggle { color: #f4f4f2 !important; }
             .sc-gif-mid-header:focus-visible { outline: 2px solid #ffb020 !important; outline-offset: 1px !important; }
+            .sc-gif-mid-header { margin-bottom: -8px !important; }
             .sc-gif-mid-toggle { color: rgba(244,244,242,0.34) !important; font-size: 11px !important; }
             .sc-gif-cols { display: flex !important; flex-wrap: wrap !important; gap: 16px !important; }
             .sc-gif-cols.sc-gif-mid-collapsed { display: none !important; }
@@ -1754,11 +1756,6 @@
 
         goBtn.addEventListener('click', async () => {
             if (isBlob || !src) return;
-            if (!midBody.classList.contains('sc-gif-mid-collapsed')) {
-                midBody.classList.add('sc-gif-mid-collapsed');
-                midToggle.textContent = '▸';
-                midHeader.setAttribute('aria-expanded', 'false');
-            }
             const fps    = parseInt($('#sc-gif-fps').value, 10);
             const width  = parseInt($('#sc-gif-width').value, 10);
             const aspect = $('#sc-gif-aspect').value;
@@ -1768,6 +1765,11 @@
                 bottom: { text: capBottomInput.value.trim(), size: getCapSizePct('bottom'), x: capPos.bottom.x, y: capPos.bottom.y },
             };
             if (endT - startT < MIN_CLIP_GAP) { setStatus('End must be after start.'); return; }
+            if (!midBody.classList.contains('sc-gif-mid-collapsed')) {
+                midBody.classList.add('sc-gif-mid-collapsed');
+                midToggle.textContent = '▸';
+                midHeader.setAttribute('aria-expanded', 'false');
+            }
 
             _revokeGifResult();
             result.innerHTML = '<div class="sc-gif-working"><span class="sc-gif-spinner"></span><span id="sc-gif-working-txt">Capturing frames…</span></div>';
@@ -1800,6 +1802,7 @@
                     `<span id="sc-gif-size">${kb} KB</span></div>` +
                     (hasImgbbKey ? `<div id="sc-gif-link"></div>` : '');
                 setStatus('Done.');
+                result.scrollIntoView({ block: 'nearest' });
 
                 const uploadBtn = hasImgbbKey ? $('#sc-gif-upload') : null;
                 if (uploadBtn) uploadBtn.addEventListener('click', async () => {
