@@ -1257,6 +1257,16 @@
                                 <label>Top size <input type="number" id="sc-gif-cap-top-size" min="4" max="40" step="1" value="16">%</label>
                                 <label>Bottom size <input type="number" id="sc-gif-cap-bottom-size" min="4" max="40" step="1" value="16">%</label>
                             </div>
+                            <div class="sc-gif-fx-filter">
+                                <input type="checkbox" id="sc-gif-fx-shadow-on">
+                                <label for="sc-gif-fx-shadow-on">Caption drop shadow</label>
+                                <input type="range" id="sc-gif-fx-shadow-amt" min="0" max="100" value="60">
+                            </div>
+                            <div class="sc-gif-fx-filter">
+                                <input type="checkbox" id="sc-gif-fx-wiggle-on">
+                                <label for="sc-gif-fx-wiggle-on">Caption wiggle</label>
+                                <input type="range" id="sc-gif-fx-wiggle-amt" min="0" max="100" value="60">
+                            </div>
                             <div class="sc-gif-cap-hint">Drag the dots on the START preview to position each caption.</div>
                         </div>
                     </div>
@@ -1308,16 +1318,6 @@
                                         <option value="shake">Shake</option>
                                     </select>
                                     <input type="range" id="sc-gif-fx-zoomshake-amt" min="0" max="100" value="60">
-                                </div>
-                                <div class="sc-gif-fx-filter">
-                                    <input type="checkbox" id="sc-gif-fx-shadow-on">
-                                    <label for="sc-gif-fx-shadow-on">Caption drop shadow</label>
-                                    <input type="range" id="sc-gif-fx-shadow-amt" min="0" max="100" value="60">
-                                </div>
-                                <div class="sc-gif-fx-filter">
-                                    <input type="checkbox" id="sc-gif-fx-wiggle-on">
-                                    <label for="sc-gif-fx-wiggle-on">Caption wiggle</label>
-                                    <input type="range" id="sc-gif-fx-wiggle-amt" min="0" max="100" value="60">
                                 </div>
                             </div>
                         </div>
