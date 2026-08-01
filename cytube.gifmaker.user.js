@@ -109,7 +109,7 @@
             #sc-gif-overview-total, #sc-gif-filmstrip-range, .sc-gif-fx-row input[type=number] {
                 font-family: "SF Mono", "Cascadia Code", Consolas, monospace !important;
             }
-            .sc-gif-marks { display: flex !important; gap: 10px !important; max-width: 420px !important; margin: 0 auto !important; }
+            .sc-gif-marks { display: flex !important; gap: 10px !important; }
             .sc-gif-mark {
                 flex: 1 1 0 !important; min-width: 0 !important;
                 display: flex !important; flex-direction: column !important; gap: 6px !important;
@@ -160,7 +160,7 @@
             }
             .sc-gif-cap-sizes input[type=number]:hover, .sc-gif-cap-sizes input[type=number]:focus { border-color: rgba(255,176,32,0.5) !important; }
             .sc-gif-cap-hint { text-align: center !important; color: rgba(244,244,242,0.34) !important; font-size: 11px !important; }
-            .sc-gif-overview { display: flex !important; flex-direction: column !important; gap: 4px !important; margin-bottom: 2px !important; }
+            .sc-gif-overview { display: flex !important; flex-direction: column !important; gap: 2px !important; }
             .sc-gif-overview-track {
                 position: relative !important; height: 16px !important; border-radius: 4px !important;
                 background: #17171a !important; border: 1px solid rgba(244,244,242,0.14) !important;
@@ -232,6 +232,7 @@
                 transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
             }
             .sc-gif-cap-input:hover, .sc-gif-cap-input:focus { border-color: rgba(255,176,32,0.5) !important; }
+            .sc-gif-cap-bottom-input { margin-bottom: 4px !important; }
             .sc-gif-cap-input::placeholder { color: rgba(244,244,242,0.34) !important; }
             .sc-gif-cap-color {
                 display: flex !important; align-items: center !important; gap: 14px !important; justify-content: center !important;
@@ -1107,7 +1108,7 @@
                     <div class="sc-gif-col-left">
                         <div class="sc-gif-captions">
                             <input type="text" id="sc-gif-cap-top" class="sc-gif-cap-input" placeholder="TOP TEXT (optional)" maxlength="120">
-                            <input type="text" id="sc-gif-cap-bottom" class="sc-gif-cap-input" placeholder="BOTTOM TEXT (optional)" maxlength="120">
+                            <input type="text" id="sc-gif-cap-bottom" class="sc-gif-cap-input sc-gif-cap-bottom-input" placeholder="BOTTOM TEXT (optional)" maxlength="120">
                             <div class="sc-gif-cap-color">
                                 <label><input type="radio" name="sc-gif-cap-color" value="white" checked> White</label>
                                 <label><input type="radio" name="sc-gif-cap-color" value="yellow"> Yellow</label>
