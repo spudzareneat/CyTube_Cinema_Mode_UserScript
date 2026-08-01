@@ -1068,6 +1068,7 @@
                 <button id="sc-gif-close" type="button">✕</button>
             </div>
             <div id="sc-gif-body">
+                <div class="sc-gif-card">
                 <div class="sc-gif-overview">
                     <div class="sc-gif-overview-track" id="sc-gif-overview-track" tabindex="0">
                         <div class="sc-gif-overview-viewport" id="sc-gif-overview-viewport"></div>
@@ -1075,7 +1076,7 @@
                     </div>
                     <div class="sc-gif-overview-labels">
                         <span>0:00</span>
-                        <span class="sc-gif-overview-current" id="sc-gif-overview-current"></span>
+                        <span class="sc-gif-overview-current">Currently editing: <span id="sc-gif-overview-current" class="sc-gif-mono"></span></span>
                         <span id="sc-gif-overview-total"></span>
                     </div>
                 </div>
@@ -1118,6 +1119,7 @@
                     </div>
                 </div>
                 <div id="sc-gif-dur-line">Duration <b id="sc-gif-dur-val"></b></div>
+                </div>
                 <div class="sc-gif-cols">
                     <div class="sc-gif-col-left">
                         <div class="sc-gif-captions">
@@ -1215,6 +1217,7 @@
                         <button type="button" id="sc-gif-fx-preview-btn">Preview effects</button>
                     </div>
                 </div>
+                <div class="sc-gif-card">
                 <div class="sc-gif-imgbb-row" id="sc-gif-imgbb-row">
                     <button type="button" class="sc-gif-imgbb-header" id="sc-gif-imgbb-header" aria-expanded="false">
                         <span class="sc-gif-imgbb-label">ImgBB key (for Upload)</span>
@@ -1232,6 +1235,7 @@
                 <div class="sc-gif-optimize-row">
                     <input type="checkbox" id="sc-gif-optimize" ${gifOptimizeEnabled() ? 'checked' : ''} />
                     <label for="sc-gif-optimize">Optimize GIF before upload</label>
+                </div>
                 </div>
                 <button id="sc-gif-go" type="button">● Make GIF</button>
                 <div id="sc-gif-status"></div>
@@ -1625,7 +1629,7 @@
                 overviewViewport.style.width = Math.max(0.5, ovEnd - ovStart) + '%';
             }
             if (!overviewDragging) {
-                overviewCurrent.textContent = 'Currently editing: ' + _fmtClockTenths(startT);
+                overviewCurrent.textContent = _fmtClockTenths(startT);
             }
         }
 
