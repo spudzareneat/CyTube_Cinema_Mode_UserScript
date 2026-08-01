@@ -230,6 +230,9 @@
                 box-shadow: 0 0 0 3px rgba(255,176,32,0.15) !important;
             }
             .sc-gif-captions { display: flex !important; flex-direction: column !important; gap: 8px !important; }
+            .sc-gif-tag-row { display: flex !important; align-items: center !important; gap: 8px !important; }
+            .sc-gif-tag-row label { color: rgba(244,244,242,0.62) !important; font-size: 12px !important; font-weight: 500 !important; flex: none !important; }
+            .sc-gif-tag-input { flex: 1 1 auto !important; width: auto !important; }
             .sc-gif-cap-input {
                 background: #1f1f22 !important; color: #f4f4f2 !important;
                 border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 4px !important;
@@ -449,6 +452,14 @@
         const m = Math.floor(sec / 60);
         const s = sec % 60;
         return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1);
+    }
+    function _fmtFilenameTimestamp(sec) {
+        sec = Math.max(0, Math.round(sec));
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = sec % 60;
+        const pad = n => String(n).padStart(2, '0');
+        return pad(h) + 'h' + pad(m) + 'm' + pad(s) + 's';
     }
     function _escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
@@ -1216,6 +1227,10 @@
                         </div>
                     </div>
                 </div>
+                <div class="sc-gif-tag-row">
+                    <label for="sc-gif-tag">Tag</label>
+                    <input type="text" id="sc-gif-tag" class="sc-gif-cap-input sc-gif-tag-input" placeholder="optional, appended to filename" maxlength="40">
+                </div>
                 <div id="sc-gif-status"></div>
                 <div id="sc-gif-result"></div>
                 <button id="sc-gif-go" type="button">● Make GIF</button>
@@ -1791,7 +1806,8 @@
                 _gifResultUrl = URL.createObjectURL(blob);
                 const kb = Math.round(blob.size / 1024);
                 const slug = gifTitleSlug();
-                const fnameBase = (slug || 'gif') + '-' + Date.now();
+                const tag = $('#sc-gif-tag').value.trim().replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '');
+                const fnameBase = (slug || 'gif') + '-' + _fmtFilenameTimestamp(startT) + (tag ? '-' + tag : '');
                 const fname = fnameBase + '.gif';
                 const hasImgbbKey = !!getKey(LS_IMGBB);
                 result.innerHTML =
