@@ -1226,12 +1226,12 @@
                         </div>
                     </div>
                 </div>
+                <div id="sc-gif-status"></div>
+                <div id="sc-gif-result"></div>
                 <div class="sc-gif-tag-row">
                     <label for="sc-gif-tag">Tag</label>
                     <input type="text" id="sc-gif-tag" class="sc-gif-cap-input sc-gif-tag-input" placeholder="optional, appended to filename" maxlength="40">
                 </div>
-                <div id="sc-gif-status"></div>
-                <div id="sc-gif-result"></div>
                 <button id="sc-gif-go" type="button">● Make GIF</button>
                 <div class="sc-gif-card">
                 <div class="sc-gif-imgbb-row" id="sc-gif-imgbb-row">
