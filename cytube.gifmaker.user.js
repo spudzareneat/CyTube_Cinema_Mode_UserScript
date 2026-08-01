@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube GIF Maker
 // @namespace    http://tampermonkey.net/
-// @version      1.3.0
+// @version      1.4.0
 // @description  Standalone scene-to-GIF capture with meme captions and ImgBB upload — a record button in the video's own control bar, hidden during YouTube playback.
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -15,7 +15,7 @@
 
 (function () {
     'use strict';
-    console.log('[GIFMaker] cytube.gifmaker v1.3.0 loaded');
+    console.log('[GIFMaker] cytube.gifmaker v1.4.0 loaded');
 
     /* ==========================================================
        STORAGE
