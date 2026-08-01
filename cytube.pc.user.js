@@ -35,6 +35,7 @@
     const LS_CHAT_PANEL_H = 'sc_chat_panel_h';   // vh — vertical-layout chat panel height
     const LS_CHAT_TEXTAREA_H = 'sc_chat_textarea_h'; // px — manually resized chat entry height
     const LS_GIF_OPTIMIZE = 'sc_gif_optimize'; // shared with cytube.gifmaker.user.js
+    const LS_AUTOEMBED   = 'sc_autoembed_images';
     const getKey   = id => localStorage.getItem(id) || '';
     const setKey   = (id, v) => localStorage.setItem(id, v.trim());
     const hasKey   = id => !!getKey(id);
@@ -42,6 +43,7 @@
     const movieLinksEnabled  = () => getKey(LS_MOVIE_LINKS) !== 'off';
     const lineupTimingEnabled = () => getKey(LS_LINEUP_TIMING) === 'on'; // opt-in, unlike the toggles above
     const gifOptimizeEnabled = () => getKey(LS_GIF_OPTIMIZE) !== 'off'; // default ON, like spellcheck/movielinks
+    const autoEmbedEnabled  = () => getKey(LS_AUTOEMBED) !== 'off'; // default ON, like spellcheck/movielinks
 
     /* ==========================================================
        GIF MAKER INTEGRATION BRIDGE
@@ -1668,6 +1670,66 @@
     }
 
     /* ==========================================================
+       CHAT IMAGE EMBEDS
+       Direct image links posted in chat (postimg.cc, imgur, discord
+       cdn, etc.) get a thumbnail preview appended under the message,
+       reusing the <a> tags CyTube already auto-linkifies out of the
+       raw message text. Sized to match the channel's own emote
+       height so it doesn't dominate the narrow chat column.
+    ========================================================== */
+    const IMAGE_LINK_RE = /\.(jpe?g|png|gif|webp|bmp)(\?[^\s"']*)?$/i;
+
+    function emoteInlineHeight() {
+        const el = document.querySelector('#messagebuffer .emote');
+        const h = el && el.getBoundingClientRect().height;
+        return (h && h > 4) ? Math.round(h) : 48; // fallback until a real emote has rendered
+    }
+
+    function findImageLinks(msgEl) {
+        return [...msgEl.querySelectorAll('a[href]')]
+            .filter(a => !a.dataset.scEmbedded && !a.closest('.sc-img-embed') && IMAGE_LINK_RE.test(a.href));
+    }
+
+    function embedImagesIn(msgEl) {
+        findImageLinks(msgEl).forEach(a => {
+            a.dataset.scEmbedded = '1';
+            const wrap = document.createElement('div');
+            wrap.className = 'sc-img-embed';
+            const link = document.createElement('a');
+            link.href = a.href;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            const img = document.createElement('img');
+            img.loading = 'lazy';
+            img.style.maxHeight = emoteInlineHeight() + 'px';
+            img.onerror = () => wrap.remove();
+            img.src = a.href;
+            link.appendChild(img);
+            const badge = document.createElement('span');
+            badge.className = 'sc-img-embed-badge';
+            badge.textContent = '🖼 embedded';
+            wrap.appendChild(link);
+            wrap.appendChild(badge);
+            msgEl.appendChild(wrap);
+        });
+    }
+
+    function scanImageEmbeds(buf) {
+        if (!autoEmbedEnabled()) return;
+        buf.querySelectorAll('[class*="chat-msg-"]').forEach(embedImagesIn);
+    }
+
+    let _imageEmbedObserverStarted = false;
+    function startImageEmbedObserver() {
+        const buf = document.getElementById('messagebuffer');
+        if (!buf) return;
+        if (_imageEmbedObserverStarted) { scanImageEmbeds(buf); return; }
+        _imageEmbedObserverStarted = true;
+        new MutationObserver(() => scanImageEmbeds(buf)).observe(buf, { childList: true, subtree: true });
+        scanImageEmbeds(buf);
+    }
+
+    /* ==========================================================
        SETTINGS MODAL
        First-run: shown automatically if TMDB key is absent.
        Re-openable via the ⚙ button added to the floating buttons.
@@ -1779,6 +1841,16 @@
                 <div class="sc-settings-group sc-settings-toggle-group">
                     <label class="sc-settings-toggle-label">
                         <span class="sc-toggle-row">
+                            <input type="checkbox" id="sc-input-autoembed" ${autoEmbedEnabled() ? 'checked' : ''} />
+                            <span class="sc-toggle-text">Auto-embed image links in chat</span>
+                        </span>
+                        <span class="sc-settings-note">Shows a thumbnail preview under messages that link directly to an image, marked "🖼 embedded"</span>
+                    </label>
+                </div>
+
+                <div class="sc-settings-group sc-settings-toggle-group">
+                    <label class="sc-settings-toggle-label">
+                        <span class="sc-toggle-row">
                             <input type="checkbox" id="sc-input-gifoptimize" ${gifOptimizeEnabled() ? 'checked' : ''} />
                             <span class="sc-toggle-text">Optimize GIFs before upload</span>
                         </span>
@@ -1876,6 +1948,7 @@
             const links  = document.getElementById('sc-input-movielinks').checked;
             const lineupTiming = document.getElementById('sc-input-lineuptiming').checked;
             const gifOptimize = document.getElementById('sc-input-gifoptimize').checked;
+            const autoEmbed = document.getElementById('sc-input-autoembed').checked;
             const imgbb  = document.getElementById('sc-input-imgbb').value.trim();
             const fontPx = parseInt(fontInput.value, 10);
             setKey(LS_TMDB,        tmdb);
@@ -1883,6 +1956,7 @@
             setKey(LS_MOVIE_LINKS, links ? 'on' : 'off');
             setKey(LS_LINEUP_TIMING, lineupTiming ? 'on' : 'off');
             setKey(LS_GIF_OPTIMIZE, gifOptimize ? 'on' : 'off');
+            setKey(LS_AUTOEMBED,   autoEmbed ? 'on' : 'off');
             setKey(LS_IMGBB,       imgbb);
             setKey(LS_CHAT_FONT,   String(fontPx));
             applyChatFontSize(fontPx);
@@ -3416,6 +3490,7 @@
             addFloatingButtons();
             addSettingsButton();
             startUserColorObserver();
+            startImageEmbedObserver();
             // Disconnect once all one-time elements are in place
             if (
                 document.getElementById('sc-chat-textarea') &&
@@ -4159,6 +4234,19 @@
                 flex: 1 !important; height: auto !important;
                 background: transparent !important; color: white !important;
                 font-size: 14px !important; overflow-y: auto !important; padding-bottom: 5px !important;
+            }
+            .sc-img-embed { display: block !important; margin-top: 4px !important; }
+            .sc-img-embed img {
+                display: block !important;
+                max-width: 100% !important;
+                border-radius: 4px !important;
+                cursor: pointer !important;
+            }
+            .sc-img-embed-badge {
+                display: block !important;
+                font-size: 10px !important;
+                color: rgba(244,244,242,0.45) !important;
+                margin-top: 2px !important;
             }
 
             /* Chat panel resizer — thin drag strip on the panel's free edge:
