@@ -373,32 +373,6 @@
             .sc-gif-fx-filter { display: flex !important; align-items: center !important; gap: 8px !important; }
             .sc-gif-fx-filter label { flex: 1 1 auto !important; color: rgba(244,244,242,0.62) !important; font-size: 12px !important; }
             .sc-gif-fx-filter input[type=range] { flex: 1 1 auto !important; accent-color: #ffb020 !important; }
-            .sc-gif-preview { display: flex !important; flex-direction: column !important; gap: 6px !important; }
-            .sc-gif-preview canvas {
-                width: 100% !important; background: #000 !important; border-radius: 8px !important;
-                border: 1px solid rgba(244,244,242,0.08) !important; display: block !important;
-            }
-            .sc-gif-preview-controls { display: flex !important; align-items: center !important; gap: 8px !important; }
-            .sc-gif-preview-controls input[type=range] { flex: 1 1 auto !important; accent-color: #ffb020 !important; }
-            .sc-gif-preview-controls button {
-                background: transparent !important; color: rgba(244,244,242,0.62) !important;
-                border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 4px !important;
-                padding: 4px 10px !important; font-size: 12px !important; cursor: pointer !important;
-                transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
-            }
-            .sc-gif-preview-controls button:hover {
-                background: rgba(255,176,32,0.14) !important; border-color: #ffb020 !important; color: #f4f4f2 !important;
-            }
-            #sc-gif-fx-preview-btn {
-                background: transparent !important; color: rgba(244,244,242,0.62) !important;
-                border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 8px !important;
-                padding: 5px 12px !important; font-size: 12px !important; cursor: pointer !important;
-                transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
-            }
-            #sc-gif-fx-preview-btn:hover {
-                background: rgba(255,176,32,0.14) !important; border-color: #ffb020 !important; color: #f4f4f2 !important;
-            }
-            .sc-gif-preview-status { color: rgba(244,244,242,0.34) !important; font-size: 11px !important; text-align: center !important; }
             .sc-test-ok      { color: #7dffa0 !important; }
             .sc-test-bad     { color: #ff8080 !important; }
             .sc-test-pending { color: rgba(244,244,242,0.34) !important; }
@@ -1169,60 +1143,51 @@
                             <span>Effects</span>
                             <span class="sc-gif-fx-toggle" id="sc-gif-fx-toggle">▸</span>
                         </button>
-                    </div>
-                </div>
-                <div class="sc-gif-fx sc-gif-card" id="sc-gif-fx-body">
-                    <div class="sc-gif-fx-row">
-                        <label>Playback
-                            <select id="sc-gif-fx-mode">
-                                <option value="normal" selected>Normal</option>
-                                <option value="reverse">Reverse</option>
-                                <option value="boomerang">Boomerang</option>
-                            </select>
-                        </label>
-                        <label>Speed
-                            <select id="sc-gif-fx-speed">
-                                <option value="0.5">0.5x</option>
-                                <option value="1" selected>1x</option>
-                                <option value="1.5">1.5x</option>
-                                <option value="2">2x</option>
-                            </select>
-                        </label>
-                    </div>
-                    <div class="sc-gif-fx-row">
-                        <label>Freeze hold (ms)
-                            <input type="number" id="sc-gif-fx-freeze" min="0" max="3000" step="100" value="0">
-                        </label>
-                    </div>
-                    <div class="sc-gif-fx-filters">
-                        <div class="sc-gif-fx-filter">
-                            <input type="checkbox" id="sc-gif-fx-deepfry-on">
-                            <label for="sc-gif-fx-deepfry-on">Deep-fry</label>
-                            <input type="range" id="sc-gif-fx-deepfry-amt" min="0" max="100" value="60">
+                        <div class="sc-gif-fx" id="sc-gif-fx-body">
+                            <div class="sc-gif-fx-row">
+                                <label>Playback
+                                    <select id="sc-gif-fx-mode">
+                                        <option value="normal" selected>Normal</option>
+                                        <option value="reverse">Reverse</option>
+                                        <option value="boomerang">Boomerang</option>
+                                    </select>
+                                </label>
+                                <label>Speed
+                                    <select id="sc-gif-fx-speed">
+                                        <option value="0.5">0.5x</option>
+                                        <option value="1" selected>1x</option>
+                                        <option value="1.5">1.5x</option>
+                                        <option value="2">2x</option>
+                                    </select>
+                                </label>
+                            </div>
+                            <div class="sc-gif-fx-row">
+                                <label>Freeze hold (ms)
+                                    <input type="number" id="sc-gif-fx-freeze" min="0" max="3000" step="100" value="0">
+                                </label>
+                            </div>
+                            <div class="sc-gif-fx-filters">
+                                <div class="sc-gif-fx-filter">
+                                    <input type="checkbox" id="sc-gif-fx-deepfry-on">
+                                    <label for="sc-gif-fx-deepfry-on">Deep-fry</label>
+                                    <input type="range" id="sc-gif-fx-deepfry-amt" min="0" max="100" value="60">
+                                </div>
+                                <div class="sc-gif-fx-filter">
+                                    <input type="checkbox" id="sc-gif-fx-vhs-on">
+                                    <label for="sc-gif-fx-vhs-on">VHS / glitch</label>
+                                    <input type="range" id="sc-gif-fx-vhs-amt" min="0" max="100" value="60">
+                                </div>
+                                <div class="sc-gif-fx-filter">
+                                    <input type="checkbox" id="sc-gif-fx-zoomshake-on">
+                                    <label for="sc-gif-fx-zoomshake-on">Zoom / Shake</label>
+                                    <select id="sc-gif-fx-zoomshake-mode">
+                                        <option value="zoom" selected>Zoom-in</option>
+                                        <option value="shake">Shake</option>
+                                    </select>
+                                    <input type="range" id="sc-gif-fx-zoomshake-amt" min="0" max="100" value="60">
+                                </div>
+                            </div>
                         </div>
-                        <div class="sc-gif-fx-filter">
-                            <input type="checkbox" id="sc-gif-fx-vhs-on">
-                            <label for="sc-gif-fx-vhs-on">VHS / glitch</label>
-                            <input type="range" id="sc-gif-fx-vhs-amt" min="0" max="100" value="60">
-                        </div>
-                        <div class="sc-gif-fx-filter">
-                            <input type="checkbox" id="sc-gif-fx-zoomshake-on">
-                            <label for="sc-gif-fx-zoomshake-on">Zoom / Shake</label>
-                            <select id="sc-gif-fx-zoomshake-mode">
-                                <option value="zoom" selected>Zoom-in</option>
-                                <option value="shake">Shake</option>
-                            </select>
-                            <input type="range" id="sc-gif-fx-zoomshake-amt" min="0" max="100" value="60">
-                        </div>
-                    </div>
-                    <div class="sc-gif-preview">
-                        <canvas id="sc-gif-fx-canvas"></canvas>
-                        <div class="sc-gif-preview-controls">
-                            <button type="button" id="sc-gif-fx-play">▶</button>
-                            <input type="range" id="sc-gif-fx-scrub" min="0" max="0" value="0" step="1" disabled>
-                        </div>
-                        <div class="sc-gif-preview-status" id="sc-gif-fx-status">Click Preview to load frames</div>
-                        <button type="button" id="sc-gif-fx-preview-btn">Preview effects</button>
                     </div>
                 </div>
                 <div class="sc-gif-card">
@@ -1264,7 +1229,6 @@
             clearTimeout(_filmstripTimer);
             Object.values(thumbTimers).forEach(clearTimeout);
             stopSelectionAutoScroll();
-            stopPreviewPlayback();
             _revokeGifResult(); destroyScrubClone(); panel.remove();
         };
         $('#sc-gif-close').addEventListener('click', close);
@@ -1354,9 +1318,7 @@
                 el.classList.toggle('sc-gif-thumb-fit', mode === 'fit');
             });
         };
-        aspectSel.addEventListener('change', () => { applyThumbAspect(); renderCaptionPreviews(); markPreviewStale(); });
-        $('#sc-gif-fps').addEventListener('change', markPreviewStale);
-        $('#sc-gif-width').addEventListener('change', markPreviewStale);
+        aspectSel.addEventListener('change', () => { applyThumbAspect(); renderCaptionPreviews(); });
         applyThumbAspect();
 
         const capTopInput = $('#sc-gif-cap-top');
@@ -1387,11 +1349,11 @@
             });
         }
         function renderCaptionPreviews() { renderCaptionPreview('start'); renderCaptionPreview('end'); }
-        capTopInput.addEventListener('input', () => { renderCaptionPreviews(); markPreviewStale(); });
-        capBottomInput.addEventListener('input', () => { renderCaptionPreviews(); markPreviewStale(); });
-        capSizeInputs.top.addEventListener('input', () => { renderCaptionPreviews(); markPreviewStale(); });
-        capSizeInputs.bottom.addEventListener('input', () => { renderCaptionPreviews(); markPreviewStale(); });
-        panel.querySelectorAll('input[name="sc-gif-cap-color"]').forEach(r => r.addEventListener('change', () => { renderCaptionPreviews(); markPreviewStale(); }));
+        capTopInput.addEventListener('input', renderCaptionPreviews);
+        capBottomInput.addEventListener('input', renderCaptionPreviews);
+        capSizeInputs.top.addEventListener('input', renderCaptionPreviews);
+        capSizeInputs.bottom.addEventListener('input', renderCaptionPreviews);
+        panel.querySelectorAll('input[name="sc-gif-cap-color"]').forEach(r => r.addEventListener('change', renderCaptionPreviews));
 
         function wireCapHandle(handleEl, thumbEl, key) {
             let dragging = false;
@@ -1444,121 +1406,8 @@
             fx.zoomShake.mode = fxZsMode.value;
             fx.zoomShake.intensity = parseInt(fxZsAmt.value, 10) || 0;
         }
-        let _previewFrames = null; // { frames, w, h, delay, fingerprint }
-        let _previewSeq = null;
-        let _previewPlaying = false;
-        let _previewTimer = null;
-
-        const fxCanvas = $('#sc-gif-fx-canvas');
-        const fxCtx = fxCanvas.getContext('2d');
-        const fxScrub = $('#sc-gif-fx-scrub');
-        const fxPlayBtn = $('#sc-gif-fx-play');
-        const fxStatus = $('#sc-gif-fx-status');
-        const fxPreviewBtn = $('#sc-gif-fx-preview-btn');
-
-        function currentCaptureFingerprint() {
-            return [startT.toFixed(2), endT.toFixed(2), $('#sc-gif-fps').value, $('#sc-gif-width').value,
-                $('#sc-gif-aspect').value, capTopInput.value, capBottomInput.value,
-                getCapColor(), getCapSizePct('top'), getCapSizePct('bottom'),
-                capPos.top.x, capPos.top.y, capPos.bottom.x, capPos.bottom.y].join('|');
-        }
-
-        // Cosmetic only — does not affect capture/cache/render logic, which
-        // already re-derives correctness from the fingerprint on every
-        // capture/encode. This just keeps the visible status text honest
-        // when the underlying settings have drifted since the last preview.
-        function markPreviewStale() {
-            if (_previewFrames && currentCaptureFingerprint() !== _previewFrames.fingerprint) {
-                fxStatus.textContent = 'Preview out of date — click Preview effects';
-            }
-        }
-
-        function stopPreviewPlayback() {
-            _previewPlaying = false;
-            clearTimeout(_previewTimer);
-            fxPlayBtn.textContent = '▶';
-        }
-
-        function rebuildPreviewSequence() {
-            if (!_previewFrames) return;
-            _previewSeq = buildPlaybackSequence(_previewFrames.frames.length,
-                { mode: fx.mode, speed: fx.speed, freezeHoldMs: fx.freezeHoldMs, fps: parseInt($('#sc-gif-fps').value, 10) });
-            fxScrub.max = String(_previewSeq.length - 1);
-            if (parseInt(fxScrub.value, 10) > _previewSeq.length - 1) fxScrub.value = '0';
-        }
-
-        function drawPreviewFrame(i) {
-            if (!_previewFrames || !_previewSeq || !_previewSeq.length) return;
-            const idx = Math.max(0, Math.min(_previewSeq.length - 1, i));
-            const filters = { deepFry: fx.deepFry, vhs: fx.vhs, zoomShake: fx.zoomShake };
-            const imgData = renderSequenceFrame(_previewFrames.frames, _previewSeq, idx, _previewFrames.w, _previewFrames.h, filters);
-            fxCanvas.width = _previewFrames.w;
-            fxCanvas.height = _previewFrames.h;
-            fxCtx.putImageData(imgData, 0, 0);
-        }
-
-        function refreshPreviewFrame() {
-            if (!_previewFrames) return;
-            rebuildPreviewSequence();
-            drawPreviewFrame(parseInt(fxScrub.value, 10) || 0);
-        }
-
-        fxScrub.addEventListener('input', () => { stopPreviewPlayback(); drawPreviewFrame(parseInt(fxScrub.value, 10) || 0); });
-
-        function stepPreviewPlayback() {
-            if (!_previewPlaying || !_previewSeq) return;
-            let next = parseInt(fxScrub.value, 10) + 1;
-            if (next > _previewSeq.length - 1) next = 0;
-            fxScrub.value = String(next);
-            drawPreviewFrame(next);
-            const fps = parseInt($('#sc-gif-fps').value, 10) || 12;
-            _previewTimer = setTimeout(stepPreviewPlayback, Math.round(1000 / fps));
-        }
-        fxPlayBtn.addEventListener('click', () => {
-            if (!_previewSeq) return;
-            if (_previewPlaying) { stopPreviewPlayback(); return; }
-            _previewPlaying = true;
-            fxPlayBtn.textContent = '⏸';
-            stepPreviewPlayback();
-        });
-
-        async function ensurePreviewFrames() {
-            if (isBlob || !src) return null;
-            const fp = currentCaptureFingerprint();
-            if (_previewFrames && _previewFrames.fingerprint === fp) return _previewFrames;
-            stopPreviewPlayback();
-            fxStatus.textContent = 'Capturing preview frames…';
-            fxPreviewBtn.disabled = true;
-            const fps = parseInt($('#sc-gif-fps').value, 10);
-            const width = parseInt($('#sc-gif-width').value, 10);
-            const aspect = $('#sc-gif-aspect').value;
-            const captions = {
-                color: getCapColor(),
-                top: { text: capTopInput.value.trim(), size: getCapSizePct('top'), x: capPos.top.x, y: capPos.top.y },
-                bottom: { text: capBottomInput.value.trim(), size: getCapSizePct('bottom'), x: capPos.bottom.x, y: capPos.bottom.y },
-            };
-            try {
-                const cap = await captureGifFrames({ src, startT, endT, fps, width, aspect, captions },
-                    p => { fxStatus.textContent = 'Capturing preview frames… ' + Math.round(p * 100) + '%'; });
-                cap.fingerprint = fp;
-                _previewFrames = cap;
-                fxScrub.disabled = false;
-                fxStatus.textContent = _previewFrames.frames.length + ' frames loaded';
-                rebuildPreviewSequence();
-                fxScrub.value = '0';
-                drawPreviewFrame(0);
-                return _previewFrames;
-            } catch (e) {
-                fxStatus.textContent = 'Preview failed: ' + (e.message || e);
-                return null;
-            } finally {
-                fxPreviewBtn.disabled = false;
-            }
-        }
-        fxPreviewBtn.addEventListener('click', () => { ensurePreviewFrames(); });
-
         [fxModeSel, fxSpeedSel, fxFreezeInput, fxDeepFryOn, fxDeepFryAmt, fxVhsOn, fxVhsAmt, fxZsOn, fxZsMode, fxZsAmt]
-            .forEach(el => el.addEventListener('input', () => { syncFxState(); refreshPreviewFrame(); }));
+            .forEach(el => el.addEventListener('input', syncFxState));
         syncFxState();
 
         const thumbTimers = {};
@@ -1842,7 +1691,6 @@
             if (changed === 'start' || changed === 'both') refreshThumb('start');
             if (changed === 'end' || changed === 'both') refreshThumb('end');
             scheduleFilmstripRefresh();
-            markPreviewStale();
         };
 
         const clampStart = () => {
@@ -1890,15 +1738,9 @@
             goBtn.disabled = true;
             try {
                 setStatus('');
-                const fp = currentCaptureFingerprint();
-                let cap = (_previewFrames && _previewFrames.fingerprint === fp) ? _previewFrames : null;
-                if (!cap) {
-                    cap = await captureGifFrames(
-                        { src, startT, endT, fps, width, aspect, captions },
-                        p => setWork('Capturing frames… ' + Math.round(p * 100) + '%'));
-                } else {
-                    setWork('Using previewed frames… (' + cap.frames.length + ' frames)');
-                }
+                const cap = await captureGifFrames(
+                    { src, startT, endT, fps, width, aspect, captions },
+                    p => setWork('Capturing frames… ' + Math.round(p * 100) + '%'));
                 syncFxState();
                 const playback = { mode: fx.mode, speed: fx.speed, freezeHoldMs: fx.freezeHoldMs, fps };
                 const filters = { deepFry: fx.deepFry, vhs: fx.vhs, zoomShake: fx.zoomShake };
