@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         CyTube Fullscreen Video with Overlay Chat
 // @namespace    http://tampermonkey.net/
-// @version      4.9.1
-// @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, right-click chat-to-movie seek, Tonight's Lineup schedule overlay, resizable chat panel, vertical monitor support, integrates with cytube.gifmaker.user.js when installed
+// @version      4.10.0
+// @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, right-click chat-to-movie seek, Tonight's Lineup schedule overlay, resizable chat panel, vertical monitor support, integrates with cytube.gifmaker.user.js when installed, auto-embedded chat image links
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
 // @grant        GM_xmlhttpRequest
@@ -18,7 +18,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.pc v4.9.1 loaded');
+    console.log('[SC] cytube.pc v4.10.0 loaded');
 
     /* ==========================================================
        API KEYS — stored in localStorage, managed via settings modal.
@@ -842,6 +842,7 @@
 
     function initChatSeekMenu() {
         document.addEventListener('contextmenu', (e) => {
+            if (e.target.closest && e.target.closest('.sc-img-embed')) return;
             const buf = document.getElementById('messagebuffer');
             if (!buf) return;
             const msgEl = e.target.closest && e.target.closest('[class*="chat-msg-"]');
@@ -1680,14 +1681,25 @@
     const IMAGE_LINK_RE = /\.(jpe?g|png|gif|webp|bmp)(\?[^\s"']*)?$/i;
 
     function emoteInlineHeight() {
-        const el = document.querySelector('#messagebuffer .emote');
+        const el = document.querySelector('#messagebuffer .channel-emote, #messagebuffer .emote');
         const h = el && el.getBoundingClientRect().height;
         return (h && h > 4) ? Math.round(h) : 48; // fallback until a real emote has rendered
     }
 
     function findImageLinks(msgEl) {
         return [...msgEl.querySelectorAll('a[href]')]
-            .filter(a => !a.dataset.scEmbedded && !a.closest('.sc-img-embed') && IMAGE_LINK_RE.test(a.href));
+            .filter(a => !a.dataset.scEmbedded && !a.closest('.sc-img-embed')
+                && (a.protocol === 'http:' || a.protocol === 'https:') && IMAGE_LINK_RE.test(a.href));
+    }
+
+    // CyTube auto-scrolls the message buffer synchronously when a message is
+    // appended, and separately hooks `load` on any <img> present at that time.
+    // Our thumbnail is appended asynchronously (via MutationObserver), so it
+    // misses both mechanisms — rescroll manually, but only if the user hadn't
+    // scrolled up to read backlog.
+    function rescrollChatIfNearBottom() {
+        const b = document.getElementById('messagebuffer');
+        if (b && b.scrollHeight - b.scrollTop - b.clientHeight < 60) b.scrollTop = b.scrollHeight;
     }
 
     function embedImagesIn(msgEl) {
@@ -1703,6 +1715,7 @@
             img.loading = 'lazy';
             img.style.maxHeight = emoteInlineHeight() + 'px';
             img.onerror = () => wrap.remove();
+            img.onload = rescrollChatIfNearBottom;
             img.src = a.href;
             link.appendChild(img);
             const badge = document.createElement('span');
@@ -1711,6 +1724,7 @@
             wrap.appendChild(link);
             wrap.appendChild(badge);
             msgEl.appendChild(wrap);
+            rescrollChatIfNearBottom();
         });
     }
 
@@ -1957,6 +1971,7 @@
             setKey(LS_LINEUP_TIMING, lineupTiming ? 'on' : 'off');
             setKey(LS_GIF_OPTIMIZE, gifOptimize ? 'on' : 'off');
             setKey(LS_AUTOEMBED,   autoEmbed ? 'on' : 'off');
+            startImageEmbedObserver();
             setKey(LS_IMGBB,       imgbb);
             setKey(LS_CHAT_FONT,   String(fontPx));
             applyChatFontSize(fontPx);
