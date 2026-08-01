@@ -46,6 +46,22 @@
     const lineupTimingEnabled = () => getKey(LS_LINEUP_TIMING) === 'on'; // opt-in, unlike the toggles above
     const gifOptimizeEnabled = () => getKey(LS_GIF_OPTIMIZE) !== 'off'; // default ON, like spellcheck/movielinks
 
+    /* ==========================================================
+       GIF MAKER INTEGRATION BRIDGE
+       cytube.gifmaker.user.js owns the actual GIF capture/encode/
+       panel implementation. This script exposes what gifmaker needs
+       to adapt when both scripts are installed together: a
+       TMDB-aware title slug, and a slot gifmaker fills in with its
+       own openGifPanel once it boots. Two separate Tampermonkey
+       sandboxes can't see each other's plain `window` properties,
+       so this goes on unsafeWindow — the real, shared page window.
+    ========================================================== */
+    unsafeWindow.__SC_GIF_BRIDGE__ = {
+        version: 1,
+        getTitleSlug: () => _gifTitleSlug(),
+        openGifPanel: undefined, // filled in by cytube.gifmaker.user.js once it boots
+    };
+
     function getChatFontSize() {
         const v = parseInt(getKey(LS_CHAT_FONT), 10);
         return (Number.isFinite(v) && v >= 10 && v <= 32) ? v : 14;
