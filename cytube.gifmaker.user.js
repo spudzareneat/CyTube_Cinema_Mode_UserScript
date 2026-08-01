@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube GIF Maker
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      1.1.0
 // @description  Standalone scene-to-GIF capture with meme captions and ImgBB upload — a record button in the video's own control bar, hidden during YouTube playback.
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -15,7 +15,7 @@
 
 (function () {
     'use strict';
-    console.log('[GIFMaker] cytube.gifmaker v1.0.0 loaded');
+    console.log('[GIFMaker] cytube.gifmaker v1.1.0 loaded');
 
     /* ==========================================================
        STORAGE
@@ -186,7 +186,6 @@
             }
             .sc-gif-overview-current { color: rgba(255,176,32,0.85) !important; font-weight: 600 !important; }
             .sc-gif-filmstrip { display: flex !important; flex-direction: column !important; gap: 6px !important; }
-            .sc-gif-filmstrip-window-label { text-align: center !important; color: rgba(244,244,242,0.34) !important; font-size: 11px !important; }
             .sc-gif-filmstrip-strip {
                 position: relative !important; height: 64px !important; border-radius: 8px !important;
                 overflow: hidden !important; border: 1px solid rgba(244,244,242,0.08) !important; user-select: none !important;
@@ -1061,11 +1060,11 @@
                     <div class="sc-gif-overview-labels">
                         <span>0:00</span>
                         <span class="sc-gif-overview-current"><span id="sc-gif-overview-label">Currently editing:</span> <span id="sc-gif-overview-current" class="sc-gif-mono"></span><span id="sc-gif-overview-hint"></span></span>
+                        <span>Window: <span id="sc-gif-filmstrip-range"></span></span>
                         <span id="sc-gif-overview-total"></span>
                     </div>
                 </div>
                 <div class="sc-gif-filmstrip">
-                    <div class="sc-gif-filmstrip-window-label">Window: <span id="sc-gif-filmstrip-range"></span></div>
                     <div class="sc-gif-filmstrip-strip" id="sc-gif-filmstrip-strip">
                         <div class="sc-gif-filmstrip-tiles" id="sc-gif-filmstrip-tiles"></div>
                         <div class="sc-gif-filmstrip-dim-left" id="sc-gif-filmstrip-dim-left"></div>
