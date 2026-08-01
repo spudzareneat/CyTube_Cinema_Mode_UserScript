@@ -285,6 +285,7 @@
             #sc-gif-dur-line b { color: #f4f4f2 !important; }
             .sc-gif-opts { display: flex !important; gap: 12px !important; }
             .sc-gif-col-right .sc-gif-opts { flex-direction: column !important; gap: 6px !important; }
+            .sc-gif-col-right .sc-gif-fx-row { flex-direction: column !important; align-items: stretch !important; gap: 6px !important; }
             .sc-gif-opts label { flex: 1 1 0 !important; }
             #sc-gif-go {
                 background: #ffb020 !important; color: #0c0c0e !important;
@@ -651,9 +652,9 @@
         return seq.length ? seq : [0];
     }
 
-    // Deterministic pseudo-random 0..1, never Math.random() — the live
-    // preview and the final render must produce identical noise/jitter
-    // for the same frame, or the two would visibly diverge.
+    // Deterministic pseudo-random 0..1, never Math.random() — the same
+    // frame at the same sequence position must always get the same
+    // noise/jitter, so re-encoding a clip reproduces byte-identical effects.
     function _seededNoise(seed) {
         const x = Math.sin(seed) * 10000;
         return x - Math.floor(x);
@@ -1179,7 +1180,7 @@
                                 </div>
                                 <div class="sc-gif-fx-filter">
                                     <input type="checkbox" id="sc-gif-fx-zoomshake-on">
-                                    <label for="sc-gif-fx-zoomshake-on">Zoom / Shake</label>
+                                    <label for="sc-gif-fx-zoomshake-on">Zoom/Shake</label>
                                     <select id="sc-gif-fx-zoomshake-mode">
                                         <option value="zoom" selected>Zoom-in</option>
                                         <option value="shake">Shake</option>
