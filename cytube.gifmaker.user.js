@@ -559,25 +559,38 @@
         }
         const blockH = lines.length * lineHeight;
         const firstBaselineY = cy - blockH / 2 + fontPx * 0.8;
-        // Shadow is applied under the stroke pass only, then cleared before
-        // the fill pass — canvas shadow would otherwise render twice
-        // (once per draw call) and look doubled/blurred.
-        if (fx && fx.shadow && fx.shadow.enabled) {
+        const shadowOn = !!(fx && fx.shadow && fx.shadow.enabled);
+        if (shadowOn) {
+            // Shadow is applied under the stroke pass only, then cleared
+            // before the fill pass — canvas shadow would otherwise render
+            // twice (once per draw call) and look doubled/blurred. This
+            // requires two separate passes (all strokes, then all fills)
+            // instead of the original interleaved per-line loop, so this
+            // split only happens when shadow is actually on — with it off,
+            // the original single interleaved loop runs unchanged, keeping
+            // draw order (and therefore pixel output) identical to before
+            // this feature existed.
             const amt = Math.max(0, Math.min(100, fx.shadow.intensity || 0)) / 100;
             ctx.shadowColor = 'rgba(0,0,0,0.7)';
             ctx.shadowBlur = amt * 14;
             ctx.shadowOffsetX = amt * 5;
             ctx.shadowOffsetY = amt * 5;
+            lines.forEach((line, i) => {
+                const ly = firstBaselineY + i * lineHeight;
+                ctx.strokeText(line, cx, ly);
+            });
+            ctx.shadowColor = 'transparent';
+            lines.forEach((line, i) => {
+                const ly = firstBaselineY + i * lineHeight;
+                ctx.fillText(line, cx, ly);
+            });
+        } else {
+            lines.forEach((line, i) => {
+                const ly = firstBaselineY + i * lineHeight;
+                ctx.strokeText(line, cx, ly);
+                ctx.fillText(line, cx, ly);
+            });
         }
-        lines.forEach((line, i) => {
-            const ly = firstBaselineY + i * lineHeight;
-            ctx.strokeText(line, cx, ly);
-        });
-        ctx.shadowColor = 'transparent';
-        lines.forEach((line, i) => {
-            const ly = firstBaselineY + i * lineHeight;
-            ctx.fillText(line, cx, ly);
-        });
         ctx.restore();
     }
     function drawCaptions(ctx, w, h, captions, progress) {
