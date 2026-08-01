@@ -806,15 +806,18 @@
         });
         menu.appendChild(jumpItem);
 
-        const gifItem = document.createElement('button');
-        gifItem.type = 'button';
-        gifItem.className = 'sc-seek-item';
-        gifItem.innerHTML = `<span class="sc-seek-main">◉ Create a GIF from here</span>`;
-        gifItem.addEventListener('click', () => {
-            hideChatSeekMenu();
-            openGifPanel(targetSec);
-        });
-        menu.appendChild(gifItem);
+        const gifBridge = unsafeWindow.__SC_GIF_BRIDGE__;
+        if (gifBridge && typeof gifBridge.openGifPanel === 'function') {
+            const gifItem = document.createElement('button');
+            gifItem.type = 'button';
+            gifItem.className = 'sc-seek-item';
+            gifItem.innerHTML = `<span class="sc-seek-main">◉ Create a GIF from here</span>`;
+            gifItem.addEventListener('click', () => {
+                hideChatSeekMenu();
+                gifBridge.openGifPanel(targetSec);
+            });
+            menu.appendChild(gifItem);
+        }
 
         document.body.appendChild(menu);
         _seekMenuEl = menu;
@@ -1931,11 +1934,6 @@
         document.addEventListener('fullscreenchange', () => {
             fsBtn.style.display = document.fullscreenElement ? 'none' : '';
         });
-
-        const gifBtn = document.createElement('button');
-        gifBtn.id = 'sc-gif-btn'; gifBtn.textContent = '◉'; gifBtn.title = 'Make a GIF of this scene';
-        gifBtn.addEventListener('click', openGifPanel);
-        document.body.appendChild(gifBtn);
     }
 
     /* ==========================================================
