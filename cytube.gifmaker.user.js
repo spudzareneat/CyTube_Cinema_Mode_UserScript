@@ -55,7 +55,7 @@
                 position: fixed !important;
                 top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important;
                 z-index: 30002 !important;
-                width: 420px !important; max-width: 92vw !important;
+                width: 600px !important; max-width: 92vw !important;
                 max-height: 88vh !important;
                 display: flex !important; flex-direction: column !important;
                 background: rgba(18,18,20,0.98) !important;
@@ -302,7 +302,21 @@
             .sc-gif-imgbb-status { font-size: 11px !important; min-height: 13px !important; }
             .sc-gif-optimize-row { display: flex !important; align-items: center !important; gap: 6px !important; }
             .sc-gif-optimize-row label { color: rgba(255,255,255,0.8) !important; font-size: 12px !important; }
-            .sc-gif-fx { display: flex !important; flex-direction: column !important; gap: 8px !important; }
+            .sc-gif-cols { display: flex !important; flex-wrap: wrap !important; gap: 14px !important; }
+            .sc-gif-col-left, .sc-gif-col-right {
+                flex: 1 1 240px !important; min-width: 0 !important;
+                display: flex !important; flex-direction: column !important; gap: 10px !important;
+            }
+            .sc-gif-fx-header {
+                display: flex !important; align-items: center !important; justify-content: space-between !important;
+                background: transparent !important; border: none !important; padding: 0 !important;
+                cursor: pointer !important; width: 100% !important; text-align: left !important;
+                color: rgba(255,255,255,0.8) !important; font-size: 12px !important; font-weight: 500 !important;
+            }
+            .sc-gif-fx-header:focus-visible { outline: 2px solid #ffcc44 !important; outline-offset: 1px !important; }
+            .sc-gif-fx-toggle { color: rgba(255,255,255,0.5) !important; font-size: 11px !important; }
+            .sc-gif-fx { display: none !important; flex-direction: column !important; gap: 8px !important; }
+            .sc-gif-fx.sc-gif-fx-open { display: flex !important; }
             .sc-gif-fx-row { display: flex !important; align-items: center !important; gap: 10px !important; }
             .sc-gif-fx-row label { flex: 1 1 0 !important; }
             .sc-gif-fx-row input[type=number] {
@@ -1050,40 +1064,50 @@
                     </div>
                 </div>
                 <div id="sc-gif-dur-line">Duration <b id="sc-gif-dur-val"></b></div>
-                <div class="sc-gif-captions">
-                    <input type="text" id="sc-gif-cap-top" class="sc-gif-cap-input" placeholder="TOP TEXT (optional)" maxlength="120">
-                    <input type="text" id="sc-gif-cap-bottom" class="sc-gif-cap-input" placeholder="BOTTOM TEXT (optional)" maxlength="120">
-                    <div class="sc-gif-cap-color">
-                        <label><input type="radio" name="sc-gif-cap-color" value="white" checked> White</label>
-                        <label><input type="radio" name="sc-gif-cap-color" value="yellow"> Yellow</label>
+                <div class="sc-gif-cols">
+                    <div class="sc-gif-col-left">
+                        <div class="sc-gif-captions">
+                            <input type="text" id="sc-gif-cap-top" class="sc-gif-cap-input" placeholder="TOP TEXT (optional)" maxlength="120">
+                            <input type="text" id="sc-gif-cap-bottom" class="sc-gif-cap-input" placeholder="BOTTOM TEXT (optional)" maxlength="120">
+                            <div class="sc-gif-cap-color">
+                                <label><input type="radio" name="sc-gif-cap-color" value="white" checked> White</label>
+                                <label><input type="radio" name="sc-gif-cap-color" value="yellow"> Yellow</label>
+                            </div>
+                            <div class="sc-gif-cap-sizes">
+                                <label>Top size <input type="number" id="sc-gif-cap-top-size" min="4" max="40" step="1" value="16">%</label>
+                                <label>Bottom size <input type="number" id="sc-gif-cap-bottom-size" min="4" max="40" step="1" value="16">%</label>
+                            </div>
+                            <div class="sc-gif-cap-hint">Drag the dots on the START preview to position each caption.</div>
+                        </div>
                     </div>
-                    <div class="sc-gif-cap-sizes">
-                        <label>Top size <input type="number" id="sc-gif-cap-top-size" min="4" max="40" step="1" value="16">%</label>
-                        <label>Bottom size <input type="number" id="sc-gif-cap-bottom-size" min="4" max="40" step="1" value="16">%</label>
+                    <div class="sc-gif-col-right">
+                        <div class="sc-gif-opts">
+                            <label>FPS
+                                <select id="sc-gif-fps">
+                                    <option value="8">8</option><option value="10">10</option>
+                                    <option value="12" selected>12</option><option value="15">15</option>
+                                </select>
+                            </label>
+                            <label>Width
+                                <select id="sc-gif-width">
+                                    <option value="320">320</option><option value="480" selected>480</option><option value="640">640</option>
+                                </select>
+                            </label>
+                            <label>Shape
+                                <select id="sc-gif-aspect">
+                                    <option value="native">Native</option>
+                                    <option value="crop" selected>4:3 Crop</option>
+                                    <option value="fit">4:3 Bars</option>
+                                </select>
+                            </label>
+                        </div>
+                        <button type="button" class="sc-gif-fx-header" id="sc-gif-fx-header" aria-expanded="false">
+                            <span>Effects</span>
+                            <span class="sc-gif-fx-toggle" id="sc-gif-fx-toggle">▸</span>
+                        </button>
                     </div>
-                    <div class="sc-gif-cap-hint">Drag the dots on the START preview to position each caption.</div>
                 </div>
-                <div class="sc-gif-opts">
-                    <label>FPS
-                        <select id="sc-gif-fps">
-                            <option value="8">8</option><option value="10">10</option>
-                            <option value="12" selected>12</option><option value="15">15</option>
-                        </select>
-                    </label>
-                    <label>Width
-                        <select id="sc-gif-width">
-                            <option value="320">320</option><option value="480" selected>480</option><option value="640">640</option>
-                        </select>
-                    </label>
-                    <label>Shape
-                        <select id="sc-gif-aspect">
-                            <option value="native">Native</option>
-                            <option value="crop" selected>4:3 Crop</option>
-                            <option value="fit">4:3 Bars</option>
-                        </select>
-                    </label>
-                </div>
-                <div class="sc-gif-fx">
+                <div class="sc-gif-fx" id="sc-gif-fx-body">
                     <div class="sc-gif-fx-row">
                         <label>Playback
                             <select id="sc-gif-fx-mode">
@@ -1186,6 +1210,15 @@
             const open = imgbbRow.classList.toggle('sc-gif-imgbb-open');
             imgbbToggle.textContent = open ? '▾' : '▸';
             imgbbHeader.setAttribute('aria-expanded', String(open));
+        });
+
+        const fxHeader = $('#sc-gif-fx-header');
+        const fxToggle = $('#sc-gif-fx-toggle');
+        const fxBodyEl = $('#sc-gif-fx-body');
+        fxHeader.addEventListener('click', () => {
+            const open = fxBodyEl.classList.toggle('sc-gif-fx-open');
+            fxToggle.textContent = open ? '▾' : '▸';
+            fxHeader.setAttribute('aria-expanded', String(open));
         });
 
         const imgbbInput = $('#sc-gif-imgbb-key');
