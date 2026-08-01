@@ -230,9 +230,15 @@
                 box-shadow: 0 0 0 3px rgba(255,176,32,0.15) !important;
             }
             .sc-gif-captions { display: flex !important; flex-direction: column !important; gap: 8px !important; }
-            .sc-gif-tag-row { display: flex !important; align-items: center !important; gap: 8px !important; }
-            .sc-gif-tag-row label { color: rgba(244,244,242,0.62) !important; font-size: 12px !important; font-weight: 500 !important; flex: none !important; }
-            .sc-gif-tag-input { flex: 1 1 auto !important; min-width: 0 !important; }
+            .sc-gif-tag-input {
+                width: 90px !important; min-width: 0 !important;
+                background: #1f1f22 !important; color: #f4f4f2 !important;
+                border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 4px !important;
+                padding: 4px 8px !important; font-size: 12px !important;
+                transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
+            }
+            .sc-gif-tag-input:hover, .sc-gif-tag-input:focus { border-color: rgba(255,176,32,0.5) !important; }
+            .sc-gif-tag-input::placeholder { color: rgba(244,244,242,0.34) !important; }
             .sc-gif-cap-input {
                 background: #1f1f22 !important; color: #f4f4f2 !important;
                 border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 4px !important;
@@ -1228,10 +1234,6 @@
                 </div>
                 <div id="sc-gif-status"></div>
                 <div id="sc-gif-result"></div>
-                <div class="sc-gif-tag-row">
-                    <label for="sc-gif-tag">Tag</label>
-                    <input type="text" id="sc-gif-tag" class="sc-gif-cap-input sc-gif-tag-input" placeholder="optional, appended to filename" maxlength="40">
-                </div>
                 <button id="sc-gif-go" type="button">● Make GIF</button>
                 <div class="sc-gif-card">
                 <div class="sc-gif-imgbb-row" id="sc-gif-imgbb-row">
@@ -1780,7 +1782,8 @@
             };
             if (endT - startT < MIN_CLIP_GAP) { setStatus('End must be after start.'); return; }
             const clipStartForName = startT;
-            const clipTagForName = $('#sc-gif-tag').value.trim().replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '');
+            const tagEl = $('#sc-gif-tag');
+            const clipTagForName = tagEl ? tagEl.value.trim().replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') : '';
             if (!midBody.classList.contains('sc-gif-mid-collapsed')) {
                 midBody.classList.add('sc-gif-mid-collapsed');
                 midToggle.textContent = '▸';
@@ -1815,6 +1818,7 @@
                     `<div id="sc-gif-actions">` +
                     `<a id="sc-gif-dl" href="${_gifResultUrl}" download="${_escHtml(fname)}">⬇ Download</a>` +
                     (hasImgbbKey ? `<button id="sc-gif-upload" type="button">☁ Upload</button>` : '') +
+                    `<input type="text" id="sc-gif-tag" class="sc-gif-tag-input" placeholder="tag" maxlength="40">` +
                     `<span id="sc-gif-size">${kb} KB</span></div>` +
                     (hasImgbbKey ? `<div id="sc-gif-link"></div>` : '');
                 setStatus('Done.');
