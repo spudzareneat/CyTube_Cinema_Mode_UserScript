@@ -181,6 +181,9 @@
             }
             .sc-gif-cap-shadow { filter: drop-shadow(3px 4px 3px rgba(0,0,0,0.75)) !important; }
             .sc-gif-cap-wiggle { animation: sc-gif-cap-wiggle-cycle 1.4s ease-in-out infinite !important; }
+            .sc-gif-cap-rainbow.sc-gif-cap-wiggle {
+                animation: sc-gif-cap-rainbow-cycle 3s linear infinite, sc-gif-cap-wiggle-cycle 1.4s ease-in-out infinite !important;
+            }
             @keyframes sc-gif-cap-wiggle-cycle {
                 0%   { transform: translate(-50%, -50%) translate(0, 0); }
                 25%  { transform: translate(-50%, -50%) translate(4px, -3px); }
