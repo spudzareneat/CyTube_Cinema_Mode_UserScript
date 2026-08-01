@@ -171,6 +171,26 @@
             .sc-gif-cap-top { left: var(--cx-top, 50%) !important; top: var(--cy-top, 10%) !important; }
             .sc-gif-cap-bottom { left: var(--cx-bottom, 50%) !important; top: var(--cy-bottom, 90%) !important; }
             .sc-gif-cap-yellow { color: #ffe135 !important; }
+            .sc-gif-cap-rainbow { animation: sc-gif-cap-rainbow-cycle 3s linear infinite !important; }
+            @keyframes sc-gif-cap-rainbow-cycle {
+                0%   { -webkit-text-fill-color: hsl(0, 90%, 60%); }
+                25%  { -webkit-text-fill-color: hsl(90, 90%, 60%); }
+                50%  { -webkit-text-fill-color: hsl(180, 90%, 60%); }
+                75%  { -webkit-text-fill-color: hsl(270, 90%, 60%); }
+                100% { -webkit-text-fill-color: hsl(360, 90%, 60%); }
+            }
+            .sc-gif-cap-shadow { filter: drop-shadow(3px 4px 3px rgba(0,0,0,0.75)) !important; }
+            .sc-gif-cap-wiggle { animation: sc-gif-cap-wiggle-cycle 1.4s ease-in-out infinite !important; }
+            .sc-gif-cap-rainbow.sc-gif-cap-wiggle {
+                animation: sc-gif-cap-rainbow-cycle 3s linear infinite, sc-gif-cap-wiggle-cycle 1.4s ease-in-out infinite !important;
+            }
+            @keyframes sc-gif-cap-wiggle-cycle {
+                0%   { translate: 0 0; }
+                25%  { translate: 4px -3px; }
+                50%  { translate: -3px 3px; }
+                75%  { translate: 3px 2px; }
+                100% { translate: 0 0; }
+            }
             .sc-gif-cap-handle {
                 position: absolute !important; width: 14px !important; height: 14px !important;
                 border-radius: 50% !important; background: rgba(255,176,32,0.9) !important;
@@ -537,40 +557,80 @@
         const widest = lines.reduce((m, l) => Math.max(m, ctx.measureText(l).width), 0);
         return { lines, widest };
     }
-    function applyCaptionCtxStyle(ctx, fontPx, color) {
+    function applyCaptionCtxStyle(ctx, fontPx, color, progress) {
         ctx.font = 'bold ' + fontPx + 'px ' + CAPTION_FONT_STACK;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'alphabetic';
         ctx.lineJoin = 'round';
         ctx.miterLimit = 2;
-        ctx.fillStyle = color === 'yellow' ? '#ffe135' : '#ffffff';
+        if (color === 'rainbow') {
+            ctx.fillStyle = 'hsl(' + Math.round((progress || 0) * 360) + ', 90%, 60%)';
+        } else {
+            ctx.fillStyle = color === 'yellow' ? '#ffe135' : '#ffffff';
+        }
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = Math.max(2, Math.round(fontPx / 14));
     }
-    function drawCaptionBlockAdvanced(ctx, w, h, text, color, sizePct, xPct, yPct) {
+    // Wiggle offsets the block center with a progress-driven sine wobble
+    // (not per-frame random jitter) because GIF capture runs at low fps
+    // (8-15) — random jitter at that rate reads as flicker, not motion.
+    // Different x/y frequencies avoid a simple circular path.
+    function drawCaptionBlockAdvanced(ctx, w, h, text, color, sizePct, xPct, yPct, progress, fx) {
         if (!text) return;
         const fontPx = Math.max(4, Math.round(h * (sizePct || 16) / 100));
         const { lines } = wrapCaptionAtSize(getCaptionMeasureCtx(), text.toUpperCase(), fontPx, w * 0.92);
         const lineHeight = Math.round(fontPx * 1.15);
         ctx.save();
-        applyCaptionCtxStyle(ctx, fontPx, color);
-        const cx = w * ((xPct == null ? 50 : xPct) / 100);
-        const cy = h * ((yPct == null ? 50 : yPct) / 100);
+        applyCaptionCtxStyle(ctx, fontPx, color, progress);
+        let cx = w * ((xPct == null ? 50 : xPct) / 100);
+        let cy = h * ((yPct == null ? 50 : yPct) / 100);
+        if (fx && fx.wiggle && fx.wiggle.enabled) {
+            const amp = Math.max(0, Math.min(100, fx.wiggle.intensity || 0)) / 100 * fontPx * 0.35;
+            cx += Math.sin((progress || 0) * Math.PI * 2 * 3) * amp;
+            cy += Math.sin((progress || 0) * Math.PI * 2 * 2) * amp;
+        }
         const blockH = lines.length * lineHeight;
         const firstBaselineY = cy - blockH / 2 + fontPx * 0.8;
-        lines.forEach((line, i) => {
-            const ly = firstBaselineY + i * lineHeight;
-            ctx.strokeText(line, cx, ly);
-            ctx.fillText(line, cx, ly);
-        });
+        const shadowOn = !!(fx && fx.shadow && fx.shadow.enabled);
+        if (shadowOn) {
+            // Shadow is applied under the stroke pass only, then cleared
+            // before the fill pass — canvas shadow would otherwise render
+            // twice (once per draw call) and look doubled/blurred. This
+            // requires two separate passes (all strokes, then all fills)
+            // instead of the original interleaved per-line loop, so this
+            // split only happens when shadow is actually on — with it off,
+            // the original single interleaved loop runs unchanged, keeping
+            // draw order (and therefore pixel output) identical to before
+            // this feature existed.
+            const amt = Math.max(0, Math.min(100, fx.shadow.intensity || 0)) / 100;
+            ctx.shadowColor = 'rgba(0,0,0,0.7)';
+            ctx.shadowBlur = amt * 14;
+            ctx.shadowOffsetX = amt * 5;
+            ctx.shadowOffsetY = amt * 5;
+            lines.forEach((line, i) => {
+                const ly = firstBaselineY + i * lineHeight;
+                ctx.strokeText(line, cx, ly);
+            });
+            ctx.shadowColor = 'transparent';
+            lines.forEach((line, i) => {
+                const ly = firstBaselineY + i * lineHeight;
+                ctx.fillText(line, cx, ly);
+            });
+        } else {
+            lines.forEach((line, i) => {
+                const ly = firstBaselineY + i * lineHeight;
+                ctx.strokeText(line, cx, ly);
+                ctx.fillText(line, cx, ly);
+            });
+        }
         ctx.restore();
     }
-    function drawCaptions(ctx, w, h, captions) {
+    function drawCaptions(ctx, w, h, captions, progress) {
         if (!captions) return;
         ['top', 'bottom'].forEach(key => {
             const line = captions[key];
             if (!line || !line.text) return;
-            drawCaptionBlockAdvanced(ctx, w, h, line.text, captions.color, line.size, line.x, line.y);
+            drawCaptionBlockAdvanced(ctx, w, h, line.text, captions.color, line.size, line.x, line.y, progress, captions.fx);
         });
     }
 
@@ -638,7 +698,8 @@
                     if (geom.src) ctx.drawImage(vid, geom.src[0], geom.src[1], geom.src[2], geom.src[3],
                                                      geom.dst[0], geom.dst[1], geom.dst[2], geom.dst[3]);
                     else ctx.drawImage(vid, geom.dst[0], geom.dst[1], geom.dst[2], geom.dst[3]);
-                    drawCaptions(ctx, w, h, captions);
+                    const capProgress = Math.min(1, Math.max(0, (t - startT) / span));
+                    drawCaptions(ctx, w, h, captions, capProgress);
                     frames.push(ctx.getImageData(0, 0, w, h));
                     if (onProgress) onProgress(Math.min(0.999, (t - startT) / span));
                 }
@@ -1190,6 +1251,7 @@
                             <div class="sc-gif-cap-color">
                                 <label><input type="radio" name="sc-gif-cap-color" value="white" checked> White</label>
                                 <label><input type="radio" name="sc-gif-cap-color" value="yellow"> Yellow</label>
+                                <label><input type="radio" name="sc-gif-cap-color" value="rainbow"> Rainbow</label>
                             </div>
                             <div class="sc-gif-cap-sizes">
                                 <label>Top size <input type="number" id="sc-gif-cap-top-size" min="4" max="40" step="1" value="16">%</label>
@@ -1246,6 +1308,16 @@
                                         <option value="shake">Shake</option>
                                     </select>
                                     <input type="range" id="sc-gif-fx-zoomshake-amt" min="0" max="100" value="60">
+                                </div>
+                                <div class="sc-gif-fx-filter">
+                                    <input type="checkbox" id="sc-gif-fx-shadow-on">
+                                    <label for="sc-gif-fx-shadow-on">Caption drop shadow</label>
+                                    <input type="range" id="sc-gif-fx-shadow-amt" min="0" max="100" value="60">
+                                </div>
+                                <div class="sc-gif-fx-filter">
+                                    <input type="checkbox" id="sc-gif-fx-wiggle-on">
+                                    <label for="sc-gif-fx-wiggle-on">Caption wiggle</label>
+                                    <input type="range" id="sc-gif-fx-wiggle-amt" min="0" max="100" value="60">
                                 </div>
                             </div>
                         </div>
@@ -1432,6 +1504,43 @@
         aspectSel.addEventListener('change', () => { applyThumbAspect(); renderCaptionPreviews(); });
         applyThumbAspect();
 
+        const fx = {
+            mode: 'normal', speed: 1, freezeHoldMs: 0,
+            deepFry: { enabled: false, intensity: 60 },
+            vhs: { enabled: false, intensity: 60 },
+            zoomShake: { enabled: false, mode: 'zoom', intensity: 60 },
+            shadow: { enabled: false, intensity: 60 },
+            wiggle: { enabled: false, intensity: 60 },
+        };
+        const fxModeSel = $('#sc-gif-fx-mode'), fxSpeedSel = $('#sc-gif-fx-speed'), fxFreezeInput = $('#sc-gif-fx-freeze');
+        const fxDeepFryOn = $('#sc-gif-fx-deepfry-on'), fxDeepFryAmt = $('#sc-gif-fx-deepfry-amt');
+        const fxVhsOn = $('#sc-gif-fx-vhs-on'), fxVhsAmt = $('#sc-gif-fx-vhs-amt');
+        const fxZsOn = $('#sc-gif-fx-zoomshake-on'), fxZsMode = $('#sc-gif-fx-zoomshake-mode'), fxZsAmt = $('#sc-gif-fx-zoomshake-amt');
+        const fxShadowOn = $('#sc-gif-fx-shadow-on'), fxShadowAmt = $('#sc-gif-fx-shadow-amt');
+        const fxWiggleOn = $('#sc-gif-fx-wiggle-on'), fxWiggleAmt = $('#sc-gif-fx-wiggle-amt');
+
+        function syncFxState() {
+            fx.mode = fxModeSel.value;
+            fx.speed = parseFloat(fxSpeedSel.value) || 1;
+            fx.freezeHoldMs = Math.max(0, parseInt(fxFreezeInput.value, 10) || 0);
+            fx.deepFry.enabled = fxDeepFryOn.checked;
+            fx.deepFry.intensity = parseInt(fxDeepFryAmt.value, 10) || 0;
+            fx.vhs.enabled = fxVhsOn.checked;
+            fx.vhs.intensity = parseInt(fxVhsAmt.value, 10) || 0;
+            fx.zoomShake.enabled = fxZsOn.checked;
+            fx.zoomShake.mode = fxZsMode.value;
+            fx.zoomShake.intensity = parseInt(fxZsAmt.value, 10) || 0;
+            fx.shadow.enabled = fxShadowOn.checked;
+            fx.shadow.intensity = parseInt(fxShadowAmt.value, 10) || 0;
+            fx.wiggle.enabled = fxWiggleOn.checked;
+            fx.wiggle.intensity = parseInt(fxWiggleAmt.value, 10) || 0;
+        }
+        [fxModeSel, fxSpeedSel, fxFreezeInput, fxDeepFryOn, fxDeepFryAmt, fxVhsOn, fxVhsAmt, fxZsOn, fxZsMode, fxZsAmt]
+            .forEach(el => el.addEventListener('input', syncFxState));
+        [fxShadowOn, fxShadowAmt, fxWiggleOn, fxWiggleAmt]
+            .forEach(el => el.addEventListener('input', () => { syncFxState(); renderCaptionPreviews(); }));
+        syncFxState();
+
         const capTopInput = $('#sc-gif-cap-top');
         const capBottomInput = $('#sc-gif-cap-bottom');
         const capSizeInputs = { top: $('#sc-gif-cap-top-size'), bottom: $('#sc-gif-cap-bottom-size') };
@@ -1451,6 +1560,9 @@
                 thumb.style.setProperty('--cx-' + key, pos.x + '%');
                 thumb.style.setProperty('--cy-' + key, pos.y + '%');
                 el.classList.toggle('sc-gif-cap-yellow', color === 'yellow');
+                el.classList.toggle('sc-gif-cap-rainbow', color === 'rainbow');
+                el.classList.toggle('sc-gif-cap-shadow', fx.shadow.enabled);
+                el.classList.toggle('sc-gif-cap-wiggle', fx.wiggle.enabled);
                 if (!text || !w || !h) { el.textContent = ''; return; }
                 const fontPx = Math.max(4, Math.round(h * getCapSizePct(key) / 100));
                 const { lines } = wrapCaptionAtSize(getCaptionMeasureCtx(), text.toUpperCase(), fontPx, w * 0.92);
@@ -1493,33 +1605,6 @@
         });
 
         renderCaptionPreviews();
-
-        const fx = {
-            mode: 'normal', speed: 1, freezeHoldMs: 0,
-            deepFry: { enabled: false, intensity: 60 },
-            vhs: { enabled: false, intensity: 60 },
-            zoomShake: { enabled: false, mode: 'zoom', intensity: 60 },
-        };
-        const fxModeSel = $('#sc-gif-fx-mode'), fxSpeedSel = $('#sc-gif-fx-speed'), fxFreezeInput = $('#sc-gif-fx-freeze');
-        const fxDeepFryOn = $('#sc-gif-fx-deepfry-on'), fxDeepFryAmt = $('#sc-gif-fx-deepfry-amt');
-        const fxVhsOn = $('#sc-gif-fx-vhs-on'), fxVhsAmt = $('#sc-gif-fx-vhs-amt');
-        const fxZsOn = $('#sc-gif-fx-zoomshake-on'), fxZsMode = $('#sc-gif-fx-zoomshake-mode'), fxZsAmt = $('#sc-gif-fx-zoomshake-amt');
-
-        function syncFxState() {
-            fx.mode = fxModeSel.value;
-            fx.speed = parseFloat(fxSpeedSel.value) || 1;
-            fx.freezeHoldMs = Math.max(0, parseInt(fxFreezeInput.value, 10) || 0);
-            fx.deepFry.enabled = fxDeepFryOn.checked;
-            fx.deepFry.intensity = parseInt(fxDeepFryAmt.value, 10) || 0;
-            fx.vhs.enabled = fxVhsOn.checked;
-            fx.vhs.intensity = parseInt(fxVhsAmt.value, 10) || 0;
-            fx.zoomShake.enabled = fxZsOn.checked;
-            fx.zoomShake.mode = fxZsMode.value;
-            fx.zoomShake.intensity = parseInt(fxZsAmt.value, 10) || 0;
-        }
-        [fxModeSel, fxSpeedSel, fxFreezeInput, fxDeepFryOn, fxDeepFryAmt, fxVhsOn, fxVhsAmt, fxZsOn, fxZsMode, fxZsAmt]
-            .forEach(el => el.addEventListener('input', syncFxState));
-        syncFxState();
 
         const thumbTimers = {};
         const refreshThumb = (which) => {
@@ -1835,10 +1920,12 @@
             const fps    = parseInt($('#sc-gif-fps').value, 10);
             const width  = parseInt($('#sc-gif-width').value, 10);
             const aspect = $('#sc-gif-aspect').value;
+            syncFxState();
             const captions = {
                 color: getCapColor(),
                 top: { text: capTopInput.value.trim(), size: getCapSizePct('top'), x: capPos.top.x, y: capPos.top.y },
                 bottom: { text: capBottomInput.value.trim(), size: getCapSizePct('bottom'), x: capPos.bottom.x, y: capPos.bottom.y },
+                fx: { shadow: fx.shadow, wiggle: fx.wiggle },
             };
             if (endT - startT < MIN_CLIP_GAP) { setStatus('End must be after start.'); return; }
             const clipStartForName = startT;
@@ -1860,7 +1947,6 @@
                 const cap = await captureGifFrames(
                     { src, startT, endT, fps, width, aspect, captions },
                     p => setWork('Capturing frames… ' + Math.round(p * 100) + '%'));
-                syncFxState();
                 const playback = { mode: fx.mode, speed: fx.speed, freezeHoldMs: fx.freezeHoldMs, fps };
                 const filters = { deepFry: fx.deepFry, vhs: fx.vhs, zoomShake: fx.zoomShake };
                 setWork('Encoding GIF… (' + cap.frames.length + ' frames)');
