@@ -56,6 +56,8 @@
                 top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important;
                 z-index: 30002 !important;
                 width: 420px !important; max-width: 92vw !important;
+                max-height: 88vh !important;
+                display: flex !important; flex-direction: column !important;
                 background: rgba(18,18,20,0.98) !important;
                 border: 1px solid rgba(255,255,255,0.16) !important;
                 border-radius: 10px !important;
@@ -64,6 +66,7 @@
             }
             #sc-gif-head {
                 display: flex !important; align-items: center !important; justify-content: space-between !important;
+                flex: none !important;
                 padding: 10px 14px !important;
                 border-bottom: 1px solid rgba(255,255,255,0.1) !important;
                 font-weight: 600 !important; color: #ffcc44 !important;
@@ -75,7 +78,10 @@
                 font-size: 15px !important; cursor: pointer !important; padding: 0 4px !important;
             }
             #sc-gif-close:hover { color: white !important; }
-            #sc-gif-body { padding: 12px 14px !important; display: flex !important; flex-direction: column !important; gap: 10px !important; }
+            #sc-gif-body {
+                padding: 12px 14px !important; display: flex !important; flex-direction: column !important; gap: 10px !important;
+                flex: 1 1 auto !important; min-height: 0 !important; overflow-y: auto !important;
+            }
             #sc-gif-body label {
                 display: flex !important; align-items: center !important; justify-content: space-between !important;
                 color: rgba(255,255,255,0.8) !important; font-weight: 500 !important;
