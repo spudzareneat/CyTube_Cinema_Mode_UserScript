@@ -200,13 +200,13 @@
             .sc-gif-cap-handle:active { cursor: grabbing !important; }
             .sc-gif-cap-handle-top { left: var(--cx-top, 50%) !important; top: var(--cy-top, 10%) !important; }
             .sc-gif-cap-handle-bottom { left: var(--cx-bottom, 50%) !important; top: var(--cy-bottom, 90%) !important; }
-            .sc-gif-cap-sizes { display: flex !important; flex-wrap: wrap !important; gap: 14px !important; justify-content: center !important; }
+            .sc-gif-cap-sizes { display: flex !important; flex-wrap: nowrap !important; gap: 10px !important; justify-content: center !important; }
             .sc-gif-cap-sizes label {
-                display: flex !important; align-items: center !important; gap: 4px !important;
+                display: flex !important; align-items: center !important; gap: 4px !important; white-space: nowrap !important;
                 color: rgba(244,244,242,0.62) !important; font-size: 12px !important;
             }
             .sc-gif-cap-sizes input[type=number] {
-                width: 48px !important; background: #1f1f22 !important; color: #f4f4f2 !important;
+                width: 40px !important; min-width: 0 !important; background: #1f1f22 !important; color: #f4f4f2 !important;
                 border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 4px !important; padding: 2px 4px !important;
                 transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
             }
@@ -458,8 +458,8 @@
             .sc-gif-fx-row input[type=number]:hover, .sc-gif-fx-row input[type=number]:focus { border-color: rgba(255,176,32,0.5) !important; }
             .sc-gif-fx-filters { display: flex !important; flex-direction: column !important; gap: 6px !important; }
             .sc-gif-fx-filter { display: flex !important; align-items: center !important; gap: 8px !important; }
-            .sc-gif-fx-filter label { flex: 1 1 auto !important; color: rgba(244,244,242,0.62) !important; font-size: 12px !important; }
-            .sc-gif-fx-filter input[type=range] { flex: 1 1 auto !important; accent-color: #ffb020 !important; }
+            .sc-gif-fx-filter label { flex: 0 0 auto !important; white-space: nowrap !important; color: rgba(244,244,242,0.62) !important; font-size: 12px !important; }
+            .sc-gif-fx-filter input[type=range] { flex: 1 1 auto !important; min-width: 0 !important; accent-color: #ffb020 !important; }
             .sc-test-ok      { color: #7dffa0 !important; }
             .sc-test-bad     { color: #ff8080 !important; }
             .sc-test-pending { color: rgba(244,244,242,0.34) !important; }
@@ -1254,17 +1254,17 @@
                                 <label><input type="radio" name="sc-gif-cap-color" value="rainbow"> Rainbow</label>
                             </div>
                             <div class="sc-gif-cap-sizes">
-                                <label>Top size <input type="number" id="sc-gif-cap-top-size" min="4" max="40" step="1" value="16">%</label>
-                                <label>Bottom size <input type="number" id="sc-gif-cap-bottom-size" min="4" max="40" step="1" value="16">%</label>
+                                <label>Top <input type="number" id="sc-gif-cap-top-size" min="4" max="40" step="1" value="16">%</label>
+                                <label>Bottom <input type="number" id="sc-gif-cap-bottom-size" min="4" max="40" step="1" value="16">%</label>
                             </div>
                             <div class="sc-gif-fx-filter">
                                 <input type="checkbox" id="sc-gif-fx-shadow-on">
-                                <label for="sc-gif-fx-shadow-on">Caption drop shadow</label>
+                                <label for="sc-gif-fx-shadow-on">Drop shadow</label>
                                 <input type="range" id="sc-gif-fx-shadow-amt" min="0" max="100" value="60">
                             </div>
                             <div class="sc-gif-fx-filter">
                                 <input type="checkbox" id="sc-gif-fx-wiggle-on">
-                                <label for="sc-gif-fx-wiggle-on">Caption wiggle</label>
+                                <label for="sc-gif-fx-wiggle-on">Wiggle</label>
                                 <input type="range" id="sc-gif-fx-wiggle-amt" min="0" max="100" value="60">
                             </div>
                             <div class="sc-gif-cap-hint">Drag the dots on the START preview to position each caption.</div>
