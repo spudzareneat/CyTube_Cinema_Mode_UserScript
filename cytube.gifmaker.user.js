@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube GIF Maker
 // @namespace    http://tampermonkey.net/
-// @version      1.4.1
+// @version      1.4.2
 // @description  Standalone scene-to-GIF capture with meme captions and ImgBB upload — a record button (in the video's own control bar, or floating if cytube.pc.user.js is also installed), disabled during YouTube playback. Integrates with cytube.pc.user.js when installed.
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -15,7 +15,7 @@
 
 (function () {
     'use strict';
-    console.log('[GIFMaker] cytube.gifmaker v1.4.1 loaded');
+    console.log('[GIFMaker] cytube.gifmaker v1.4.2 loaded');
 
     /* ==========================================================
        STORAGE
@@ -324,10 +324,7 @@
                 text-align: center !important; color: rgba(244,244,242,0.62) !important; font-size: 12px !important;
             }
             #sc-gif-dur-line b { color: #f4f4f2 !important; }
-            .sc-gif-opts { display: flex !important; gap: 12px !important; }
-            .sc-gif-col-right .sc-gif-opts { flex-direction: column !important; gap: 6px !important; }
             .sc-gif-col-right .sc-gif-fx-row { flex-direction: column !important; align-items: stretch !important; gap: 6px !important; }
-            .sc-gif-opts label { flex: 1 1 0 !important; }
             #sc-gif-go {
                 background: #ffb020 !important; color: #0c0c0e !important;
                 border: none !important; border-radius: 8px !important;
@@ -416,6 +413,21 @@
             .sc-gif-fx-toggle { color: rgba(244,244,242,0.34) !important; font-size: 11px !important; }
             .sc-gif-fx { display: none !important; flex-direction: column !important; gap: 8px !important; }
             .sc-gif-fx.sc-gif-fx-open { display: flex !important; }
+            .sc-gif-sq-header {
+                display: flex !important; align-items: center !important; justify-content: space-between !important;
+                background: transparent !important; border: none !important; padding: 0 !important;
+                cursor: pointer !important; width: 100% !important; text-align: left !important;
+                color: rgba(244,244,242,0.62) !important; font-size: 12px !important; font-weight: 500 !important;
+                text-transform: uppercase !important; letter-spacing: 0.06em !important;
+                transition: color 120ms ease !important;
+            }
+            .sc-gif-sq-header:hover { color: #f4f4f2 !important; }
+            .sc-gif-sq-header:hover .sc-gif-sq-toggle { color: #f4f4f2 !important; }
+            .sc-gif-sq-header:focus-visible { outline: 2px solid #ffb020 !important; outline-offset: 1px !important; }
+            .sc-gif-sq-toggle { color: rgba(244,244,242,0.34) !important; font-size: 11px !important; }
+            .sc-gif-sq { display: none !important; flex-direction: column !important; gap: 6px !important; }
+            .sc-gif-sq.sc-gif-sq-open { display: flex !important; }
+            .sc-gif-sq label { flex: 1 1 0 !important; }
             .sc-gif-fx-row { display: flex !important; align-items: center !important; gap: 10px !important; }
             .sc-gif-fx-row label { flex: 1 1 0 !important; }
             .sc-gif-fx-row input[type=number] {
@@ -911,7 +923,8 @@
         return getGifWorkerUrl().then(workerScript => new Promise((resolve, reject) => {
             const Ctor = getGifCtor();
             if (!Ctor) { reject(new Error('gif.js not loaded (@require missing?)')); return; }
-            const gif = new Ctor({ workers: 2, quality: 10, width: w, height: h, workerScript, repeat: 0 });
+            const repeat = (playback && playback.mode === 'stop') ? -1 : 0;
+            const gif = new Ctor({ workers: 2, quality: 10, width: w, height: h, workerScript, repeat });
             const sequence = buildPlaybackSequence(frames.length, playback || {});
             for (let i = 0; i < sequence.length; i++) {
                 gif.addFrame(renderSequenceFrame(frames, sequence, i, w, h, filters || {}), { delay });
@@ -1186,37 +1199,18 @@
                         </div>
                     </div>
                     <div class="sc-gif-col-right">
-                        <div class="sc-gif-opts">
-                            <label>FPS
-                                <select id="sc-gif-fps">
-                                    <option value="8">8</option><option value="10">10</option>
-                                    <option value="12" selected>12</option><option value="15">15</option>
-                                </select>
-                            </label>
-                            <label>Width
-                                <select id="sc-gif-width">
-                                    <option value="320">320</option><option value="480" selected>480</option><option value="640">640</option>
-                                </select>
-                            </label>
-                            <label>Shape
-                                <select id="sc-gif-aspect">
-                                    <option value="native">Native</option>
-                                    <option value="crop" selected>4:3 Crop</option>
-                                    <option value="fit">4:3 Bars</option>
-                                </select>
-                            </label>
-                        </div>
-                        <button type="button" class="sc-gif-fx-header" id="sc-gif-fx-header" aria-expanded="false">
+                        <button type="button" class="sc-gif-fx-header" id="sc-gif-fx-header" aria-expanded="true">
                             <span>Effects</span>
-                            <span class="sc-gif-fx-toggle" id="sc-gif-fx-toggle">▸</span>
+                            <span class="sc-gif-fx-toggle" id="sc-gif-fx-toggle">▾</span>
                         </button>
-                        <div class="sc-gif-fx" id="sc-gif-fx-body">
+                        <div class="sc-gif-fx sc-gif-fx-open" id="sc-gif-fx-body">
                             <div class="sc-gif-fx-row">
                                 <label>Playback
                                     <select id="sc-gif-fx-mode">
                                         <option value="normal" selected>Normal</option>
                                         <option value="reverse">Reverse</option>
                                         <option value="boomerang">Boomerang</option>
+                                        <option value="stop">Stop</option>
                                     </select>
                                 </label>
                                 <label>Speed
@@ -1254,6 +1248,30 @@
                                     <input type="range" id="sc-gif-fx-zoomshake-amt" min="0" max="100" value="60">
                                 </div>
                             </div>
+                        </div>
+                        <button type="button" class="sc-gif-sq-header" id="sc-gif-sq-header" aria-expanded="false">
+                            <span>Size &amp; Quality</span>
+                            <span class="sc-gif-sq-toggle" id="sc-gif-sq-toggle">▸</span>
+                        </button>
+                        <div class="sc-gif-sq" id="sc-gif-sq-body">
+                            <label>FPS
+                                <select id="sc-gif-fps">
+                                    <option value="8">8</option><option value="10">10</option>
+                                    <option value="12" selected>12</option><option value="15">15</option>
+                                </select>
+                            </label>
+                            <label>Width
+                                <select id="sc-gif-width">
+                                    <option value="320">320</option><option value="480" selected>480</option><option value="640">640</option>
+                                </select>
+                            </label>
+                            <label>Shape
+                                <select id="sc-gif-aspect">
+                                    <option value="native">Native</option>
+                                    <option value="crop" selected>4:3 Crop</option>
+                                    <option value="fit">4:3 Bars</option>
+                                </select>
+                            </label>
                         </div>
                     </div>
                 </div>
@@ -1322,6 +1340,15 @@
             const open = fxBodyEl.classList.toggle('sc-gif-fx-open');
             fxToggle.textContent = open ? '▾' : '▸';
             fxHeader.setAttribute('aria-expanded', String(open));
+        });
+
+        const sqHeader = $('#sc-gif-sq-header');
+        const sqToggle = $('#sc-gif-sq-toggle');
+        const sqBodyEl = $('#sc-gif-sq-body');
+        sqHeader.addEventListener('click', () => {
+            const open = sqBodyEl.classList.toggle('sc-gif-sq-open');
+            sqToggle.textContent = open ? '▾' : '▸';
+            sqHeader.setAttribute('aria-expanded', String(open));
         });
 
         const midHeader = $('#sc-gif-mid-header');

@@ -179,6 +179,10 @@
 
     const LT_API = 'https://api.languagetool.org/v2/check';
 
+    // If LanguageTool hasn't responded within this long, give up waiting
+    // and send the message unchecked rather than block the user.
+    const LT_TIMEOUT_MS = 3000;
+
     // Rules that fire constantly on casual chat and add no value
     const LT_DISABLED_RULES = [
         'UPPERCASE_SENTENCE_START',
@@ -421,8 +425,17 @@
 
         const readabilityIssues = detectReadabilityIssues(text);
         showCheckingIndicator(textarea, true);
-        const ltMatches = await checkGrammar(text);
+        const ltMatches = await Promise.race([
+            checkGrammar(text),
+            new Promise(resolve => setTimeout(() => resolve(null), LT_TIMEOUT_MS)),
+        ]);
         showCheckingIndicator(textarea, false);
+
+        // Timed out waiting on LanguageTool — don't block sending on it.
+        if (ltMatches === null) {
+            doSend(textarea, originalInput, text);
+            return;
+        }
 
         if (ltMatches.length > 0 || readabilityIssues.length > 0) {
             showReviewModal(text, ltMatches, readabilityIssues,
