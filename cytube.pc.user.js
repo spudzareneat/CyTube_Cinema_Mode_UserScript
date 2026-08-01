@@ -4040,6 +4040,20 @@
                 right: 44px !important;
             }
 
+            /* Gap buttons slide out to the right on idle */
+            #fs-toggle-btn {
+                transition: color 0.3s ease, background 0.3s ease, transform 0.3s ease, opacity 0.3s ease !important;
+            }
+            #fs-toggle-btn.sc-bar-dim {
+                transform: translateX(60px) !important; opacity: 0 !important; pointer-events: none !important;
+            }
+            #sc-emote-proxy svg { width: 20px !important; height: auto !important; display: block !important; }
+            #fs-toggle-btn:hover, #sc-emote-proxy:hover {
+                color: white !important;
+                background: rgba(255,255,255,0.22) !important;
+            }
+            #fs-toggle-btn:focus { outline: none !important; }
+
             /* ===== HORIZONTAL LAYOUT (widescreen) ===== */
             body.sc-horizontal #videowrap {
                 position: fixed !important; top: 0 !important; left: 0 !important;
