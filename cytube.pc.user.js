@@ -4285,6 +4285,13 @@
                 margin: 0 -4px !important; padding: 1px 4px !important;
                 border-radius: 3px !important;
             }
+            /* Mention ping -- overrides CyTube's default flat-gray .nick-highlight */
+            #messagebuffer .nick-highlight {
+                background: rgba(185, 130, 255, 0.14) !important;
+                border-left: 2px solid rgba(185, 130, 255, 0.75) !important;
+                margin: 0 -4px 0 -6px !important; padding: 1px 4px 1px 4px !important;
+                border-radius: 3px !important;
+            }
             .sc-img-embed { display: block !important; margin-top: 4px !important; }
             .sc-img-embed img {
                 display: block !important;
