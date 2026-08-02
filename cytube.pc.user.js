@@ -36,6 +36,7 @@
     const LS_CHAT_TEXTAREA_H = 'sc_chat_textarea_h'; // px — manually resized chat entry height
     const LS_GIF_OPTIMIZE = 'sc_gif_optimize'; // shared with cytube.gifmaker.user.js
     const LS_AUTOEMBED   = 'sc_autoembed_images';
+    const LS_MOVIE_LEAD  = 'sc_movie_lead_sec'; // seconds to run ahead of sync during movies (not YouTube); 0 = off
     const getKey   = id => localStorage.getItem(id) || '';
     const setKey   = (id, v) => localStorage.setItem(id, v.trim());
     const hasKey   = id => !!getKey(id);
@@ -71,6 +72,11 @@
     function getChatFontSize() {
         const v = parseInt(getKey(LS_CHAT_FONT), 10);
         return (Number.isFinite(v) && v >= 10 && v <= 32) ? v : 14;
+    }
+    const MOVIE_LEAD_MIN = 0, MOVIE_LEAD_MAX = 10, MOVIE_LEAD_DEFAULT = 2;
+    function getMovieLeadSec() {
+        const v = parseInt(getKey(LS_MOVIE_LEAD), 10);
+        return (Number.isFinite(v) && v >= MOVIE_LEAD_MIN && v <= MOVIE_LEAD_MAX) ? v : MOVIE_LEAD_DEFAULT;
     }
     function applyChatFontSize(px) {
         const buf = document.getElementById('messagebuffer');
@@ -696,6 +702,63 @@
         document.body.appendChild(btn);
         _desync.btn = btn;
         btn.addEventListener('click', () => setDesynced(!_desync.active));
+    }
+
+    /* ==========================================================
+       MOVIE LEAD TIME — run N seconds ahead of the group's synced
+       position during movies (not YouTube). Cushions against the
+       user's own buffering: if playback stalls, the next mediaUpdate
+       correction pushes back up to "group position + lead" instead
+       of merely "group position".
+
+       Rather than nudging video.currentTime ourselves (which would
+       fight CyTube's own drift correction), an interceptor is
+       prepended to the same mediaUpdate listener array _freezeSync/
+       _thawSync above already know how to locate — it adds the
+       configured lead to the payload's currentTime before CyTube's
+       own handler(s) see it, so CyTube's normal seek/smoothing logic
+       settles the player the configured amount ahead. This composes
+       with desync for free: _freezeSync freezes whatever's registered
+       under the mediaUpdate key (the interceptor, wrapping CyTube's
+       real handlers) as one unit, and _thawSync restores it as-is.
+    ========================================================== */
+
+    function installMovieLeadInterceptor() {
+        const loc = _getMediaUpdateListeners();
+        if (!loc) { console.log('[SC] movie-lead: mediaUpdate listeners not found yet, will retry'); return false; }
+        const original = loc.store === '_callbacks' ? socket._callbacks[loc.key] : socket._events[loc.key];
+        const originalList = Array.isArray(original) ? original : (original ? [original] : []);
+        console.log(`[SC] movie-lead: installing interceptor via ${loc.store}, wrapping ${originalList.length} existing listener(s)`);
+
+        function interceptor(data) {
+            try {
+                const lead = getMovieLeadSec();
+                if (lead > 0 && !isYouTubeMedia() && typeof data?.currentTime === 'number') {
+                    data.currentTime += lead;
+                }
+            } catch (e) {}
+            for (const fn of originalList) fn(data);
+        }
+
+        if (loc.store === '_callbacks') socket._callbacks[loc.key] = [interceptor];
+        else socket._events[loc.key] = interceptor;
+        return true;
+    }
+
+    function initMovieLeadOffset() {
+        let tries = 0;
+        const poll = setInterval(() => {
+            if (typeof socket === 'undefined' || !socket) {
+                if (++tries >= 14) { console.log('[SC] movie-lead: gave up, socket never became available'); clearInterval(poll); }
+                return;
+            }
+            const ok = installMovieLeadInterceptor();
+            if (ok) { console.log('[SC] movie-lead: interceptor installed successfully'); }
+            if (ok || ++tries >= 14) {
+                if (!ok) console.log('[SC] movie-lead: gave up after max retries, interceptor not installed');
+                clearInterval(poll);
+            }
+        }, 1500);
     }
 
     /* ==========================================================
@@ -1810,6 +1873,7 @@
         const firstRun = !localStorage.getItem('sc_onboarded');
         try { localStorage.setItem('sc_onboarded', '1'); } catch (e) {}
         const fontSize = getChatFontSize();
+        const leadSec  = getMovieLeadSec();
 
         const overlay = document.createElement('div');
         overlay.id = 'sc-settings-overlay';
@@ -1914,6 +1978,14 @@
                     </div>
                 </div>
 
+                <div class="sc-settings-group sc-settings-toggle-group">
+                    <label class="sc-settings-label">
+                        Movie lead time (seconds ahead of sync)
+                        <span class="sc-settings-note">Keeps you a few seconds ahead of the group during movies (not YouTube) — cushions against your own buffering. 0 = off.</span>
+                    </label>
+                    <input id="sc-input-leadsec" class="sc-settings-input" type="number" min="${MOVIE_LEAD_MIN}" max="${MOVIE_LEAD_MAX}" step="1" value="${leadSec}" style="width:5em" />
+                </div>
+
                 <div id="sc-settings-actions">
                     <button id="sc-settings-cancel">Cancel</button>
                     <button id="sc-settings-save">Save</button>
@@ -1980,6 +2052,8 @@
             const autoEmbed = document.getElementById('sc-input-autoembed').checked;
             const imgbb  = document.getElementById('sc-input-imgbb').value.trim();
             const fontPx = parseInt(fontInput.value, 10);
+            const leadSecInput = parseInt(document.getElementById('sc-input-leadsec').value, 10);
+            const leadSec = Math.min(MOVIE_LEAD_MAX, Math.max(MOVIE_LEAD_MIN, Number.isFinite(leadSecInput) ? leadSecInput : MOVIE_LEAD_DEFAULT));
             setKey(LS_TMDB,        tmdb);
             setKey(LS_SPELLCHECK,  spell ? 'on' : 'off');
             setKey(LS_MOVIE_LINKS, links ? 'on' : 'off');
@@ -1990,6 +2064,7 @@
             setKey(LS_IMGBB,       imgbb);
             setKey(LS_CHAT_FONT,   String(fontPx));
             applyChatFontSize(fontPx);
+            setKey(LS_MOVIE_LEAD,  String(leadSec));
             movieLinkCache = {};
             try { localStorage.removeItem(LS_MOVIE_CACHE); } catch (e) {}
             lastMovieTitle = '';
@@ -3566,6 +3641,7 @@
         initTopBar();
         initGapButtonDim();
         initDesyncButton();
+        initMovieLeadOffset();
         initChatSeekMenu();
         initChatHeader();
         initChatResizer();
