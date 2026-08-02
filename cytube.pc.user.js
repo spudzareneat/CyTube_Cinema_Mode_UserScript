@@ -1799,7 +1799,21 @@
             link.appendChild(img);
             const badge = document.createElement('span');
             badge.className = 'sc-img-embed-badge';
-            badge.textContent = '🖼 embedded';
+            const badgeLabel = document.createElement('span');
+            badgeLabel.textContent = '🖼 embedded';
+            const toggleBtn = document.createElement('span');
+            toggleBtn.className = 'sc-img-embed-toggle';
+            toggleBtn.textContent = '🔗';
+            toggleBtn.title = 'Show link instead of image';
+            toggleBtn.addEventListener('click', () => {
+                const showingImage = link.style.display !== 'none';
+                link.style.display = showingImage ? 'none' : '';
+                a.style.display = showingImage ? '' : 'none';
+                badgeLabel.textContent = showingImage ? '🔗 link only' : '🖼 embedded';
+                toggleBtn.title = showingImage ? 'Show image instead of link' : 'Show link instead of image';
+            });
+            badge.appendChild(badgeLabel);
+            badge.appendChild(toggleBtn);
             wrap.appendChild(link);
             wrap.appendChild(badge);
             msgEl.appendChild(wrap);
@@ -4377,11 +4391,20 @@
                 cursor: pointer !important;
             }
             .sc-img-embed-badge {
-                display: block !important;
+                display: flex !important;
+                align-items: center !important;
+                gap: 5px !important;
                 font-size: 10px !important;
                 color: rgba(244,244,242,0.45) !important;
                 margin-top: 2px !important;
             }
+            .sc-img-embed-toggle {
+                cursor: pointer !important;
+                font-size: 11px !important;
+                opacity: 0.6 !important;
+                line-height: 1 !important;
+            }
+            .sc-img-embed-toggle:hover { opacity: 1 !important; }
 
             /* Chat panel resizer — thin drag strip on the panel's free edge:
                left edge (width) in horizontal layout, top edge (height) in vertical layout. */
