@@ -1783,6 +1783,7 @@
     function embedImagesIn(msgEl) {
         findImageLinks(msgEl).forEach(a => {
             a.dataset.scEmbedded = '1';
+            a.style.display = 'none';
             const wrap = document.createElement('div');
             wrap.className = 'sc-img-embed';
             const link = document.createElement('a');
@@ -1791,8 +1792,8 @@
             link.rel = 'noopener noreferrer';
             const img = document.createElement('img');
             img.loading = 'lazy';
-            img.style.maxHeight = emoteInlineHeight() + 'px';
-            img.onerror = () => wrap.remove();
+            img.style.maxHeight = Math.round(emoteInlineHeight() * 1.25) + 'px';
+            img.onerror = () => { wrap.remove(); a.style.display = ''; };
             img.onload = rescrollChatIfNearBottom;
             img.src = a.href;
             link.appendChild(img);
