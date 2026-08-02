@@ -1657,7 +1657,7 @@
     }
     function usernameToColor(u) {
         // Own username gets a fixed standout colour rather than the hash.
-        if (window.CLIENT && window.CLIENT.name && u === window.CLIENT.name) {
+        if (_uw.CLIENT && _uw.CLIENT.name && u === _uw.CLIENT.name) {
             return 'hsl(197, 90%, 78%)'; // baby blue
         }
         // Golden angle multiplication spreads hues maximally apart so
@@ -1669,8 +1669,10 @@
         document.querySelectorAll('#messagebuffer [class*="chat-msg-"]').forEach(el => {
             const cls = [...el.classList].find(c => c.startsWith('chat-msg-'));
             if (!cls) return;
+            const u = cls.replace('chat-msg-', '');
             const span = el.querySelector('.username');
-            if (span) { span.style.color = usernameToColor(cls.replace('chat-msg-', '')); span.style.fontWeight = '700'; }
+            if (span) { span.style.color = usernameToColor(u); span.style.fontWeight = '700'; }
+            el.classList.toggle('sc-own-msg', !!(_uw.CLIENT && _uw.CLIENT.name && u === _uw.CLIENT.name));
         });
     }
     let _colorObserverStarted = false;
@@ -2446,6 +2448,19 @@
         link.id = LINEUP_FONTS_LINK_ID;
         link.rel = 'stylesheet';
         link.href = `https://fonts.googleapis.com/css2?${LINEUP_FONT_FAMILIES.map(f => `family=${f}`).join('&')}&display=swap`;
+        document.head.appendChild(link);
+    }
+
+    // Chat/UI text face -- Inter, tuned for legibility at small sizes (tall x-height,
+    // open counters). Loaded once up front since chat is visible from page load,
+    // unlike the on-demand Lineup theme fonts above.
+    const CHAT_FONT_LINK_ID = 'sc-chat-font';
+    function ensureChatFontLoaded() {
+        if (document.getElementById(CHAT_FONT_LINK_ID)) return;
+        const link = document.createElement('link');
+        link.id = CHAT_FONT_LINK_ID;
+        link.rel = 'stylesheet';
+        link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap';
         document.head.appendChild(link);
     }
 
@@ -3510,6 +3525,7 @@
 
         startMonitorWatcher();
         applyInputMode();
+        ensureChatFontLoaded();
 
         const bootObserver = new MutationObserver(() => {
             applyInputMode();
@@ -4261,7 +4277,13 @@
             #messagebuffer {
                 flex: 1 !important; height: auto !important;
                 background: transparent !important; color: white !important;
+                font-family: 'Inter', 'Roboto', system-ui, sans-serif !important;
                 font-size: 14px !important; overflow-y: auto !important; padding-bottom: 5px !important;
+            }
+            #messagebuffer .sc-own-msg {
+                background: rgba(125, 200, 255, 0.07) !important;
+                margin: 0 -4px !important; padding: 1px 4px !important;
+                border-radius: 3px !important;
             }
             .sc-img-embed { display: block !important; margin-top: 4px !important; }
             .sc-img-embed img {
