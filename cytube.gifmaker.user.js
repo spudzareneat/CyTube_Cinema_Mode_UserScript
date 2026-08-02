@@ -1934,8 +1934,6 @@
             };
             if (endT - startT < MIN_CLIP_GAP) { setStatus('End must be after start.'); return; }
             const clipStartForName = startT;
-            const tagEl = $('#sc-gif-tag');
-            const clipTagForName = tagEl ? tagEl.value.trim().replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') : '';
             if (!midBody.classList.contains('sc-gif-mid-collapsed')) {
                 midBody.classList.add('sc-gif-mid-collapsed');
                 midToggle.textContent = '▸';
@@ -1961,19 +1959,28 @@
                 _gifResultUrl = URL.createObjectURL(blob);
                 const kb = Math.round(blob.size / 1024);
                 const slug = activeTitleSlug();
-                const fnameBase = (slug || 'gif') + '-' + _fmtFilenameTimestamp(clipStartForName) + (clipTagForName ? '-' + clipTagForName : '');
-                const fname = fnameBase + '.gif';
+                const fnameBaseNoTag = (slug || 'gif') + '-' + _fmtFilenameTimestamp(clipStartForName);
+                const sanitizeTag = (raw) => raw.trim().replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '');
+                const fnameBaseFor = (tag) => fnameBaseNoTag + (tag ? '-' + tag : '');
                 const hasImgbbKey = !!getKey(LS_IMGBB);
                 result.innerHTML =
                     `<img src="${_gifResultUrl}" alt="GIF preview">` +
                     `<div id="sc-gif-actions">` +
-                    `<a id="sc-gif-dl" href="${_gifResultUrl}" download="${_escHtml(fname)}">⬇ Download</a>` +
+                    `<a id="sc-gif-dl" href="${_gifResultUrl}" download="${_escHtml(fnameBaseFor('') + '.gif')}">⬇ Download</a>` +
                     (hasImgbbKey ? `<button id="sc-gif-upload" type="button">☁ Upload</button>` : '') +
                     `<input type="text" id="sc-gif-tag" class="sc-gif-tag-input" placeholder="tag" maxlength="40">` +
                     `<span id="sc-gif-size">${kb} KB</span></div>` +
                     (hasImgbbKey ? `<div id="sc-gif-link"></div>` : '');
                 setStatus('Done.');
                 result.scrollIntoView({ block: 'nearest' });
+
+                const dlLink = $('#sc-gif-dl');
+                const tagEl = $('#sc-gif-tag');
+                if (tagEl && dlLink) {
+                    tagEl.addEventListener('input', () => {
+                        dlLink.setAttribute('download', fnameBaseFor(sanitizeTag(tagEl.value)) + '.gif');
+                    });
+                }
 
                 const uploadBtn = hasImgbbKey ? $('#sc-gif-upload') : null;
                 if (uploadBtn) uploadBtn.addEventListener('click', async () => {
@@ -1986,7 +1993,8 @@
                     uploadBtn.disabled = true;
                     linkBox.innerHTML = '<span class="sc-gif-spinner sc-gif-spinner-sm"></span><span class="sc-gif-link-msg">Uploading to ImgBB…</span>';
                     try {
-                        const link = await uploadToImgbb(blob, apiKey, fnameBase);
+                        const uploadName = fnameBaseFor(tagEl ? sanitizeTag(tagEl.value) : '');
+                        const link = await uploadToImgbb(blob, apiKey, uploadName);
                         linkBox.innerHTML =
                             `<a class="sc-gif-link-url" href="${_escHtml(link)}" target="_blank" rel="noopener">${_escHtml(link)}</a>` +
                             `<button id="sc-gif-copylink" type="button">⧉ Copy link</button>`;
