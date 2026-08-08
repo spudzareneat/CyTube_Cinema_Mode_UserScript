@@ -16,8 +16,16 @@
        STORAGE
     ========================================================== */
     const LS_AUTOEMBED = 'sc_autoembed_images'; // shared key -- cytube.pc.user.js's Settings Modal writes this
+    const LS_BANNED    = 'sc_img_banned_urls';  // private to this script -- JSON array of exact banned URLs
     const getKey = id => localStorage.getItem(id) || '';
     const autoEmbedEnabled = () => getKey(LS_AUTOEMBED) !== 'off';
+
+    function getBannedUrls() {
+        try { return new Set(JSON.parse(getKey(LS_BANNED) || '[]')); }
+        catch (e) { return new Set(); }
+    }
+    function saveBannedUrls(set) { localStorage.setItem(LS_BANNED, JSON.stringify([...set])); }
+    function isBanned(url) { return getBannedUrls().has(url); }
 
     /* ==========================================================
        PC-SCRIPT DETECTION
@@ -102,8 +110,14 @@
             badgeLabel.textContent = showingImage ? '🔗 link only' : '🖼 embedded';
             toggleBtn.title = showingImage ? 'Show image instead of link' : 'Show link instead of image';
         });
+        const banBtn = document.createElement('span');
+        banBtn.className = 'sc-img-embed-ban';
+        banBtn.textContent = '🚫';
+        banBtn.title = "Hide this image everywhere and don't embed it again";
+        banBtn.addEventListener('click', () => banUrl(a.href));
         badge.appendChild(badgeLabel);
         badge.appendChild(toggleBtn);
+        badge.appendChild(banBtn);
         wrap.appendChild(link);
         wrap.appendChild(badge);
         msgEl.appendChild(wrap);
@@ -111,9 +125,51 @@
         rescrollChatIfNearBottom();
     }
 
+    function applyBannedState(a) {
+        const msgEl = a.closest('[class*="chat-msg-"]');
+        if (!msgEl) return;
+        a.style.display = '';
+        const badge = document.createElement('span');
+        badge.className = 'sc-img-embed-badge sc-img-embed-banned';
+        const label = document.createElement('span');
+        label.textContent = '🚫 image hidden';
+        const unbanBtn = document.createElement('span');
+        unbanBtn.className = 'sc-img-embed-unban';
+        unbanBtn.textContent = '↩ unban';
+        unbanBtn.title = 'Show this image again';
+        unbanBtn.addEventListener('click', () => unbanUrl(a.href));
+        badge.appendChild(label);
+        badge.appendChild(unbanBtn);
+        msgEl.appendChild(badge);
+        a._scUi = badge;
+    }
+
+    function sweepUrl(url, applyFn) {
+        const buf = document.getElementById('messagebuffer');
+        if (!buf) return;
+        buf.querySelectorAll('a[data-sc-embedded]').forEach(a => {
+            if (a.href !== url) return;
+            if (a._scUi) a._scUi.remove();
+            applyFn(a);
+        });
+    }
+    function banUrl(url) {
+        const set = getBannedUrls();
+        set.add(url);
+        saveBannedUrls(set);
+        sweepUrl(url, applyBannedState);
+    }
+    function unbanUrl(url) {
+        const set = getBannedUrls();
+        set.delete(url);
+        saveBannedUrls(set);
+        sweepUrl(url, applyEmbeddedState);
+    }
+
     function renderLink(a) {
         a.dataset.scEmbedded = '1';
-        applyEmbeddedState(a);
+        if (isBanned(a.href)) applyBannedState(a);
+        else applyEmbeddedState(a);
     }
 
     function scanImageEmbeds(buf) {
@@ -164,6 +220,19 @@
                 line-height: 1 !important;
             }
             .sc-img-embed-toggle:hover { opacity: 1 !important; }
+            .sc-img-embed-ban {
+                cursor: pointer !important;
+                font-size: 11px !important;
+                opacity: 0.6 !important;
+                line-height: 1 !important;
+            }
+            .sc-img-embed-ban:hover { opacity: 1 !important; }
+            .sc-img-embed-unban {
+                cursor: pointer !important;
+                opacity: 0.7 !important;
+                text-decoration: underline !important;
+            }
+            .sc-img-embed-unban:hover { opacity: 1 !important; }
         `;
         document.head.appendChild(style);
     }
