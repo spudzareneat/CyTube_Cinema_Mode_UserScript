@@ -144,6 +144,19 @@ Capture any scene as an animated GIF, straight from the player — no external t
 
 ---
 
+### Chat Image Embeds
+
+Direct image links posted in chat (postimg.cc, imgur, Discord CDN, etc.) show up as an inline thumbnail instead of a bare link.
+
+> Requires installing **`cytube.chatimages.user.js`** as a separate userscript (see Setup below) — it owns the embedding logic. Installed on its own, it always embeds. Installed alongside `cytube.pc.user.js`, it defers to that script's Settings Modal toggle ("Auto-embed image links in chat") instead.
+
+- Hover a thumbnail to see the original filename as a tooltip
+- Click **🔗** on an embed to flip that one instance between the thumbnail and the plain link, without affecting anything else
+- Click **🚫** on an embed to ban that exact image — it collapses to a plain link everywhere it's already been posted, and never embeds again on future reposts of the same URL. A **↩ unban** link sits right next to a banned image's link if you change your mind
+- Bans are personal — stored in your own browser, not shared with anyone else in the channel
+
+---
+
 ### Chat-to-Movie Seek
 
 **Right-click any chat message** for two options based on roughly when that message was posted (minus a 5-second lead-in):
@@ -209,6 +222,16 @@ GIF capture lives in its own userscript. Repeat the steps above with `cytube.gif
 3. Save with **Ctrl+S** (or **Cmd+S**)
 
 It can run alone or alongside `cytube.pc.user.js`. With both installed, the GIF button becomes the floating **◉** button and the ImgBB key / Optimize toggle move into `cytube.pc.user.js`'s Settings Modal (see GIF Maker above).
+
+### 2c. Install Chat Images (optional, recommended)
+
+Chat image auto-embedding lives in its own userscript. Repeat the steps above with `cytube.chatimages.user.js` to add it:
+
+1. Open Tampermonkey's dashboard and click **Create a new script**
+2. Delete the placeholder content and paste in the full contents of `cytube.chatimages.user.js`
+3. Save with **Ctrl+S** (or **Cmd+S**)
+
+It can run alone (always embeds) or alongside `cytube.pc.user.js` (defers to its Settings Modal toggle — see Chat Image Embeds above).
 
 ### 3. Enter your API keys (first run)
 
