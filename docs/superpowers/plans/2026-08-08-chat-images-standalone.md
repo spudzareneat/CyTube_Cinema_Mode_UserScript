@@ -472,11 +472,12 @@ In `cytube.pc.user.js`, find this exact block and delete it entirely (do not lea
     ========================================================== */
     const IMAGE_LINK_RE = /\.(jpe?g|png|gif|webp|bmp)(\?[^\s"']*)?$/i;
 
-    // Individual emotes aren't all the same native size, so grabbing just the
-    // *first* match in the buffer (as this used to do) meant embed size depended
-    // on whichever emote happened to be first at that moment -- producing
-    // inconsistently small thumbnails. Take the max of everything currently
-    // rendered and remember the best value seen so it stays stable over time.
+    function emoteInlineHeight() {
+        const el = document.querySelector('#messagebuffer .channel-emote, #messagebuffer .emote');
+        const h = el && el.getBoundingClientRect().height;
+        return (h && h > 4) ? Math.round(h) : 48; // fallback until a real emote has rendered
+    }
+
     function findImageLinks(msgEl) {
         return [...msgEl.querySelectorAll('a[href]')]
             .filter(a => !a.dataset.scEmbedded && !a.closest('.sc-img-embed')
@@ -505,6 +506,7 @@ In `cytube.pc.user.js`, find this exact block and delete it entirely (do not lea
             link.rel = 'noopener noreferrer';
             const img = document.createElement('img');
             img.loading = 'lazy';
+            img.style.maxHeight = Math.round(emoteInlineHeight() * 1.25) + 'px';
             img.onerror = () => { wrap.remove(); a.style.display = ''; };
             img.onload = rescrollChatIfNearBottom;
             img.src = a.href;
@@ -548,6 +550,8 @@ In `cytube.pc.user.js`, find this exact block and delete it entirely (do not lea
         scanImageEmbeds(buf);
     }
 ```
+
+> **Note (added mid-implementation):** the block above includes `emoteInlineHeight()` and its dynamic-sizing line (`img.style.maxHeight = ...`), added by a commit (`5edb269`) that landed after this plan's Task 1/2 briefs were originally written from a stale local read of this file. Confirmed with the human partner: the standalone script intentionally does **not** carry this dynamic sizing forward — its static `max-height: 150px` cap (already built in Task 1) is the accepted final behavior, so this whole block, sizing line included, is deleted here with nothing to port.
 
 Do **not** touch `LS_AUTOEMBED` or `autoEmbedEnabled()` near the top of the file (in the `LS_*` constants block) — those stay, since the Settings Modal checkbox still reads/writes them.
 
@@ -606,9 +610,6 @@ Find this exact block and delete it entirely:
             .sc-img-embed img {
                 display: block !important;
                 max-width: 100% !important;
-                max-height: 150px !important;
-                width: auto !important;
-                height: auto !important;
                 border-radius: 4px !important;
                 cursor: pointer !important;
             }
@@ -628,6 +629,8 @@ Find this exact block and delete it entirely:
             }
             .sc-img-embed-toggle:hover { opacity: 1 !important; }
 ```
+
+(Note: this committed CSS rule is missing `max-height`/`width`/`height` compared to earlier drafts of this plan — that's expected, since sizing moved to the JS `img.style.maxHeight` line above once `5edb269` landed. Delete exactly what's actually there; nothing here needs to be ported either.)
 
 Leave every other CSS rule around it untouched.
 
