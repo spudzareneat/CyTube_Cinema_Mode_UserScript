@@ -251,6 +251,7 @@ Expected: no output, exit code 0.
 6. Hover the thumbnail — confirm the browser's native tooltip shows the image's filename (the last path segment of the URL).
 7. Click the 🔗 icon — confirm it flips to showing the plain link instead of the image, and back again on a second click.
 8. Reload the page with that message still in backlog — confirm it re-embeds on load, not just for new messages.
+9. Post a broken/dead image URL (one that 404s) — confirm the embed silently reverts to a plain link (via `img.onerror`) instead of showing a broken-image icon.
 
 - [ ] **Step 4: Commit**
 
@@ -667,6 +668,7 @@ Expected: no output, exit code 0.
 6. Turn the toggle back on, save, post a new image link — confirm it embeds again, and the link from step 5 is still un-embedded (toggle changes are forward-only, matching pre-split behavior).
 7. Right-click directly on an embedded thumbnail — confirm the chat-to-movie seek context menu does **not** appear (the `.sc-img-embed` guard in `cytube.pc.user.js` still works), and the browser's normal image context menu shows instead.
 8. Right-click on a normal (non-image) chat message — confirm the seek menu still appears as before, unaffected by this change.
+9. Reload the page with the toggle off and an image link already in the chat backlog — confirm it stays a plain link on load, not just when posted live after the toggle was already off.
 
 - [ ] **Step 9: Commit**
 

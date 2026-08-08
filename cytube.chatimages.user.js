@@ -57,7 +57,7 @@
 
     function findImageLinks(msgEl) {
         return [...msgEl.querySelectorAll('a[href]')]
-            .filter(a => !a.dataset.scEmbedded
+            .filter(a => !a.dataset.scEmbedded && !a.closest('.sc-img-embed')
                 && (a.protocol === 'http:' || a.protocol === 'https:') && IMAGE_LINK_RE.test(a.href));
     }
 
