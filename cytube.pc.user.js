@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         CyTube Fullscreen Video with Overlay Chat
 // @namespace    http://tampermonkey.net/
-// @version      4.10.0
-// @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, right-click chat-to-movie seek, Tonight's Lineup schedule overlay, resizable chat panel, vertical monitor support, integrates with cytube.gifmaker.user.js when installed, auto-embedded chat image links
+// @version      4.10.1
+// @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, right-click chat-to-movie seek, Tonight's Lineup schedule overlay, resizable chat panel, vertical monitor support, integrates with cytube.gifmaker.user.js and cytube.chatimages.user.js when installed
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
 // @grant        GM_xmlhttpRequest
@@ -18,7 +18,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.pc v4.10.0 loaded');
+    console.log('[SC] cytube.pc v4.10.1 loaded');
 
     /* ==========================================================
        API KEYS — stored in localStorage, managed via settings modal.
@@ -1749,94 +1749,6 @@
     }
 
     /* ==========================================================
-       CHAT IMAGE EMBEDS
-       Direct image links posted in chat (postimg.cc, imgur, discord
-       cdn, etc.) get a thumbnail preview appended under the message,
-       reusing the <a> tags CyTube already auto-linkifies out of the
-       raw message text. Sized to match the channel's own emote
-       height so it doesn't dominate the narrow chat column.
-    ========================================================== */
-    const IMAGE_LINK_RE = /\.(jpe?g|png|gif|webp|bmp)(\?[^\s"']*)?$/i;
-
-    function emoteInlineHeight() {
-        const el = document.querySelector('#messagebuffer .channel-emote, #messagebuffer .emote');
-        const h = el && el.getBoundingClientRect().height;
-        return (h && h > 4) ? Math.round(h) : 48; // fallback until a real emote has rendered
-    }
-
-    function findImageLinks(msgEl) {
-        return [...msgEl.querySelectorAll('a[href]')]
-            .filter(a => !a.dataset.scEmbedded && !a.closest('.sc-img-embed')
-                && (a.protocol === 'http:' || a.protocol === 'https:') && IMAGE_LINK_RE.test(a.href));
-    }
-
-    // CyTube auto-scrolls the message buffer synchronously when a message is
-    // appended, and separately hooks `load` on any <img> present at that time.
-    // Our thumbnail is appended asynchronously (via MutationObserver), so it
-    // misses both mechanisms — rescroll manually, but only if the user hadn't
-    // scrolled up to read backlog.
-    function rescrollChatIfNearBottom() {
-        const b = document.getElementById('messagebuffer');
-        if (b && b.scrollHeight - b.scrollTop - b.clientHeight < 60) b.scrollTop = b.scrollHeight;
-    }
-
-    function embedImagesIn(msgEl) {
-        findImageLinks(msgEl).forEach(a => {
-            a.dataset.scEmbedded = '1';
-            a.style.display = 'none';
-            const wrap = document.createElement('div');
-            wrap.className = 'sc-img-embed';
-            const link = document.createElement('a');
-            link.href = a.href;
-            link.target = '_blank';
-            link.rel = 'noopener noreferrer';
-            const img = document.createElement('img');
-            img.loading = 'lazy';
-            img.style.maxHeight = Math.round(emoteInlineHeight() * 1.25) + 'px';
-            img.onerror = () => { wrap.remove(); a.style.display = ''; };
-            img.onload = rescrollChatIfNearBottom;
-            img.src = a.href;
-            link.appendChild(img);
-            const badge = document.createElement('span');
-            badge.className = 'sc-img-embed-badge';
-            const badgeLabel = document.createElement('span');
-            badgeLabel.textContent = '🖼 embedded';
-            const toggleBtn = document.createElement('span');
-            toggleBtn.className = 'sc-img-embed-toggle';
-            toggleBtn.textContent = '🔗';
-            toggleBtn.title = 'Show link instead of image';
-            toggleBtn.addEventListener('click', () => {
-                const showingImage = link.style.display !== 'none';
-                link.style.display = showingImage ? 'none' : '';
-                a.style.display = showingImage ? '' : 'none';
-                badgeLabel.textContent = showingImage ? '🔗 link only' : '🖼 embedded';
-                toggleBtn.title = showingImage ? 'Show image instead of link' : 'Show link instead of image';
-            });
-            badge.appendChild(badgeLabel);
-            badge.appendChild(toggleBtn);
-            wrap.appendChild(link);
-            wrap.appendChild(badge);
-            msgEl.appendChild(wrap);
-            rescrollChatIfNearBottom();
-        });
-    }
-
-    function scanImageEmbeds(buf) {
-        if (!autoEmbedEnabled()) return;
-        buf.querySelectorAll('[class*="chat-msg-"]').forEach(embedImagesIn);
-    }
-
-    let _imageEmbedObserverStarted = false;
-    function startImageEmbedObserver() {
-        const buf = document.getElementById('messagebuffer');
-        if (!buf) return;
-        if (_imageEmbedObserverStarted) { scanImageEmbeds(buf); return; }
-        _imageEmbedObserverStarted = true;
-        new MutationObserver(() => scanImageEmbeds(buf)).observe(buf, { childList: true, subtree: true });
-        scanImageEmbeds(buf);
-    }
-
-    /* ==========================================================
        SETTINGS MODAL
        First-run: shown automatically if TMDB key is absent.
        Re-openable via the ⚙ button added to the floating buttons.
@@ -1952,7 +1864,7 @@
                             <input type="checkbox" id="sc-input-autoembed" ${autoEmbedEnabled() ? 'checked' : ''} />
                             <span class="sc-toggle-text">Auto-embed image links in chat</span>
                         </span>
-                        <span class="sc-settings-note">Shows a thumbnail preview under messages that link directly to an image, marked "🖼 embedded"</span>
+                        <span class="sc-settings-note">Shows a thumbnail preview under messages that link directly to an image, marked "🖼 embedded" (requires cytube.chatimages.user.js)</span>
                     </label>
                 </div>
 
@@ -2075,7 +1987,6 @@
             setKey(LS_LINEUP_TIMING, lineupTiming ? 'on' : 'off');
             setKey(LS_GIF_OPTIMIZE, gifOptimize ? 'on' : 'off');
             setKey(LS_AUTOEMBED,   autoEmbed ? 'on' : 'off');
-            startImageEmbedObserver();
             setKey(LS_IMGBB,       imgbb);
             setKey(LS_CHAT_FONT,   String(fontPx));
             applyChatFontSize(fontPx);
@@ -3624,7 +3535,6 @@
             addFloatingButtons();
             addSettingsButton();
             startUserColorObserver();
-            startImageEmbedObserver();
             // Disconnect once all one-time elements are in place
             if (
                 document.getElementById('sc-chat-textarea') &&
@@ -4383,28 +4293,6 @@
                 margin: 0 -4px 0 -6px !important; padding: 1px 4px 1px 4px !important;
                 border-radius: 3px !important;
             }
-            .sc-img-embed { display: block !important; margin-top: 4px !important; }
-            .sc-img-embed img {
-                display: block !important;
-                max-width: 100% !important;
-                border-radius: 4px !important;
-                cursor: pointer !important;
-            }
-            .sc-img-embed-badge {
-                display: flex !important;
-                align-items: center !important;
-                gap: 5px !important;
-                font-size: 10px !important;
-                color: rgba(244,244,242,0.45) !important;
-                margin-top: 2px !important;
-            }
-            .sc-img-embed-toggle {
-                cursor: pointer !important;
-                font-size: 11px !important;
-                opacity: 0.6 !important;
-                line-height: 1 !important;
-            }
-            .sc-img-embed-toggle:hover { opacity: 1 !important; }
 
             /* Chat panel resizer — thin drag strip on the panel's free edge:
                left edge (width) in horizontal layout, top edge (height) in vertical layout. */
