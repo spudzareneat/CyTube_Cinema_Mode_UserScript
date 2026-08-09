@@ -2131,13 +2131,25 @@
         let lm;
         while ((lm = liRe.exec(ulInnerHtml))) {
             const display = lm[1].replace(/<strong>[^<]*<\/strong>\s*/, '').replace(/<[^>]+>/g, '').trim();
+            if (!display) continue;
             const [primary, ...akaParts] = display.split(/\s+aka\s+/i);
-            const ym = primary.trim().match(/^(.*)\s\((\d{4})\)$/);
-            if (!ym) continue;
             const akas = akaParts
                 .map(a => a.replace(/\s*\(\d{4}\)\s*$/, '').trim())
                 .filter(Boolean);
-            items.push({ title: ym[1].trim(), year: ym[2], display, akas });
+            // Non-greedy up to the FIRST "(YYYY)" -- tolerates trailing typos/garbage after
+            // it (confirmed live 2026-08-07: a mod typo left "Decampitated (1998))" with an
+            // extra closing paren, which the old exact-end-anchored regex rejected outright).
+            const ym = primary.trim().match(/^(.*?)\s*\((\d{4})\)/);
+            if (ym) {
+                items.push({ title: ym[1].trim(), year: ym[2], display, akas });
+            } else {
+                // No parseable year at all (missing, or a format this parser doesn't
+                // recognize) -- still show it instead of silently vanishing the film from
+                // the lineup. TMDB lookup runs yearless off the raw text; the card just
+                // won't have a poster/overview if that search comes up empty too.
+                console.warn('[SC] lineup: could not parse title/year from schedule item, showing raw text:', display);
+                items.push({ title: primary.trim(), year: null, display, akas });
+            }
         }
         return items;
     }
@@ -2162,8 +2174,16 @@
         while ((m = re.exec(contentHtml))) {
             if (m[1] !== undefined) {
                 const text = m[1].trim();
-                if (LINEUP_DAY_NAMES.includes(text)) {
-                    currentDay = { day: text, sections: [] };
+                // Mods sometimes wrap the day header in extra markdown emphasis inside the
+                // bold ("==Friday=="), which survives entity-decoding as literal '=' characters
+                // -- strip any leading/trailing non-letters before comparing so decoration
+                // doesn't stop currentDay from ever being set (confirmed live 2026-08-07: an
+                // "==Friday==" header silently produced zero parsed days). The cleaned name,
+                // not the decorated text, is stored so dateByDay's Friday/Saturday/Sunday
+                // lookup in fetchTonightsSchedule still matches.
+                const dayName = text.replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, '');
+                if (LINEUP_DAY_NAMES.includes(dayName)) {
+                    currentDay = { day: dayName, sections: [] };
                     days.push(currentDay);
                     pendingSectionName = null;
                 } else {
@@ -2704,6 +2724,9 @@
         } catch (e) {
             // Keep whatever we already had -- a failed background revalidation is
             // silent; _lineupFetchFailed only matters when we have nothing at all.
+            // Logged (not swallowed silently) so a stale-cache report is diagnosable
+            // after the fact instead of leaving zero trace of why it didn't update.
+            console.warn('[SC] lineup refetch failed, keeping existing cache:', e && e.message);
         } finally {
             _lineupRevalidating = false;
         }
@@ -2722,6 +2745,16 @@
         if (_lineupScheduleCache) {
             if (lineupScheduleExpired(_lineupScheduleCache)) {
                 await lineupRefetchAndCache(); // the cached weekend is over -- there IS a new post, wait for it
+                // Unlike routine revalidation (below), a still-expired cache here is known to be
+                // wrong, not just possibly stale -- worth one immediate retry before accepting a
+                // transient failure (rate limit, flaky network) as the final answer for however
+                // long this tab stays open before the lineup screen is opened again.
+                if (lineupScheduleExpired(_lineupScheduleCache)) {
+                    await lineupRefetchAndCache();
+                    if (lineupScheduleExpired(_lineupScheduleCache)) {
+                        console.warn('[SC] lineup schedule still expired after refetch retry -- showing stale cached schedule:', _lineupScheduleCache.title);
+                    }
+                }
             } else if (Date.now() - (_lineupScheduleCache.fetchedAt || 0) > LINEUP_CACHE_MAX_AGE_MS) {
                 lineupRefetchAndCache(); // just routine revalidation (e.g. a same-weekend post edit) -- fire-and-forget
             }
@@ -2734,6 +2767,7 @@
             lineupWriteCache(result);
         } catch (e) {
             _lineupFetchFailed = true;
+            console.warn('[SC] lineup initial fetch failed, falling back:', e && e.message);
         }
     }
 
