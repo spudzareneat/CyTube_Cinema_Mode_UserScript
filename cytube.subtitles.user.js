@@ -46,10 +46,264 @@
     }
 
     /* ==========================================================
-       SUBTITLE PANEL (stub — replaced in Task 2)
+       SUBTITLE STATE (session-only — no localStorage persistence)
     ========================================================== */
+    let _subTrack = null;          // the TextTrack we created via addTextTrack
+    let _subCuesOriginal = [];     // [{start, end, text}] as parsed, unmodified by offset
+    let _subOffsetMs = 0;
+    let _loadedFilename = '';
+
+    /* ==========================================================
+       PARSING
+       Accepts SRT (00:00:20,000 --> 00:00:23,400, optional leading
+       numeric index line) and VTT (00:00:20.000 --> 00:00:23.400,
+       WEBVTT header) in one pass.
+    ========================================================== */
+    function parseSubtitleFile(text) {
+        const body = text.replace(/^﻿/, '').replace(/\r\n/g, '\n').replace(/^WEBVTT[^\n]*\n/, '');
+        const blocks = body.split(/\n\s*\n/);
+        const timeRe = /(\d{2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[.,](\d{3})/;
+        const cues = [];
+        for (const block of blocks) {
+            const lines = block.split('\n').filter(l => l.trim() !== '');
+            if (!lines.length) continue;
+            let idx = 0;
+            if (/^\d+$/.test(lines[0].trim())) idx = 1; // SRT numeric index line
+            const m = timeRe.exec(lines[idx] || '');
+            if (!m) continue;
+            const start = (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) + (+m[4]) / 1000;
+            const end   = (+m[5]) * 3600 + (+m[6]) * 60 + (+m[7]) + (+m[8]) / 1000;
+            const cueText = lines.slice(idx + 1).join('\n').trim();
+            if (cueText && end > start) cues.push({ start, end, text: cueText });
+        }
+        return cues;
+    }
+
+    /* ==========================================================
+       TRACK APPLICATION & OFFSET
+       Cues are added to a native TextTrack via addTextTrack/VTTCue --
+       the browser owns rendering and sync to video.currentTime, this
+       script never touches timeupdate. Offset changes rebuild every
+       cue from its ORIGINAL parsed time plus the current offset (never
+       an incremental delta), so repeated nudges never drift.
+    ========================================================== */
+    function clearSubtitleTrack() {
+        if (_subTrack) {
+            try { while (_subTrack.cues && _subTrack.cues.length) _subTrack.removeCue(_subTrack.cues[0]); } catch (e) {}
+        }
+        _subTrack = null;
+        _subCuesOriginal = [];
+        _subOffsetMs = 0;
+        _loadedFilename = '';
+    }
+
+    function applySubtitles(video, cues, filename) {
+        clearSubtitleTrack();
+        _subCuesOriginal = cues;
+        _loadedFilename = filename;
+        _subTrack = video.addTextTrack('subtitles', 'Loaded subtitles', 'en');
+        _subTrack.mode = 'showing'; // addTextTrack defaults to 'hidden'
+        rebuildCues();
+        updateOffsetDisplay();
+    }
+
+    function rebuildCues() {
+        if (!_subTrack) return;
+        while (_subTrack.cues && _subTrack.cues.length) _subTrack.removeCue(_subTrack.cues[0]);
+        const offsetSec = _subOffsetMs / 1000;
+        for (const c of _subCuesOriginal) {
+            const start = Math.max(0, c.start + offsetSec);
+            const end = Math.max(start + 0.01, c.end + offsetSec);
+            try { _subTrack.addCue(new VTTCue(start, end, c.text)); } catch (e) {}
+        }
+    }
+
+    function setOffsetMs(ms) {
+        _subOffsetMs = ms;
+        rebuildCues();
+        updateOffsetDisplay();
+    }
+    function nudgeOffsetMs(deltaMs) { setOffsetMs(_subOffsetMs + deltaMs); }
+
+    /* ==========================================================
+       PANEL STATE HELPERS (null-safe — panel may not be open)
+    ========================================================== */
+    function updateOffsetDisplay() {
+        const val = document.getElementById('sc-sub-offset-value');
+        if (val) val.textContent = _subOffsetMs + 'ms';
+        const fname = document.getElementById('sc-sub-filename');
+        if (fname) fname.textContent = _loadedFilename || 'No file loaded';
+    }
+    function showPanelError(msg) {
+        const el = document.getElementById('sc-sub-error');
+        if (el) el.textContent = msg;
+    }
+    function clearPanelError() { showPanelError(''); }
+
+    function resetSubtitles() {
+        clearSubtitleTrack();
+        updateOffsetDisplay();
+        clearPanelError();
+    }
+
+    /* ==========================================================
+       SUBTITLE PANEL
+    ========================================================== */
+    function injectPanelCss() {
+        if (document.getElementById('scsub-panel-style')) return;
+        const style = document.createElement('style');
+        style.id = 'scsub-panel-style';
+        style.textContent = `
+            #sc-sub-panel {
+                position: fixed !important;
+                top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important;
+                z-index: 30002 !important;
+                width: 360px !important; max-width: 92vw !important;
+                display: flex !important; flex-direction: column !important;
+                background: #0c0c0e !important;
+                border: 1px solid rgba(244,244,242,0.14) !important;
+                border-radius: 12px !important;
+                box-shadow: 0 12px 40px rgba(0,0,0,0.6) !important;
+                color: #f4f4f2 !important; font-size: 13px !important;
+                font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif !important;
+            }
+            #sc-sub-head {
+                display: flex !important; align-items: center !important; justify-content: space-between !important;
+                padding: 10px 16px !important;
+                border-bottom: 1px solid rgba(244,244,242,0.08) !important;
+                font-weight: 600 !important; font-size: 14px !important; color: #f4f4f2 !important;
+                cursor: grab !important; user-select: none !important; touch-action: none !important;
+            }
+            #sc-sub-head.sc-sub-dragging { cursor: grabbing !important; }
+            #sc-sub-close {
+                background: transparent !important; border: none !important; color: rgba(244,244,242,0.62) !important;
+                font-size: 15px !important; cursor: pointer !important; padding: 0 4px !important;
+                transition: color 120ms ease !important;
+            }
+            #sc-sub-close:hover { color: #f4f4f2 !important; }
+            #sc-sub-body {
+                padding: 16px !important; display: flex !important; flex-direction: column !important; gap: 12px !important;
+            }
+            #sc-sub-filename { font-size: 12px !important; color: rgba(244,244,242,0.62) !important; }
+            #sc-sub-offset-row {
+                display: flex !important; align-items: center !important; gap: 8px !important; flex-wrap: wrap !important;
+            }
+            #sc-sub-offset-row button {
+                background: rgba(255,255,255,0.08) !important; color: #f4f4f2 !important;
+                border: 1px solid rgba(255,255,255,0.18) !important; border-radius: 6px !important;
+                padding: 4px 8px !important; cursor: pointer !important; font-size: 12px !important;
+                transition: background 120ms ease !important;
+            }
+            #sc-sub-offset-row button:hover { background: rgba(255,255,255,0.22) !important; }
+            #sc-sub-offset-value { font-size: 12px !important; min-width: 56px !important; text-align: center !important; }
+            #sc-sub-offset-input {
+                width: 70px !important; background: rgba(255,255,255,0.06) !important; color: #f4f4f2 !important;
+                border: 1px solid rgba(255,255,255,0.18) !important; border-radius: 6px !important; padding: 4px 6px !important;
+            }
+            #sc-sub-clear {
+                background: rgba(255,255,255,0.08) !important; color: #f4f4f2 !important;
+                border: 1px solid rgba(255,255,255,0.18) !important; border-radius: 6px !important;
+                padding: 6px 10px !important; cursor: pointer !important; font-size: 12px !important;
+                align-self: flex-start !important;
+            }
+            #sc-sub-clear:hover { background: rgba(255,255,255,0.22) !important; }
+            #sc-sub-error { font-size: 12px !important; color: #ff6b6b !important; min-height: 14px !important; }
+            video::cue {
+                background: rgba(0,0,0,0.6);
+                color: #f4f4f2;
+                font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+                font-size: 1.05em;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
     function openSubtitlePanel() {
-        console.log('[SC] cytube.subtitles: panel not yet implemented');
+        if (document.getElementById('sc-sub-panel')) return;
+        injectPanelCss();
+
+        const panel = document.createElement('div');
+        panel.id = 'sc-sub-panel';
+        panel.innerHTML = `
+            <div id="sc-sub-head">Subtitles <button id="sc-sub-close" type="button">✕</button></div>
+            <div id="sc-sub-body">
+                <input type="file" id="sc-sub-file" accept=".srt,.vtt">
+                <div id="sc-sub-filename">No file loaded</div>
+                <div id="sc-sub-offset-row">
+                    <button id="sc-sub-offset-minus" type="button">−100ms</button>
+                    <span id="sc-sub-offset-value">0ms</span>
+                    <button id="sc-sub-offset-plus" type="button">+100ms</button>
+                    <input type="number" id="sc-sub-offset-input" step="100">
+                    <button id="sc-sub-offset-set" type="button">Set</button>
+                </div>
+                <button id="sc-sub-clear" type="button">Clear subtitles</button>
+                <div id="sc-sub-error"></div>
+            </div>`;
+        document.body.appendChild(panel);
+
+        const $ = id => panel.querySelector(id);
+        updateOffsetDisplay();
+
+        $('#sc-sub-close').addEventListener('click', () => panel.remove());
+
+        $('#sc-sub-file').addEventListener('change', (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const cues = parseSubtitleFile(reader.result);
+                    if (!cues.length) { showPanelError('No subtitle cues found in this file.'); return; }
+                    const video = getPlayerVideoEl();
+                    if (!video) { showPanelError('No video found to attach subtitles to.'); return; }
+                    applySubtitles(video, cues, file.name);
+                    clearPanelError();
+                } catch (err) {
+                    showPanelError('Could not parse this file: ' + (err.message || err));
+                }
+            };
+            reader.onerror = () => showPanelError('Could not read this file.');
+            reader.readAsText(file);
+        });
+
+        $('#sc-sub-offset-minus').addEventListener('click', () => nudgeOffsetMs(-100));
+        $('#sc-sub-offset-plus').addEventListener('click', () => nudgeOffsetMs(100));
+        $('#sc-sub-offset-set').addEventListener('click', () => {
+            const v = parseInt($('#sc-sub-offset-input').value, 10);
+            if (!isNaN(v)) setOffsetMs(v);
+        });
+        $('#sc-sub-clear').addEventListener('click', () => resetSubtitles());
+
+        const head = $('#sc-sub-head');
+        let dragging = false, dragDX = 0, dragDY = 0;
+        const setPanelPos = (prop, val) => panel.style.setProperty(prop, val, 'important');
+        head.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('#sc-sub-close')) return;
+            const rect = panel.getBoundingClientRect();
+            setPanelPos('left', rect.left + 'px');
+            setPanelPos('top', rect.top + 'px');
+            setPanelPos('transform', 'none');
+            dragDX = e.clientX - rect.left;
+            dragDY = e.clientY - rect.top;
+            dragging = true;
+            head.classList.add('sc-sub-dragging');
+            head.setPointerCapture(e.pointerId);
+        });
+        head.addEventListener('pointermove', (e) => {
+            if (!dragging) return;
+            const rect = panel.getBoundingClientRect();
+            const x = Math.min(Math.max(e.clientX - dragDX, -(rect.width - 40)), window.innerWidth - 40);
+            const y = Math.min(Math.max(e.clientY - dragDY, 0), window.innerHeight - 32);
+            setPanelPos('left', x + 'px');
+            setPanelPos('top', y + 'px');
+        });
+        const endDrag = (e) => {
+            dragging = false;
+            head.classList.remove('sc-sub-dragging');
+            try { head.releasePointerCapture(e.pointerId); } catch (err) {}
+        };
+        head.addEventListener('pointerup', endDrag);
+        head.addEventListener('pointercancel', endDrag);
     }
 
     /* ==========================================================
