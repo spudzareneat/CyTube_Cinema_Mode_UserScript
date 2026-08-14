@@ -392,6 +392,52 @@
     }
 
     /* ==========================================================
+       MOVIE-CHANGE RESET
+       cytube.pc.user.js:1605-1622 establishes the reliable signal for
+       this: CyTube's own changeMedia socket event fires on every movie
+       change (reused/queued video or a fresh one), whether or not the
+       underlying <video> DOM node is actually replaced. That's the
+       PRIMARY reset trigger. A video-element-identity poll (same 800ms
+       cadence as the trigger-button-state poll) is a defensive backstop
+       for the case where the socket hasn't bound yet. Both paths call
+       the same idempotent resetSubtitles(), so double-firing on an
+       actual movie change is harmless.
+    ========================================================== */
+    let _lastVideoEl = null;
+    function checkVideoSwap() {
+        const video = getPlayerVideoEl();
+        if (video !== _lastVideoEl) {
+            _lastVideoEl = video;
+            if (_subTrack) resetSubtitles();
+        }
+    }
+
+    function initMediaWatcher() {
+        const tryBind = () => {
+            if (typeof socket === 'undefined' || !socket || !socket.on) return;
+            socket.on('changeMedia', () => resetSubtitles());
+        };
+        // socket may not be ready at document-start; try at load then again after a short delay
+        window.addEventListener('load', () => { tryBind(); setTimeout(tryBind, 2000); });
+    }
+
+    /* ==========================================================
+       OFFSET KEYBINDS
+       [ / ] nudge by 100ms, Shift+[ / Shift+] nudge by 1000ms. Guarded
+       against firing while chat/any input is focused -- same guard
+       cytube.pc.user.js:1719-1721 uses for its own arrow-key seeking
+       listener (a second, independent listener; no conflict since the
+       key sets don't overlap). No-op while nothing is loaded.
+    ========================================================== */
+    document.addEventListener('keydown', (e) => {
+        const t = e.target;
+        if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;
+        if (!_subTrack) return;
+        if (e.key === '[') { nudgeOffsetMs(e.shiftKey ? -1000 : -100); return; }
+        if (e.key === ']') { nudgeOffsetMs(e.shiftKey ?  1000 :  100); return; }
+    });
+
+    /* ==========================================================
        BOOT
     ========================================================== */
     const PC_BRIDGE_POLL_MS = 50;
@@ -403,6 +449,8 @@
         if (readPcBridge()) PC_MODE = true;
         ensureTriggerButton();
         updateTriggerButtonState();
+        initMediaWatcher();
+        setInterval(checkVideoSwap, 800);
 
         if (!PC_MODE) {
             let elapsed = 0;
