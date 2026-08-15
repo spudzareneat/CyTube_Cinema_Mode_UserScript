@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         CyTube Subtitle Sync
 // @namespace    http://tampermonkey.net/
-// @version      1.3.0
-// @description  Load a local .srt/.vtt subtitle file and sync it to native <video> playback, with a persistent font-size setting, a draggable position pad for on-screen caption placement, and bold outlined captions positioned above the video controls by default. Not available for YouTube playback. Integrates with cytube.pc.user.js when installed, including an OpenSubtitles search link for the currently playing movie.
+// @version      1.4.0
+// @description  Load a local .srt/.vtt subtitle file and sync it to native <video> playback, with a persistent font-size setting, a draggable/steppable position pad for on-screen caption placement, and a short-lived per-movie cache that survives a page refresh. Not available for YouTube playback. Integrates with cytube.pc.user.js when installed, including an OpenSubtitles search link for the currently playing movie.
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
 // @run-at       document-start
@@ -10,7 +10,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.subtitles v1.3.0 loaded');
+    console.log('[SC] cytube.subtitles v1.4.0 loaded');
 
     /* ==========================================================
        PC-SCRIPT INTEGRATION BRIDGE
@@ -70,6 +70,7 @@
     const LS_SUB_POS_Y = 'sc_sub_posy';
     const SUB_POS_X_DEFAULT = 50;
     const SUB_POS_Y_DEFAULT = 85; // leaves clearance below for CyTube's control bar/scrubber
+    const SUB_POS_STEP = 2;
     function getSubPos(key, def) {
         const v = parseInt(localStorage.getItem(key), 10);
         return (Number.isFinite(v) && v >= 0 && v <= 100) ? v : def;
@@ -138,6 +139,7 @@
         _subTrack.mode = 'showing'; // addTextTrack defaults to 'hidden'
         rebuildCues();
         updateOffsetDisplay();
+        saveSubCache();
     }
 
     function rebuildCues() {
@@ -183,6 +185,7 @@
         _subOffsetMs = ms;
         rebuildCues();
         updateOffsetDisplay();
+        saveSubCache();
     }
     function nudgeOffsetMs(deltaMs) { setOffsetMs(_subOffsetMs + deltaMs); }
 
@@ -333,6 +336,11 @@
                 pointer-events: none !important;
             }
             .sc-sub-poscol { display: flex !important; flex-direction: column !important; gap: 6px !important; align-items: flex-start !important; }
+            .sc-sub-dpad {
+                display: grid !important; grid-template-columns: repeat(3, 26px) !important;
+                grid-template-rows: repeat(3, 26px) !important; gap: 2px !important;
+            }
+            .sc-sub-dpad .sc-sub-btn-icon { width: 26px !important; height: 26px !important; }
             .sc-sub-footer { display: flex !important; gap: 8px !important; }
             .sc-sub-footer .sc-sub-btn, .sc-sub-footer .sc-sub-btn-accent { flex: 1 1 0 !important; }
             #sc-sub-error { font-size: 12px !important; color: #ff6b6b !important; min-height: 14px !important; }
@@ -408,6 +416,17 @@
                     </div>
                     <div class="sc-sub-posrow">
                         <div id="sc-sub-pospad" title="Drag to position captions"><div id="sc-sub-pospad-dot"></div></div>
+                        <div class="sc-sub-dpad">
+                            <span></span>
+                            <button id="sc-sub-posy-minus" class="sc-sub-btn sc-sub-btn-icon" type="button" title="Move up">▲</button>
+                            <span></span>
+                            <button id="sc-sub-posx-minus" class="sc-sub-btn sc-sub-btn-icon" type="button" title="Move left">◀</button>
+                            <span></span>
+                            <button id="sc-sub-posx-plus" class="sc-sub-btn sc-sub-btn-icon" type="button" title="Move right">▶</button>
+                            <span></span>
+                            <button id="sc-sub-posy-plus" class="sc-sub-btn sc-sub-btn-icon" type="button" title="Move down">▼</button>
+                            <span></span>
+                        </div>
                         <div class="sc-sub-poscol">
                             <span class="sc-sub-label">Position</span>
                             <span id="sc-sub-pos-readout" class="sc-sub-readout">${_subPosX}%, ${_subPosY}%</span>
@@ -458,8 +477,12 @@
         });
         $('#sc-sub-fontsize-minus').addEventListener('click', () => nudgeFontSizePx(-SUB_FONT_SIZE_STEP));
         $('#sc-sub-fontsize-plus').addEventListener('click', () => nudgeFontSizePx(SUB_FONT_SIZE_STEP));
+        $('#sc-sub-posx-minus').addEventListener('click', () => setSubPosition(_subPosX - SUB_POS_STEP, _subPosY));
+        $('#sc-sub-posx-plus').addEventListener('click', () => setSubPosition(_subPosX + SUB_POS_STEP, _subPosY));
+        $('#sc-sub-posy-minus').addEventListener('click', () => setSubPosition(_subPosX, _subPosY - SUB_POS_STEP));
+        $('#sc-sub-posy-plus').addEventListener('click', () => setSubPosition(_subPosX, _subPosY + SUB_POS_STEP));
         $('#sc-sub-pos-reset').addEventListener('click', () => resetSubPosition());
-        $('#sc-sub-clear').addEventListener('click', () => resetSubtitles());
+        $('#sc-sub-clear').addEventListener('click', () => { resetSubtitles(); clearSubCache(); });
 
         const pad = $('#sc-sub-pospad');
         let posDragging = false;
@@ -606,6 +629,51 @@
     }
 
     /* ==========================================================
+       SHORT-LIVED PER-MOVIE SUBTITLE CACHE
+       Remembers the loaded file (parsed cues + offset) against the
+       movie it was loaded for, so a page refresh -- or that same movie
+       coming back around shortly after -- restores it automatically.
+       Deliberately short-lived (a few hours, not indefinite like the
+       font-size/position settings) and holds only the single
+       most-recently-loaded movie, not a per-movie history. Restoring
+       refreshes savedAt (a sliding window: still-in-use stays cached,
+       untouched entries expire).
+    ========================================================== */
+    const LS_SUB_CACHE = 'sc_sub_cache';
+    const SUB_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
+    let _currentMovieKey = null; // raw title from the most recent changeMedia payload
+
+    function saveSubCache() {
+        if (!_subTrack || !_currentMovieKey) return;
+        try {
+            localStorage.setItem(LS_SUB_CACHE, JSON.stringify({
+                key: _currentMovieKey,
+                filename: _loadedFilename,
+                cues: _subCuesOriginal,
+                offsetMs: _subOffsetMs,
+                savedAt: Date.now(),
+            }));
+        } catch (e) {}
+    }
+
+    function clearSubCache() {
+        try { localStorage.removeItem(LS_SUB_CACHE); } catch (e) {}
+    }
+
+    function tryRestoreSubCache() {
+        if (!_currentMovieKey) return;
+        let raw;
+        try { raw = JSON.parse(localStorage.getItem(LS_SUB_CACHE)); } catch (e) { return; }
+        if (!raw || raw.key !== _currentMovieKey) return;
+        if (!raw.savedAt || Date.now() - raw.savedAt > SUB_CACHE_TTL_MS) { clearSubCache(); return; }
+        if (!Array.isArray(raw.cues) || !raw.cues.length) return;
+        const video = getPlayerVideoEl();
+        if (!video) return;
+        applySubtitles(video, raw.cues, raw.filename || '');
+        if (Number.isFinite(raw.offsetMs) && raw.offsetMs !== 0) setOffsetMs(raw.offsetMs);
+    }
+
+    /* ==========================================================
        MOVIE-CHANGE RESET
        cytube.pc.user.js:1605-1622 establishes the reliable signal for
        this: CyTube's own changeMedia socket event fires on every movie
@@ -613,9 +681,10 @@
        underlying <video> DOM node is actually replaced. That's the
        PRIMARY reset trigger. A video-element-identity poll (same 800ms
        cadence as the trigger-button-state poll) is a defensive backstop
-       for the case where the socket hasn't bound yet. Both paths call
-       the same idempotent resetSubtitles(), so double-firing on an
-       actual movie change is harmless.
+       for the case where the socket hasn't bound yet -- it only resets
+       (no cache-restore attempt, since it has no title to key against).
+       Both paths call the same idempotent resetSubtitles(), so
+       double-firing on an actual movie change is harmless.
     ========================================================== */
     let _lastVideoEl = null;
     function checkVideoSwap() {
@@ -629,7 +698,11 @@
     function initMediaWatcher() {
         const tryBind = () => {
             if (typeof socket === 'undefined' || !socket || !socket.on) return;
-            socket.on('changeMedia', () => resetSubtitles());
+            socket.on('changeMedia', (data) => {
+                _currentMovieKey = (data && data.title) ? String(data.title).trim() : null;
+                resetSubtitles();
+                tryRestoreSubCache();
+            });
         };
         // socket may not be ready at document-start; try at load then again after a short delay
         window.addEventListener('load', () => { tryBind(); setTimeout(tryBind, 2000); });
