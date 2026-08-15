@@ -1,6 +1,25 @@
     console.log('[SC] cytube.pc v4.10.4 loaded');
 
     /* ==========================================================
+       REGISTRY PRIMITIVES — let BOOT and the Settings Modal iterate
+       over feature-contributed entries instead of hardcoded call
+       lists / markup, so a feature's code can live in its own file
+       (or be excluded from a build entirely) without any central
+       list needing to know its name.
+    ========================================================== */
+    const SC_INIT_REGISTRY = [];
+    const SC_SETTINGS_ROWS = [];
+    function scRegisterInit(fn) { SC_INIT_REGISTRY.push(fn); }
+    function scRegisterSetting(row) { SC_SETTINGS_ROWS.push(row); }
+    function injectCSS(id, css) {
+        if (document.getElementById('sc-style-' + id)) return;
+        const s = document.createElement('style');
+        s.id = 'sc-style-' + id;
+        s.textContent = css;
+        document.head.appendChild(s);
+    }
+
+    /* ==========================================================
        API KEYS — stored in localStorage, managed via settings modal.
        Keys are never hard-coded; the settings modal handles first-run.
     ========================================================== */
@@ -1853,6 +1872,30 @@
        Re-openable via the ⚙ button added to the floating buttons.
     ========================================================== */
 
+    // Per-feature toggle rows, registered by the feature that owns them (all
+    // still colocated in this file for now — see scRegisterInit above for why).
+    scRegisterSetting({ id: 'sc-input-spellcheck', group: 'grammar-check', label: 'Grammar &amp; spell check popup', note: 'When off, messages send immediately without review', key: LS_SPELLCHECK, defaultOn: true });
+    scRegisterSetting({ id: 'sc-input-movielinks', group: 'movie-title-links', label: 'Show movie links (IMDb / Letterboxd / Wiki)', note: 'Adds clickable badge icons next to the title', key: LS_MOVIE_LINKS, defaultOn: true });
+    scRegisterSetting({ id: 'sc-input-autoembed', group: 'chat-images', label: 'Auto-embed image links in chat', note: 'Shows a thumbnail preview under messages that link directly to an image, marked "🖼 embedded" (requires cytube.chatimages.user.js)', key: LS_AUTOEMBED, defaultOn: true });
+    scRegisterSetting({ id: 'sc-input-gifoptimize', group: 'gif-maker', label: 'Optimize GIFs before upload', note: 'Losslessly shrinks the file with gifsicle before Download/Upload — adds a couple seconds (requires cytube.gifmaker.user.js)', key: LS_GIF_OPTIMIZE, defaultOn: true });
+
+    // Renders one registered toggle row using the same markup every hardcoded
+    // row used to use. `defaultOn` rows read as checked unless the stored key
+    // is explicitly 'off' (matches spellCheckEnabled()/movieLinksEnabled()/etc.).
+    function toggleRowHtml(r) {
+        const checked = r.defaultOn ? getKey(r.key) !== 'off' : getKey(r.key) === 'on';
+        return `
+                <div class="sc-settings-group sc-settings-toggle-group">
+                    <label class="sc-settings-toggle-label">
+                        <span class="sc-toggle-row">
+                            <input type="checkbox" id="${r.id}" ${checked ? 'checked' : ''} />
+                            <span class="sc-toggle-text">${r.label}</span>
+                        </span>
+                        <span class="sc-settings-note">${r.note}</span>
+                    </label>
+                </div>`;
+    }
+
     async function validateTmdbKey(key) {
         try {
             const res = await new Promise((resolve, reject) => {
@@ -1937,45 +1980,7 @@
                     </div>
                 </div>
 
-                <div class="sc-settings-group sc-settings-toggle-group">
-                    <label class="sc-settings-toggle-label">
-                        <span class="sc-toggle-row">
-                            <input type="checkbox" id="sc-input-spellcheck" ${spellCheckEnabled() ? 'checked' : ''} />
-                            <span class="sc-toggle-text">Grammar &amp; spell check popup</span>
-                        </span>
-                        <span class="sc-settings-note">When off, messages send immediately without review</span>
-                    </label>
-                </div>
-
-                <div class="sc-settings-group sc-settings-toggle-group">
-                    <label class="sc-settings-toggle-label">
-                        <span class="sc-toggle-row">
-                            <input type="checkbox" id="sc-input-movielinks" ${movieLinksEnabled() ? 'checked' : ''} />
-                            <span class="sc-toggle-text">Show movie links (IMDb / Letterboxd / Wiki)</span>
-                        </span>
-                        <span class="sc-settings-note">Adds clickable badge icons next to the title</span>
-                    </label>
-                </div>
-
-                <div class="sc-settings-group sc-settings-toggle-group">
-                    <label class="sc-settings-toggle-label">
-                        <span class="sc-toggle-row">
-                            <input type="checkbox" id="sc-input-autoembed" ${autoEmbedEnabled() ? 'checked' : ''} />
-                            <span class="sc-toggle-text">Auto-embed image links in chat</span>
-                        </span>
-                        <span class="sc-settings-note">Shows a thumbnail preview under messages that link directly to an image, marked "🖼 embedded" (requires cytube.chatimages.user.js)</span>
-                    </label>
-                </div>
-
-                <div class="sc-settings-group sc-settings-toggle-group">
-                    <label class="sc-settings-toggle-label">
-                        <span class="sc-toggle-row">
-                            <input type="checkbox" id="sc-input-gifoptimize" ${gifOptimizeEnabled() ? 'checked' : ''} />
-                            <span class="sc-toggle-text">Optimize GIFs before upload</span>
-                        </span>
-                        <span class="sc-settings-note">Losslessly shrinks the file with gifsicle before Download/Upload — adds a couple seconds (requires cytube.gifmaker.user.js)</span>
-                    </label>
-                </div>
+                ${SC_SETTINGS_ROWS.map(r => toggleRowHtml(r)).join('')}
 
                 <div class="sc-settings-group sc-settings-divider">
                     <label class="sc-settings-label">
@@ -2071,21 +2076,17 @@
 
         document.getElementById('sc-settings-save').addEventListener('click', () => {
             const tmdb   = tmdbToggle.checked ? document.getElementById('sc-input-tmdb').value.trim() : '';
-            const spell  = document.getElementById('sc-input-spellcheck').checked;
-            const links  = document.getElementById('sc-input-movielinks').checked;
             const lineupTiming = document.getElementById('sc-input-lineuptiming').checked;
-            const gifOptimize = document.getElementById('sc-input-gifoptimize').checked;
-            const autoEmbed = document.getElementById('sc-input-autoembed').checked;
             const imgbb  = document.getElementById('sc-input-imgbb').value.trim();
             const fontPx = parseInt(fontInput.value, 10);
             const leadSecInput = parseInt(document.getElementById('sc-input-leadsec').value, 10);
             const leadSec = Math.min(MOVIE_LEAD_MAX, Math.max(MOVIE_LEAD_MIN, Number.isFinite(leadSecInput) ? leadSecInput : MOVIE_LEAD_DEFAULT));
             setKey(LS_TMDB,        tmdb);
-            setKey(LS_SPELLCHECK,  spell ? 'on' : 'off');
-            setKey(LS_MOVIE_LINKS, links ? 'on' : 'off');
+            SC_SETTINGS_ROWS.forEach(row => {
+                const el = document.getElementById(row.id);
+                if (el) setKey(row.key, el.checked ? 'on' : 'off');
+            });
             setKey(LS_LINEUP_TIMING, lineupTiming ? 'on' : 'off');
-            setKey(LS_GIF_OPTIMIZE, gifOptimize ? 'on' : 'off');
-            setKey(LS_AUTOEMBED,   autoEmbed ? 'on' : 'off');
             setKey(LS_IMGBB,       imgbb);
             setKey(LS_CHAT_FONT,   String(fontPx));
             applyChatFontSize(fontPx);
@@ -3687,25 +3688,36 @@
        CSS + LOAD INIT
     ========================================================== */
 
+    // Every function that used to be called directly from the 'load' handler
+    // below now registers itself here instead, in the same order the old
+    // hardcoded sequence called them in (order matters for a couple of these —
+    // e.g. initPollWatcher/initUserCount both require initChatHeader's
+    // #sc-chat-header element to already exist). A future feature file that
+    // self-registers via scRegisterInit doesn't need to be listed anywhere
+    // central; it just needs to run after core is loaded.
+    scRegisterInit(getKillCountDb); // pre-fetch kill count DB
+    scRegisterInit(installChatTextarea);
+    scRegisterInit(relocateEmoteButton);
+    scRegisterInit(addFloatingButtons);
+    scRegisterInit(addSettingsButton);
+    scRegisterInit(watchMovieTitle);
+    scRegisterInit(initMediaWatcher);
+    scRegisterInit(initChatTimestamps);
+    scRegisterInit(initTopBar);
+    scRegisterInit(initGapButtonDim);
+    scRegisterInit(initDesyncButton);
+    scRegisterInit(initMovieLeadOffset);
+    scRegisterInit(initChatSeekMenu);
+    scRegisterInit(initChatHeader);
+    scRegisterInit(initChatResizer);
+    scRegisterInit(initUserCount);
+    scRegisterInit(initPollWatcher);
+    scRegisterInit(function scApplyInitialChatFontSize() { applyChatFontSize(getChatFontSize()); });
+
     window.addEventListener('load', () => {
-        getKillCountDb(); // pre-fetch kill count DB
-        installChatTextarea();
-        relocateEmoteButton();
-        addFloatingButtons();
-        addSettingsButton();
-        watchMovieTitle();
-        initMediaWatcher();
-        initChatTimestamps();
-        initTopBar();
-        initGapButtonDim();
-        initDesyncButton();
-        initMovieLeadOffset();
-        initChatSeekMenu();
-        initChatHeader();
-        initChatResizer();
-        initUserCount();
-        initPollWatcher();
-        applyChatFontSize(getChatFontSize());
+        SC_INIT_REGISTRY.forEach(fn => {
+            try { fn(); } catch (e) { console.error('[SC] init failed:', fn.name, e); }
+        });
 
         // First-run settings modal
         if (!hasKey(LS_TMDB)) {
