@@ -80,6 +80,52 @@
         openGifPanel: undefined, // filled in by cytube.gifmaker.user.js once it boots
     };
 
+    /* ==========================================================
+       CHANNEL SCRIPT AUTO-APPROVE
+       CyTube prompts once per channel (#chanjs-allow-prompt) before
+       running channel-configured CSS/JS. Pre-seed the same
+       localStorage key CyTube already trusts (channel_js_pref) plus
+       a short-lived safety-net auto-click, so the prompt never
+       blocks/interrupts the user.
+    ========================================================== */
+    function initChannelScriptAutoApprove() {
+        const KEY = 'channel_js_pref';
+
+        function seedPrefs() {
+            const name = _uw.CHANNEL && _uw.CHANNEL.name && _uw.CHANNEL.name.toLowerCase();
+            if (!name) return false;
+            let prefs;
+            try { prefs = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { prefs = {}; }
+            prefs[name + '_embedded'] = 'ALLOW';
+            localStorage.setItem(KEY, JSON.stringify(prefs));
+            // CyTube's own script may have already read JSPREF from localStorage before
+            // this ran -- patch the live copy too so a prompt already in flight resolves
+            // to ALLOW instead of racing us. JSPREF is a `var` global, so _uw.JSPREF works.
+            if (_uw.JSPREF && typeof _uw.JSPREF === 'object') {
+                _uw.JSPREF[name + '_embedded'] = 'ALLOW';
+                _uw.JSPREF[name + '_external'] = 'ALLOW';
+            }
+            return true;
+        }
+
+        function dismissPromptIfShown() {
+            const allow = document.getElementById('chanjs-allow');
+            if (!allow) return;
+            const remember = document.getElementById('chanjs-save-pref');
+            if (remember) remember.checked = true;
+            allow.click();
+        }
+
+        // prompt renders before the seed takes effect.
+        let tick = 0;
+        const timer = setInterval(() => {
+            seedPrefs();
+            dismissPromptIfShown();
+            if (++tick > 40) clearInterval(timer); // ~20s
+        }, 500);
+    }
+    initChannelScriptAutoApprove();
+
     function getChatFontSize() {
         const v = parseInt(getKey(LS_CHAT_FONT), 10);
         return (Number.isFinite(v) && v >= 10 && v <= 32) ? v : 14;
@@ -1730,22 +1776,61 @@
         return Math.abs(h);
     }
     function usernameToColor(u) {
-        // Own username gets a fixed standout colour rather than the hash.
-        if (_uw.CLIENT && _uw.CLIENT.name && u === _uw.CLIENT.name) {
-            return 'hsl(197, 90%, 78%)'; // baby blue
-        }
         // Golden angle multiplication spreads hues maximally apart so
         // no two nearby hash values share a similar colour.
         const hue = (hashString(u) * 137.508) % 360;
         return `hsl(${hue.toFixed(1)}, 72%, 70%)`;
     }
+
+    /* ==========================================================
+       CHANNEL-SCRIPT EMOJI (read live, no hardcoded copy)
+       The channel's own separately-configured userscript defines a
+       userStyles map of { username: [emoji, color] }. CyTube inserts
+       that script via jQuery's .text().appendTo(), which runs it but
+       does NOT promote its top-level const/let to a real page global,
+       so userStyles itself is unreadable from outside that script.
+       CHANNEL.js still holds the raw, unexecuted source text though
+       (set unconditionally regardless of allow/deny) — parse the
+       object literal back out of that instead, so this stays in sync
+       automatically as the channel script is edited.
+    ========================================================== */
+    let _channelStylesSourceText = null;
+    let _channelStylesCache = null;
+    function parseChannelUserStyles(jsText) {
+        const m = jsText.match(/const\s+userStyles\s*=\s*(\{[\s\S]*?\})\s*;/);
+        if (!m) return null;
+        try {
+            const obj = new Function('return (' + m[1] + ')')();
+            return (obj && typeof obj === 'object') ? obj : null;
+        } catch (e) {
+            return null;
+        }
+    }
+    function getExternalUserEmoji(username) {
+        const jsText = _uw.CHANNEL && _uw.CHANNEL.js;
+        if (!jsText) return null;
+        if (jsText !== _channelStylesSourceText) {
+            _channelStylesSourceText = jsText;
+            _channelStylesCache = parseChannelUserStyles(jsText);
+        }
+        if (!_channelStylesCache) return null;
+        const entry = _channelStylesCache[username];
+        return (Array.isArray(entry) && entry[0]) ? entry[0] : null;
+    }
+
     function applyUserColors() {
         document.querySelectorAll('#messagebuffer [class*="chat-msg-"]').forEach(el => {
             const cls = [...el.classList].find(c => c.startsWith('chat-msg-'));
             if (!cls) return;
             const u = cls.replace('chat-msg-', '');
             const span = el.querySelector('.username');
-            if (span) { span.style.color = usernameToColor(u); span.style.fontWeight = '700'; }
+            if (span) {
+                span.style.color = usernameToColor(u);
+                span.style.fontWeight = '700';
+                const emoji = getExternalUserEmoji(u);
+                if (emoji) span.setAttribute('data-emoji', emoji);
+                else span.removeAttribute('data-emoji');
+            }
             el.classList.toggle('sc-own-msg', !!(_uw.CLIENT && _uw.CLIENT.name && u === _uw.CLIENT.name));
         });
     }
@@ -4330,6 +4415,16 @@
                 background: rgba(125, 200, 255, 0.07) !important;
                 margin: 0 -4px !important; padding: 1px 4px !important;
                 border-radius: 3px !important;
+            }
+            /* Emoji sourced live from the channel's own userStyles map — see
+               getExternalUserEmoji(). Fixed-width slot so names all start
+               at the same x position regardless of glyph width. */
+            #messagebuffer .username[data-emoji]::before {
+                content: attr(data-emoji);
+                display: inline-block;
+                width: 1.3em;
+                margin-right: 0.15em;
+                text-align: center;
             }
             /* Mention ping -- overrides CyTube's default flat-gray .nick-highlight */
             #messagebuffer .nick-highlight {
