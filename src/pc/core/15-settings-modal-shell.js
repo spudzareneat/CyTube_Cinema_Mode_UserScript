@@ -16,10 +16,19 @@
     scRegisterSetting({ id: 'sc-input-autoembed', group: 'chat-images', label: 'Auto-embed image links in chat', note: 'Shows a thumbnail preview under messages that link directly to an image, marked "🖼 embedded" (requires cytube.chatimages.user.js)', key: LS_AUTOEMBED, defaultOn: true, order: 3 });
     scRegisterSetting({ id: 'sc-input-gifoptimize', group: 'gif-maker', label: 'Optimize GIFs before upload', note: 'Losslessly shrinks the file with gifsicle before Download/Upload — adds a couple seconds (requires cytube.gifmaker.user.js)', key: LS_GIF_OPTIMIZE, defaultOn: true, order: 4 });
 
-    // Renders one registered toggle row using the same markup every hardcoded
-    // row used to use. `defaultOn` rows read as checked unless the stored key
-    // is explicitly 'off' (matches spellCheckEnabled()/movieLinksEnabled()/etc.).
-    function toggleRowHtml(r) {
+    // Renders one registered settings row, branching on `r.type` (defaulted to
+    // 'checkbox' by scRegisterSetting). Dispatches to a per-type renderer below.
+    function settingsRowHtml(r) {
+        if (r.type === 'text') return textRowHtml(r);
+        if (r.type === 'number') return numberRowHtml(r);
+        return checkboxRowHtml(r);
+    }
+
+    // Same markup every hardcoded checkbox row used to use, now shared by any
+    // row registered with type:'checkbox' (or no type at all). `defaultOn` rows
+    // read as checked unless the stored key is explicitly 'off' (matches
+    // spellCheckEnabled()/movieLinksEnabled()/etc.).
+    function checkboxRowHtml(r) {
         const checked = r.defaultOn ? getKey(r.key) !== 'off' : getKey(r.key) === 'on';
         return `
                 <div class="sc-settings-group sc-settings-toggle-group">
@@ -31,6 +40,82 @@
                         <span class="sc-settings-note">${r.note}</span>
                     </label>
                 </div>`;
+    }
+
+    // Text-input row, modeled on the hardcoded TMDB/ImgBB key fields below
+    // (input + optional Test button + status line). `r.testHandler`, if
+    // present, is an async (value) => 'valid'|'invalid'|'error' function —
+    // wireTextRowTestButton() below hooks it up once the row is in the DOM.
+    function textRowHtml(r) {
+        const val = getKey(r.key);
+        return `
+                <div class="sc-settings-group sc-settings-divider">
+                    <label class="sc-settings-label">
+                        ${r.label}
+                        <span class="sc-settings-note">${r.note}</span>
+                    </label>
+                    <div class="sc-settings-input-row">
+                        <input id="${r.id}" class="sc-settings-input" type="text"
+                            placeholder="${r.placeholder || ''}" value="${val}" spellcheck="false" />
+                        ${r.testHandler ? `<button id="${r.id}-test" class="sc-settings-test" type="button">Test</button>` : ''}
+                    </div>
+                    ${r.testHandler ? `<span id="${r.id}-test-status" class="sc-settings-test-status"></span>` : ''}
+                </div>`;
+    }
+
+    // Number-input row, modeled on the hardcoded Movie Lead Time field below.
+    // Stored value is clamped to [min, max], falling back to `defaultValue`
+    // (or `min`) when unset/non-numeric — the exact clamping order the Movie
+    // Lead Time field uses today: Math.min(max, Math.max(min, finite ? v : default)).
+    function numberRowHtml(r) {
+        const raw = parseInt(getKey(r.key), 10);
+        const fallback = r.defaultValue ?? r.min;
+        const val = Math.min(r.max, Math.max(r.min, Number.isFinite(raw) ? raw : fallback));
+        return `
+                <div class="sc-settings-group sc-settings-toggle-group">
+                    <label class="sc-settings-label">
+                        ${r.label}
+                        <span class="sc-settings-note">${r.note}</span>
+                    </label>
+                    <input id="${r.id}" class="sc-settings-input" type="number"
+                        min="${r.min}" max="${r.max}" step="${r.step ?? 1}" value="${val}" style="width:5em" />
+                </div>`;
+    }
+
+    // Wires up the Test button for a rendered text row that declared a
+    // testHandler, mirroring the TMDB/ImgBB Test button behavior below:
+    // disable while checking, show a pending message, then a result message
+    // with the matching status class. Messages are overridable per-row via
+    // testEmptyMessage/testValidMessage/testInvalidMessage/testErrorMessage
+    // so a later row (e.g. ImgBB) can match its existing copy exactly.
+    function wireTextRowTestButton(r) {
+        if (r.type !== 'text' || !r.testHandler) return;
+        const btn = document.getElementById(r.id + '-test');
+        const status = document.getElementById(r.id + '-test-status');
+        if (!btn || !status) return;
+        btn.addEventListener('click', async () => {
+            const value = document.getElementById(r.id).value.trim();
+            if (!value) {
+                status.textContent = r.testEmptyMessage || 'Enter a value first';
+                status.className = 'sc-settings-test-status sc-test-bad';
+                return;
+            }
+            btn.disabled = true;
+            status.textContent = 'Checking…';
+            status.className = 'sc-settings-test-status sc-test-pending';
+            const result = await r.testHandler(value);
+            btn.disabled = false;
+            if (result === 'valid') {
+                status.textContent = r.testValidMessage || '✓ Valid';
+                status.className = 'sc-settings-test-status sc-test-ok';
+            } else if (result === 'invalid') {
+                status.textContent = r.testInvalidMessage || '✗ Invalid';
+                status.className = 'sc-settings-test-status sc-test-bad';
+            } else {
+                status.textContent = r.testErrorMessage || '⚠ Couldn\'t verify';
+                status.className = 'sc-settings-test-status sc-test-bad';
+            }
+        });
     }
 
     // Sorted view of SC_SETTINGS_ROWS used at render time -- doesn't mutate the
@@ -117,7 +202,7 @@
                     </div>
                 </div>
 
-                ${sortedSettingsRows().map(r => toggleRowHtml(r)).join('')}
+                ${sortedSettingsRows().map(r => settingsRowHtml(r)).join('')}
 
                 <div class="sc-settings-group sc-settings-divider">
                     <label class="sc-settings-label">
@@ -164,6 +249,9 @@
         document.body.appendChild(overlay);
         overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
         document.getElementById('sc-settings-cancel').addEventListener('click', () => overlay.remove());
+
+        // Wire up Test buttons for any registered text rows that declared one.
+        sortedSettingsRows().forEach(r => wireTextRowTestButton(r));
 
         // TMDB toggle shows/hides key fields
         const tmdbToggle = document.getElementById('sc-input-tmdb-enable');
@@ -220,7 +308,17 @@
             setKey(LS_TMDB,        tmdb);
             SC_SETTINGS_ROWS.forEach(row => {
                 const el = document.getElementById(row.id);
-                if (el) setKey(row.key, el.checked ? 'on' : 'off');
+                if (!el) return;
+                if (row.type === 'text') {
+                    setKey(row.key, el.value.trim());
+                } else if (row.type === 'number') {
+                    const raw = parseInt(el.value, 10);
+                    const fallback = row.defaultValue ?? row.min;
+                    const clamped = Math.min(row.max, Math.max(row.min, Number.isFinite(raw) ? raw : fallback));
+                    setKey(row.key, String(clamped));
+                } else {
+                    setKey(row.key, el.checked ? 'on' : 'off');
+                }
             });
             setKey(LS_IMGBB,       imgbb);
             setKey(LS_CHAT_FONT,   String(fontPx));
