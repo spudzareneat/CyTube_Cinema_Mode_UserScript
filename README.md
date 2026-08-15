@@ -157,6 +157,20 @@ Direct image links posted in chat (postimg.cc, imgur, Discord CDN, etc.) show up
 
 ---
 
+### Subtitle Sync
+
+Load a local `.srt` or `.vtt` file and sync it to the currently playing video, with a live offset control for files that aren't quite aligned.
+
+> Requires installing **`cytube.subtitles.user.js`** as a separate userscript (see Setup below) — it owns the subtitle parsing/sync logic. Installed on its own, its button sits in CyTube's native video control bar. Installed alongside `cytube.pc.user.js`, it becomes the floating **CC** button described in Floating Controls below. Not available for YouTube playback — native `<video>` only.
+
+- Click **CC** to open the Subtitles panel, then choose a `.srt` or `.vtt` file — cues render using the browser's native caption rendering, so sync tracks playback exactly
+- Nudge the offset ±100ms with the **−100ms** / **+100ms** buttons, or type an exact value and click **Set**
+- Nudge the offset from anywhere with **[** / **]** (±100ms) or **Shift+[** / **Shift+]** (±1000ms) — ignored while typing in chat or another input
+- **Clear subtitles** removes the loaded track; subtitles also clear automatically whenever the channel changes media
+- Nothing is uploaded or shared — the file and its offset are session-local to your browser
+
+---
+
 ### Chat-to-Movie Seek
 
 **Right-click any chat message** for two options based on roughly when that message was posted (minus a 5-second lead-in):
@@ -177,6 +191,7 @@ A row of buttons is fixed to the screen at all times, positioned relative to the
 | ▦ | Open the CyTube emote picker |
 | ⟳ | Free watch — desync from the group stream, click again to re-sync |
 | ◉ | Open the GIF maker (requires `cytube.gifmaker.user.js`) |
+| CC | Open the Subtitles panel (requires `cytube.subtitles.user.js`) |
 | ⚙ | Open the script settings modal |
 
 ---
@@ -232,6 +247,16 @@ Chat image auto-embedding lives in its own userscript. Repeat the steps above wi
 3. Save with **Ctrl+S** (or **Cmd+S**)
 
 It can run alone (always embeds) or alongside `cytube.pc.user.js` (defers to its Settings Modal toggle — see Chat Image Embeds above).
+
+### 2d. Install Subtitle Sync (optional, recommended)
+
+Local subtitle loading lives in its own userscript. Repeat the steps above with `cytube.subtitles.user.js` to add it:
+
+1. Open Tampermonkey's dashboard and click **Create a new script**
+2. Delete the placeholder content and paste in the full contents of `cytube.subtitles.user.js`
+3. Save with **Ctrl+S** (or **Cmd+S**)
+
+It can run alone (button in CyTube's native video control bar) or alongside `cytube.pc.user.js` (becomes the floating **CC** button — see Subtitle Sync above).
 
 ### 3. Enter your API keys (first run)
 

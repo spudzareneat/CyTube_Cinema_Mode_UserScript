@@ -3222,7 +3222,7 @@
     }
 
     function initGapButtonDim() {
-        const GAP_IDS = ['fs-toggle-btn', 'sc-desync-btn', 'sc-gif-btn', 'sc-settings-btn'];
+        const GAP_IDS = ['fs-toggle-btn', 'sc-desync-btn', 'sc-gif-btn', 'sc-settings-btn', 'scsub-trigger-btn'];
         let gapTimer = null;
 
         const gapShow = () => {
@@ -3838,7 +3838,7 @@
                 position: fixed !important;
                 bottom: 4px !important;
                 left: 4px !important;
-                right: calc(var(--sc-chat-w) + 1vw + 150px) !important;
+                right: calc(var(--sc-chat-w) + 1vw + 186px) !important;
                 width: auto !important;
                 margin: 0 !important;
                 z-index: 10001 !important;
@@ -3853,7 +3853,7 @@
             }
             body.sc-vertical .video-js .vjs-control-bar {
                 bottom: calc(var(--sc-chat-h) + 15px) !important;
-                right: 160px !important;
+                right: 196px !important;
                 left: 4px !important;
             }
             /* Keep the scrubber/control bar on screen while desynced instead of

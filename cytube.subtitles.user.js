@@ -89,6 +89,7 @@
     ========================================================== */
     function clearSubtitleTrack() {
         if (_subTrack) {
+            try { _subTrack.mode = 'disabled'; } catch (e) {}
             try { while (_subTrack.cues && _subTrack.cues.length) _subTrack.removeCue(_subTrack.cues[0]); } catch (e) {}
         }
         _subTrack = null;
