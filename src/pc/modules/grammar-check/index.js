@@ -9,8 +9,8 @@
 
        Tab-autocomplete (@Name completion on Tab) and its
        getChatUsernames() helper deliberately stayed OUT of this module
-       and remain in core (00-monolith.js, to be swept into a core file
-       proper in Task 8) even though buildAnnotation() below also calls
+       and remain in core (src/pc/core/11-chat-input-and-emotes.js) even
+       though buildAnnotation() below also calls
        getChatUsernames() to build its LT-ignore mask -- investigated at
        extraction time (Task 7) and confirmed tab-autocomplete has real
        standalone value (it completes @mentions generally, for any
@@ -322,4 +322,8 @@
         } else if (!show && el) el.remove();
     }
 
-    scRegisterSetting({ id: 'sc-input-spellcheck', group: 'grammar-check', label: 'Grammar &amp; spell check popup', note: 'When off, messages send immediately without review', key: LS_SPELLCHECK, defaultOn: true });
+    // order: 1 reproduces the original shipped script's settings-row sequence
+    // (spellcheck, movielinks, autoembed, gifoptimize) — see
+    // src/pc/core/15-settings-modal-shell.js, which sorts SC_SETTINGS_ROWS by
+    // this field before rendering.
+    scRegisterSetting({ id: 'sc-input-spellcheck', group: 'grammar-check', label: 'Grammar &amp; spell check popup', note: 'When off, messages send immediately without review', key: LS_SPELLCHECK, defaultOn: true, order: 1 });

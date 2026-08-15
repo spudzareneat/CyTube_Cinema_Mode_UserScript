@@ -130,7 +130,8 @@
     // combined T/I/Escape/arrows keydown handler so this module's hotkey only
     // depends on functions this module itself defines — see
     // movie-title-links/index.js for the 'I' half of that original handler,
-    // and 00-monolith.js for the Escape (lineup) / arrows / space half.
+    // and src/pc/core/12-playback-sync-and-seek.js for the Escape (lineup) /
+    // arrows / space half.
     document.addEventListener('keydown', (e) => {
         const t = e.target;
         if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;

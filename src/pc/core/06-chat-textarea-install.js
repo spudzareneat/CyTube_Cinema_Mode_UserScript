@@ -50,7 +50,8 @@
                 if (!document.getElementById('sc-modal-overlay')) {
                     // attemptSend lives in the optional grammar-check module -- typeof-guarded
                     // so a build without it sends immediately via doSend instead of throwing
-                    // (same pattern core uses for other optional-module calls; see 00-monolith.js).
+                    // (same pattern core uses for other optional-module calls, e.g. the
+                    // hideLineupScreen guard in 12-playback-sync-and-seek.js).
                     if (typeof attemptSend === 'function') {
                         attemptSend(textarea, originalInput);
                     } else {

@@ -16,15 +16,21 @@
       "defaultOn": true,
       "files": [
         "src/pc/core/02-keys-and-helpers.js",
-        "src/pc/core/00-monolith.js",
+        "src/pc/core/10-registry.js",
         "src/pc/core/01-movie-identity.js",
         "src/pc/core/03-gif-bridge.js",
         "src/pc/core/04-channel-script-autoapprove.js",
         "src/pc/core/05-monitor-orientation.js",
+        "src/pc/core/11-chat-input-and-emotes.js",
         "src/pc/core/06-chat-textarea-install.js",
         "src/pc/core/07-floating-buttons.js",
         "src/pc/core/08-desync.js",
-        "src/pc/core/09-user-color-system.js"
+        "src/pc/core/09-user-color-system.js",
+        "src/pc/core/12-playback-sync-and-seek.js",
+        "src/pc/core/13-user-decorations.js",
+        "src/pc/core/14-chat-panel-chrome.js",
+        "src/pc/core/15-settings-modal-shell.js",
+        "src/pc/core/16-boot.js"
       ],
       "cssFiles": [
         "src/pc/core/css/00-layout-core.css"
@@ -35,12 +41,7 @@
       ],
       "connects": [
         "api.themoviedb.org",
-        "en.wikipedia.org",
-        "raw.githubusercontent.com",
-        "api.languagetool.org",
-        "caching.graphql.imdb.com",
-        "api.imgbb.com",
-        "www.reddit.com"
+        "api.imgbb.com"
       ]
     },
     {
@@ -61,7 +62,8 @@
       ],
       "connects": [
         "api.themoviedb.org",
-        "en.wikipedia.org"
+        "en.wikipedia.org",
+        "raw.githubusercontent.com"
       ]
     },
     {
@@ -101,9 +103,7 @@
         "GM_xmlhttpRequest"
       ],
       "connects": [
-        "www.reddit.com",
-        "raw.githubusercontent.com",
-        "api.themoviedb.org"
+        "www.reddit.com"
       ]
     },
     {

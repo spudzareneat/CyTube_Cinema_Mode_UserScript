@@ -458,4 +458,8 @@
     scRegisterInit(watchMovieTitle);
     scRegisterInit(initMediaWatcher);
 
-    scRegisterSetting({ id: 'sc-input-movielinks', group: 'movie-title-links', label: 'Show movie links (IMDb / Letterboxd / Wiki)', note: 'Adds clickable badge icons next to the title', key: LS_MOVIE_LINKS, defaultOn: true });
+    // order: 2 reproduces the original shipped script's settings-row sequence
+    // (spellcheck, movielinks, autoembed, gifoptimize) — see
+    // src/pc/core/15-settings-modal-shell.js, which sorts SC_SETTINGS_ROWS by
+    // this field before rendering.
+    scRegisterSetting({ id: 'sc-input-movielinks', group: 'movie-title-links', label: 'Show movie links (IMDb / Letterboxd / Wiki)', note: 'Adds clickable badge icons next to the title', key: LS_MOVIE_LINKS, defaultOn: true, order: 2 });

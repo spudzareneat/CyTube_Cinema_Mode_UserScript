@@ -565,10 +565,6 @@
             #sc-chat-textarea::-webkit-scrollbar { width: 6px !important; }
             #sc-chat-textarea::-webkit-scrollbar-track { background: transparent !important; }
             #sc-chat-textarea::-webkit-scrollbar-thumb { background: #000 !important; border-radius: 6px !important; }
-            #sc-checking {
-                font-size: 11px !important; color: rgba(255,255,200,0.6) !important;
-                padding: 2px 4px !important; flex-shrink: 0 !important;
-            }
 
             /* ===== SETTINGS BUTTON ===== */
             #sc-settings-btn {

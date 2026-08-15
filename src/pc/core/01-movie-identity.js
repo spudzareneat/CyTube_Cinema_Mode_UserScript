@@ -2,8 +2,8 @@
        MOVIE IDENTITY
        Title parsing + now-playing state shared across several
        optional modules (Movie Links, Chat → Movie Seek, IMDb Trivia)
-       and read by the always-on GIF MAKER INTEGRATION BRIDGE up in
-       00-monolith.js. Kept here in core -- rather than inside
+       and read by the always-on GIF MAKER INTEGRATION BRIDGE in
+       03-gif-bridge.js. Kept here in core -- rather than inside
        whichever optional module happens to own title-change
        detection or TMDB/IMDb lookups -- so the bridge never has to
        guess whether a build that excluded those modules still

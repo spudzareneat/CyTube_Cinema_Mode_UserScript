@@ -1143,9 +1143,9 @@
        COMING ATTRACTIONS — toggle button that opens the Tonight's Lineup
        screen above. (Top-bar/gap-button dim/wake infrastructure --
        initTopBar, initGapButtonDim, _topBarWake, _topBarIsOpen, _gapShow
-       -- stays in 00-monolith.js/core: it's generic chrome-dimming shared
-       by every floating button, not lineup-specific, and 08-desync.js
-       reads _gapShow directly.)
+       -- stays in src/pc/core/14-chat-panel-chrome.js: it's generic
+       chrome-dimming shared by every floating button, not lineup-specific,
+       and 08-desync.js reads _gapShow directly.)
     ========================================================== */
 
     function initPosterStrip() {
@@ -1174,8 +1174,9 @@
     // them asynchronously after the channel loads) -- wrapped in a named function and
     // registered via scRegisterInit (same pattern Task 2 used for
     // scApplyInitialChatFontSize: a named function so fn.name prints usefully from the
-    // registry's try/catch). Moved here (out of 00-monolith.js's bare 'load' handler)
-    // so a build without this module simply doesn't register or call initPosterStrip
+    // registry's try/catch). Moved here (out of core's bare 'load' handler in
+    // src/pc/core/16-boot.js) so a build without this module simply doesn't
+    // register or call initPosterStrip
     // at all, instead of leaving a dangling bare call in core that would throw and --
     // because it used to run before the CSS-injection block in that same handler --
     // take the whole layout CSS injection down with it.

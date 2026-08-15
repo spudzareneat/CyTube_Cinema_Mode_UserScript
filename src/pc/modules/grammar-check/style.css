@@ -62,3 +62,10 @@
             #sc-btn-send:hover { background: rgba(60,180,100,0.4) !important; }
             #sc-lt-credit { font-size: 10px !important; color: rgba(255,255,255,0.25) !important; text-align: right !important; }
             #sc-lt-credit a { color: rgba(255,255,255,0.35) !important; }
+
+            /* Produced by showCheckingIndicator() -- sits inline in the chat
+               textarea's flex column while a LanguageTool check is in flight. */
+            #sc-checking {
+                font-size: 11px !important; color: rgba(255,255,200,0.6) !important;
+                padding: 2px 4px !important; flex-shrink: 0 !important;
+            }
