@@ -7,8 +7,14 @@
 // source string.
 //
 // No npm packages — only Node's built-in fs/path. This file is imported
-// by both scripts/build-dev-bundle.mjs (Node, local dev builds) and is
-// meant to be portable enough to reference from docs/ tooling later.
+// by scripts/build-dev-bundle.mjs (Node, local dev builds).
+//
+// docs/customizer.js is a hand-ported browser twin of this logic (fetch()
+// instead of fs.readFileSync, no Node built-ins) for the GitHub Pages
+// customizer site. There is no shared module between the two — no build
+// step, by design. KEEP IN SYNC BY HAND: any change to dependency
+// resolution, topo-sort, concatenation, or header-fill logic here must be
+// mirrored in docs/customizer.js.
 
 import fs from 'node:fs';
 import path from 'node:path';

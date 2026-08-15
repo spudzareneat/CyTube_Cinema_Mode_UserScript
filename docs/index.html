@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CyTube PC Userscript Customizer</title>
+    <link rel="stylesheet" href="customizer.css">
+</head>
+<body>
+    <main class="page">
+        <header class="page-header">
+            <h1>CyTube PC Userscript Customizer</h1>
+            <p>
+                Pick the features you want, then build your own copy of the
+                <code>cytube.pc.user.js</code> Tampermonkey script. Core features are
+                always included; everything else is optional.
+            </p>
+        </header>
+
+        <section aria-labelledby="modules-heading">
+            <h2 id="modules-heading">Features</h2>
+            <div id="module-list" class="module-list"></div>
+        </section>
+
+        <section class="build-controls">
+            <button id="build-btn" type="button" class="btn btn-primary">Build my script</button>
+            <button id="download-btn" type="button" class="btn" disabled>Download</button>
+            <button id="copy-btn" type="button" class="btn" disabled>Copy to clipboard</button>
+            <p id="status" class="status">Loading manifest…</p>
+        </section>
+
+        <section class="install-help">
+            <h2>Installing</h2>
+            <ol>
+                <li>Install the <a href="https://www.tampermonkey.net/" target="_blank" rel="noopener">Tampermonkey</a> browser extension.</li>
+                <li>Click <strong>Build my script</strong> above, then <strong>Download</strong> (or <strong>Copy to clipboard</strong>).</li>
+                <li>Open Tampermonkey's dashboard, create a new script, and paste in (or drag in) the downloaded file.</li>
+                <li>Save. The script activates on the configured CyTube rooms.</li>
+            </ol>
+        </section>
+    </main>
+    <script src="customizer.js"></script>
+</body>
+</html>
