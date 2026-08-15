@@ -16,5 +16,5 @@
         const s = document.createElement('style');
         s.id = 'sc-style-' + id;
         s.textContent = css;
-        document.head.appendChild(s);
+        (document.head || document.documentElement).appendChild(s);
     }

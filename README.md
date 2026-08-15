@@ -229,7 +229,7 @@ The main script is no longer a single file you copy-paste — it's assembled to 
    > This is the standard GitHub Pages URL for this repo (it serves the `docs/` folder). If the page 404s, GitHub Pages hasn't been enabled for the repo yet — that's a one-time setting under the repo's **Settings → Pages** that only the repo owner can flip; it isn't something you can fix locally.
 2. Under **Features**, check whichever optional modules you want — Movie Title Links, IMDb Trivia, Tonight's Lineup, and Grammar Check are all checked by default. **Core** is always included and can't be unchecked.
 3. Under **Companion scripts**, check any of the standalone siblings you also want: GIF Maker, Subtitle Sync, Chat Images, or the Grindhouse Title Renamer (see their sections above for what each does).
-4. Click **Build my script**, then **Download** (or **Copy to clipboard**) — this produces one `cytube.pc.user.js` file for your chosen core/optional-module combination.
+4. Click **Build my script**, then **Download** (or **Copy to clipboard**) — this produces one `cytube.pc.custom.user.js` file for your chosen core/optional-module combination.
 5. Open Tampermonkey's dashboard, click **Create a new script**, and paste in (or drag in) the downloaded file. Save with **Ctrl+S** (or **Cmd+S**).
 6. If you checked any companion scripts, download and install each one the same way — one Tampermonkey script per file, just like step 5. Each companion still works fine on its own, and automatically integrates with the main script (floating buttons, shared settings toggles, etc.) when both are installed — see that feature's section above for specifics.
 7. Navigate to `https://cytu.be/r/420Grindhouse` — the script(s) run automatically.
