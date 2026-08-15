@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube Fullscreen Video with Overlay Chat
 // @namespace    http://tampermonkey.net/
-// @version      4.10.2
+// @version      4.10.4
 // @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, right-click chat-to-movie seek, Tonight's Lineup schedule overlay, resizable chat panel, vertical monitor support, integrates with cytube.gifmaker.user.js, cytube.chatimages.user.js, and cytube.subtitles.user.js when installed
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -18,7 +18,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.pc v4.10.2 loaded');
+    console.log('[SC] cytube.pc v4.10.4 loaded');
 
     /* ==========================================================
        API KEYS — stored in localStorage, managed via settings modal.
@@ -1806,42 +1806,65 @@
             return null;
         }
     }
-    function getExternalUserEmoji(username) {
+    function ensureChannelStylesCache() {
         const jsText = _uw.CHANNEL && _uw.CHANNEL.js;
         if (!jsText) return null;
         if (jsText !== _channelStylesSourceText) {
             _channelStylesSourceText = jsText;
             _channelStylesCache = parseChannelUserStyles(jsText);
         }
-        if (!_channelStylesCache) return null;
-        const entry = _channelStylesCache[username];
+        return _channelStylesCache;
+    }
+    function getExternalUserEmoji(username) {
+        const cache = ensureChannelStylesCache();
+        if (!cache) return null;
+        const entry = cache[username];
         return (Array.isArray(entry) && entry[0]) ? entry[0] : null;
     }
+    function getExternalUserColor(username) {
+        const cache = ensureChannelStylesCache();
+        if (!cache) return null;
+        const entry = cache[username];
+        return (Array.isArray(entry) && entry[1]) ? entry[1] : null;
+    }
 
-    function applyUserColors() {
+    function applyUserDecorations() {
         document.querySelectorAll('#messagebuffer [class*="chat-msg-"]').forEach(el => {
             const cls = [...el.classList].find(c => c.startsWith('chat-msg-'));
             if (!cls) return;
             const u = cls.replace('chat-msg-', '');
             const span = el.querySelector('.username');
             if (span) {
-                span.style.color = usernameToColor(u);
-                span.style.fontWeight = '700';
                 const emoji = getExternalUserEmoji(u);
                 if (emoji) span.setAttribute('data-emoji', emoji);
                 else span.removeAttribute('data-emoji');
+
+                // Only ever color a username span once, and only if
+                // nothing else (CyTube's own default coloring, or the
+                // channel script's per-user userStyles color) has
+                // already claimed it — our hash color must never have
+                // a chance to stomp on either of those.
+                if (!span.dataset.scColored) {
+                    if (getExternalUserColor(u) || span.style.color) {
+                        span.dataset.scColored = '1';
+                    } else {
+                        span.style.color = usernameToColor(u);
+                        span.style.fontWeight = '700';
+                        span.dataset.scColored = '1';
+                    }
+                }
             }
             el.classList.toggle('sc-own-msg', !!(_uw.CLIENT && _uw.CLIENT.name && u === _uw.CLIENT.name));
         });
     }
-    let _colorObserverStarted = false;
-    function startUserColorObserver() {
+    let _decorationObserverStarted = false;
+    function startUserDecorationObserver() {
         const buf = document.getElementById('messagebuffer');
         if (!buf) return;
-        if (_colorObserverStarted) { applyUserColors(); return; }
-        _colorObserverStarted = true;
-        new MutationObserver(applyUserColors).observe(buf, { childList: true, subtree: true });
-        applyUserColors();
+        if (_decorationObserverStarted) { applyUserDecorations(); return; }
+        _decorationObserverStarted = true;
+        new MutationObserver(applyUserDecorations).observe(buf, { childList: true, subtree: true });
+        applyUserDecorations();
     }
 
     /* ==========================================================
@@ -3664,7 +3687,7 @@
             relocateEmoteButton();
             addFloatingButtons();
             addSettingsButton();
-            startUserColorObserver();
+            startUserDecorationObserver();
             // Disconnect once all one-time elements are in place
             if (
                 document.getElementById('sc-chat-textarea') &&
