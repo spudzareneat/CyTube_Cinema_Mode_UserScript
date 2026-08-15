@@ -15,10 +15,20 @@
       "locked": true,
       "defaultOn": true,
       "files": [
+        "src/pc/core/02-keys-and-helpers.js",
         "src/pc/core/00-monolith.js",
-        "src/pc/core/01-movie-identity.js"
+        "src/pc/core/01-movie-identity.js",
+        "src/pc/core/03-gif-bridge.js",
+        "src/pc/core/04-channel-script-autoapprove.js",
+        "src/pc/core/05-monitor-orientation.js",
+        "src/pc/core/06-chat-textarea-install.js",
+        "src/pc/core/07-floating-buttons.js",
+        "src/pc/core/08-desync.js",
+        "src/pc/core/09-user-color-system.js"
       ],
-      "cssFiles": [],
+      "cssFiles": [
+        "src/pc/core/css/00-layout-core.css"
+      ],
       "dependsOn": [],
       "grants": [
         "GM_xmlhttpRequest"
