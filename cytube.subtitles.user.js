@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         CyTube Subtitle Sync
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
-// @description  Load a local .srt/.vtt subtitle file and sync it to native <video> playback, with a live offset control for imperfectly-aligned files. Not available for YouTube playback. Integrates with cytube.pc.user.js when installed.
+// @version      1.1.0
+// @description  Load a local .srt/.vtt subtitle file and sync it to native <video> playback, with a live offset control for imperfectly-aligned files. Not available for YouTube playback. Integrates with cytube.pc.user.js when installed, including an OpenSubtitles search link for the currently playing movie.
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
 // @run-at       document-start
@@ -10,7 +10,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.subtitles v1.0.0 loaded');
+    console.log('[SC] cytube.subtitles v1.1.0 loaded');
 
     /* ==========================================================
        PC-SCRIPT INTEGRATION BRIDGE
@@ -21,6 +21,7 @@
        trigger button anchors (see TRIGGER BUTTON below).
     ========================================================== */
     let PC_MODE = false;
+    let _pcBridge = null;
     function readPcBridge() {
         const w = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
         const b = w.__SC_GIF_BRIDGE__;
@@ -148,6 +149,27 @@
     }
 
     /* ==========================================================
+       OPENSUBTITLES SEARCH LINK
+       PC-mode only -- uses cytube.pc.user.js's bridge to identify the
+       currently playing movie. Prefers an IMDb-ID deep link (precise,
+       only available once that script's TMDB lookup has resolved for
+       this video) and falls back to a plain title+year search.
+    ========================================================== */
+    function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function buildOpenSubtitlesUrl(info) {
+        if (!info || !info.title) return null;
+        if (info.imdbId) {
+            const numericId = String(info.imdbId).replace(/^tt/, '');
+            return 'https://www.opensubtitles.org/en/search/imdbid-' + encodeURIComponent(numericId) + '/sublanguageid-eng';
+        }
+        const query = info.title + (info.year ? ' ' + info.year : '');
+        return 'https://www.opensubtitles.org/en/search2/sublanguageid-eng/moviename-' + encodeURIComponent(query);
+    }
+
+    /* ==========================================================
        SUBTITLE PANEL
     ========================================================== */
     function injectPanelCss() {
@@ -208,6 +230,14 @@
                 align-self: flex-start !important;
             }
             #sc-sub-clear:hover { background: rgba(255,255,255,0.22) !important; }
+            #sc-sub-opensubs {
+                display: inline-block !important; text-decoration: none !important;
+                background: rgba(255,255,255,0.08) !important; color: #f4f4f2 !important;
+                border: 1px solid rgba(255,255,255,0.18) !important; border-radius: 6px !important;
+                padding: 6px 10px !important; font-size: 12px !important;
+                align-self: flex-start !important; transition: background 120ms ease !important;
+            }
+            #sc-sub-opensubs:hover { background: rgba(255,255,255,0.22) !important; }
             #sc-sub-error { font-size: 12px !important; color: #ff6b6b !important; min-height: 14px !important; }
             video::cue {
                 background: rgba(0,0,0,0.6);
@@ -223,6 +253,13 @@
         if (document.getElementById('sc-sub-panel')) return;
         injectPanelCss();
 
+        const movieInfo = (PC_MODE && _pcBridge && typeof _pcBridge.getMovieInfo === 'function')
+            ? _pcBridge.getMovieInfo() : null;
+        const osUrl = buildOpenSubtitlesUrl(movieInfo);
+        const osLinkHtml = osUrl
+            ? `<a id="sc-sub-opensubs" href="${osUrl}" target="_blank" rel="noopener noreferrer">🔍 Search OpenSubtitles for &quot;${escapeHtml(movieInfo.title)}&quot;</a>`
+            : '';
+
         const panel = document.createElement('div');
         panel.id = 'sc-sub-panel';
         panel.innerHTML = `
@@ -237,6 +274,7 @@
                     <input type="number" id="sc-sub-offset-input" step="100">
                     <button id="sc-sub-offset-set" type="button">Set</button>
                 </div>
+                ${osLinkHtml}
                 <button id="sc-sub-clear" type="button">Clear subtitles</button>
                 <div id="sc-sub-error"></div>
             </div>`;
@@ -447,7 +485,8 @@
     function waitForBody() {
         if (!document.body) { requestAnimationFrame(waitForBody); return; }
 
-        if (readPcBridge()) PC_MODE = true;
+        const bridge = readPcBridge();
+        if (bridge) { PC_MODE = true; _pcBridge = bridge; }
         ensureTriggerButton();
         updateTriggerButtonState();
         initMediaWatcher();
@@ -457,8 +496,10 @@
             let elapsed = 0;
             const pollTimer = setInterval(() => {
                 elapsed += PC_BRIDGE_POLL_MS;
-                if (readPcBridge()) {
+                const lateBridge = readPcBridge();
+                if (lateBridge) {
                     PC_MODE = true;
+                    _pcBridge = lateBridge;
                     const oldBtn = document.getElementById('scsub-standalone-btn');
                     if (oldBtn) oldBtn.remove();
                     ensureTriggerButton();

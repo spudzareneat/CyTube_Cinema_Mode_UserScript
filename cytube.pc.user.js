@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         CyTube Fullscreen Video with Overlay Chat
 // @namespace    http://tampermonkey.net/
-// @version      4.10.1
-// @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, right-click chat-to-movie seek, Tonight's Lineup schedule overlay, resizable chat panel, vertical monitor support, integrates with cytube.gifmaker.user.js and cytube.chatimages.user.js when installed
+// @version      4.10.2
+// @description  Fullscreen layout, LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, right-click chat-to-movie seek, Tonight's Lineup schedule overlay, resizable chat panel, vertical monitor support, integrates with cytube.gifmaker.user.js, cytube.chatimages.user.js, and cytube.subtitles.user.js when installed
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
 // @grant        GM_xmlhttpRequest
@@ -18,7 +18,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.pc v4.10.1 loaded');
+    console.log('[SC] cytube.pc v4.10.2 loaded');
 
     /* ==========================================================
        API KEYS — stored in localStorage, managed via settings modal.
@@ -66,6 +66,17 @@
     _uw.__SC_GIF_BRIDGE__ = {
         version: 1,
         getTitleSlug: () => _gifTitleSlug(),
+        // Used by cytube.subtitles.user.js to build an OpenSubtitles search
+        // link. title/year come from the same source getTitleSlug() uses
+        // (always available once a video is playing); imdbId is only set
+        // once the Now Playing card's TMDB lookup has resolved for this
+        // video (requires a TMDB key -- null otherwise, caller falls back).
+        getMovieInfo: () => {
+            if (!lastMovieTitle) return null;
+            const { title, year } = parseMovieFilename(lastMovieTitle);
+            if (!title) return null;
+            return { title, year: year || null, imdbId: (_npData && _npData.imdbId) || null };
+        },
         openGifPanel: undefined, // filled in by cytube.gifmaker.user.js once it boots
     };
 
