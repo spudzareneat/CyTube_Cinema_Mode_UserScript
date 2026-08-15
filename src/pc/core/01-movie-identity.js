@@ -107,3 +107,18 @@
         if (year) slug += '-' + year;
         return slug;
     }
+
+    // {title, year, imdbId} for the currently playing movie, used by the GIF
+    // bridge (03-gif-bridge.js) so legacy standalone scripts (e.g.
+    // cytube.subtitles.user.js) can build lookups without re-deriving this
+    // themselves. title/year come from the same source _gifTitleSlug() uses
+    // (available once a video is playing); imdbId is only set once the Now
+    // Playing card's TMDB lookup has resolved for this video (requires a TMDB
+    // key -- null otherwise, caller falls back). Returns null when no title
+    // has been detected yet.
+    function getBridgeMovieInfo() {
+        if (!lastMovieTitle) return null;
+        const { title, year } = parseMovieFilename(lastMovieTitle);
+        if (!title) return null;
+        return { title, year: year || null, imdbId: (_npData && _npData.imdbId) || null };
+    }
