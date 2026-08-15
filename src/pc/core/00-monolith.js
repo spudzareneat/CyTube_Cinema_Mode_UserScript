@@ -441,7 +441,7 @@
         function interceptor(data) {
             try {
                 const lead = getMovieLeadSec();
-                if (lead > 0 && !isYouTubeMedia() && typeof data?.currentTime === 'number') {
+                if (lead > 0 && typeof isYouTubeMedia === 'function' && !isYouTubeMedia() && typeof data?.currentTime === 'number') {
                     data.currentTime += lead;
                 }
             } catch (e) {}
@@ -1096,10 +1096,10 @@
             setKey(LS_CHAT_FONT,   String(fontPx));
             applyChatFontSize(fontPx);
             setKey(LS_MOVIE_LEAD,  String(leadSec));
-            movieLinkCache = {};
+            if (typeof movieLinkCache !== 'undefined') { movieLinkCache = {}; }
             try { localStorage.removeItem(LS_MOVIE_CACHE); } catch (e) {}
             lastMovieTitle = '';
-            triggerTitleInject();
+            if (typeof triggerTitleInject === 'function') triggerTitleInject();
             const status = document.getElementById('sc-settings-status');
             if (status) status.textContent = '✓ Saved';
             setTimeout(() => overlay.remove(), 800);
