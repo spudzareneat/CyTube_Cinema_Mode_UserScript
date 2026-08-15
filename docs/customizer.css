@@ -154,6 +154,57 @@ code {
     color: var(--error);
 }
 
+.section-intro {
+    color: var(--muted);
+    margin-top: -0.35rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.9rem;
+}
+
+.companion-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    cursor: default;
+}
+
+.companion-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    cursor: pointer;
+    flex: 1;
+    min-width: 0;
+}
+
+.companion-toggle input[type="checkbox"] {
+    margin-top: 0.2rem;
+    width: 1.05rem;
+    height: 1.05rem;
+    flex: none;
+}
+
+.companion-text {
+    display: block;
+    min-width: 0;
+}
+
+.companion-name {
+    display: block;
+    font-weight: 500;
+}
+
+.companion-text small {
+    display: block;
+    color: var(--muted);
+    font-weight: 400;
+}
+
+.companion-download-btn {
+    flex: none;
+}
+
 .install-help ol {
     color: var(--muted);
     padding-left: 1.2rem;

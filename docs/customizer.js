@@ -202,6 +202,95 @@ function render() {
     }
 }
 
+// ---- companion scripts (standalone siblings, no assembly) -------------
+
+function renderCompanions(companions) {
+    const list = document.getElementById('companion-list');
+    list.innerHTML = '';
+    if (!companions || !companions.length) return;
+
+    const section = document.createElement('fieldset');
+    section.className = 'module-category';
+
+    const legend = document.createElement('legend');
+    legend.textContent = 'Standalone scripts';
+    section.appendChild(legend);
+
+    for (const comp of companions) {
+        // A plain div, not a <label>, because this row also contains a
+        // <button> -- nesting a button inside a label risks the label's
+        // implicit click-forwarding double-firing the checkbox toggle.
+        // The checkbox + text are wrapped in their own inner <label>
+        // instead, matching the main picker's click-to-toggle feel.
+        const row = document.createElement('div');
+        row.className = 'module-row companion-row';
+
+        const toggleLabel = document.createElement('label');
+        toggleLabel.className = 'companion-toggle';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = `companion-${comp.id}`;
+
+        const textWrap = document.createElement('span');
+        textWrap.className = 'companion-text';
+        const name = document.createElement('span');
+        name.className = 'companion-name';
+        name.textContent = comp.name;
+        const desc = document.createElement('small');
+        desc.textContent = comp.description;
+        textWrap.appendChild(name);
+        textWrap.appendChild(desc);
+
+        toggleLabel.appendChild(checkbox);
+        toggleLabel.appendChild(textWrap);
+
+        const downloadBtn = document.createElement('button');
+        downloadBtn.type = 'button';
+        downloadBtn.className = 'btn companion-download-btn';
+        downloadBtn.textContent = 'Download';
+        downloadBtn.disabled = !checkbox.checked;
+        downloadBtn.addEventListener('click', async (evt) => {
+            evt.preventDefault();
+            downloadBtn.disabled = true;
+            downloadBtn.textContent = 'Downloading…';
+            try {
+                const res = await fetch(RAW_BASE + comp.file);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const text = await res.text();
+                const blob = new Blob([text], { type: 'text/javascript' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = comp.file;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                downloadBtn.textContent = 'Download';
+            } catch (err) {
+                downloadBtn.textContent = 'Download failed';
+                setStatus(`Failed to download ${comp.file}: ${err.message}`, true);
+            } finally {
+                downloadBtn.disabled = !checkbox.checked;
+            }
+        });
+
+        // Checkbox gates the button (mirrors the main picker's checkbox
+        // pattern) but each row's download is otherwise fully independent --
+        // no shared build/assembly step for companions.
+        checkbox.addEventListener('change', () => {
+            downloadBtn.disabled = !checkbox.checked;
+        });
+
+        row.appendChild(toggleLabel);
+        row.appendChild(downloadBtn);
+        section.appendChild(row);
+    }
+
+    list.appendChild(section);
+}
+
 function setStatus(text, isError) {
     const status = document.getElementById('status');
     status.textContent = text;
@@ -222,6 +311,7 @@ async function init() {
     }
 
     render();
+    renderCompanions(manifest.companions);
     setStatus('Pick your features, then click "Build my script".');
 
     document.getElementById('build-btn').addEventListener('click', async () => {
