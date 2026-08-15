@@ -48,7 +48,15 @@
                 e.preventDefault();
                 // Don't fire if a review modal is already open
                 if (!document.getElementById('sc-modal-overlay')) {
-                    attemptSend(textarea, originalInput);
+                    // attemptSend lives in the optional grammar-check module -- typeof-guarded
+                    // so a build without it sends immediately via doSend instead of throwing
+                    // (same pattern core uses for other optional-module calls; see 00-monolith.js).
+                    if (typeof attemptSend === 'function') {
+                        attemptSend(textarea, originalInput);
+                    } else {
+                        const text = textarea.value.trim();
+                        if (text) doSend(textarea, originalInput, text);
+                    }
                 }
             }
         });

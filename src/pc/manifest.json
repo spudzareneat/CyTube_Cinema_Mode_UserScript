@@ -105,6 +105,24 @@
         "raw.githubusercontent.com",
         "api.themoviedb.org"
       ]
+    },
+    {
+      "id": "grammar-check",
+      "name": "Grammar Check",
+      "locked": false,
+      "defaultOn": true,
+      "phase": 1,
+      "files": [
+        "src/pc/modules/grammar-check/index.js"
+      ],
+      "cssFiles": [
+        "src/pc/modules/grammar-check/style.css"
+      ],
+      "dependsOn": ["core"],
+      "grants": [],
+      "connects": [
+        "api.languagetool.org"
+      ]
     }
   ],
   "companions": []
