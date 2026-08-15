@@ -42,6 +42,47 @@
         "api.imgbb.com",
         "www.reddit.com"
       ]
+    },
+    {
+      "id": "movie-title-links",
+      "name": "Movie Title Links",
+      "locked": false,
+      "defaultOn": true,
+      "phase": 1,
+      "files": [
+        "src/pc/modules/movie-title-links/index.js"
+      ],
+      "cssFiles": [
+        "src/pc/modules/movie-title-links/style.css"
+      ],
+      "dependsOn": ["core"],
+      "grants": [
+        "GM_xmlhttpRequest"
+      ],
+      "connects": [
+        "api.themoviedb.org",
+        "en.wikipedia.org"
+      ]
+    },
+    {
+      "id": "imdb-trivia",
+      "name": "IMDb Trivia",
+      "locked": false,
+      "defaultOn": true,
+      "phase": 1,
+      "files": [
+        "src/pc/modules/imdb-trivia/index.js"
+      ],
+      "cssFiles": [
+        "src/pc/modules/imdb-trivia/style.css"
+      ],
+      "dependsOn": ["core", "movie-title-links"],
+      "grants": [
+        "GM_xmlhttpRequest"
+      ],
+      "connects": [
+        "caching.graphql.imdb.com"
+      ]
     }
   ],
   "companions": []

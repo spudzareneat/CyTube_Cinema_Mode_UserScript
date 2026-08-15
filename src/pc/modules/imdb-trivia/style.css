@@ -1,0 +1,77 @@
+            /* ===== TRIVIA BUTTON ===== */
+            #sc-trivia-btn {
+                position: fixed !important;
+                z-index: 10003 !important;
+                top: 0 !important;
+                right: calc(var(--sc-chat-w) + 1vw + 150px) !important;
+                background: transparent !important;
+                border: none !important;
+                border-radius: 0 !important;
+                color: rgba(255,255,255,0.55) !important;
+                font-size: 10px !important;
+                letter-spacing: 0.06em !important;
+                text-transform: uppercase !important;
+                white-space: nowrap !important;
+                line-height: 1 !important;
+                cursor: pointer !important;
+                padding: 2px 8px !important;
+                height: 20px !important;
+                display: flex !important;
+                align-items: center !important;
+                transition: opacity 1.5s ease, color 0.2s ease !important;
+                opacity: 1 !important;
+                pointer-events: auto !important;
+            }
+            #sc-trivia-btn.sc-bar-dim { opacity: 0 !important; pointer-events: none !important; }
+            #sc-trivia-btn:hover { color: rgba(255,255,255,0.9) !important; }
+            /* Sit to the left of the Coming Attractions button (which is at right:0),
+               same top edge, so the two line up instead of overlapping. */
+            body.sc-vertical #sc-trivia-btn { right: 150px !important; top: 0 !important; }
+
+            /* ===== TRIVIA DROPDOWN ===== */
+            #sc-trivia-panel {
+                position: fixed !important;
+                top: 22px !important;
+                right: calc(var(--sc-chat-w) + 1vw + 90px) !important;
+                width: 420px !important;
+                max-height: 62vh !important;
+                z-index: 21800 !important;
+                background: rgba(14,10,18,0.97) !important;
+                border: 1px solid rgba(255,255,255,0.14) !important;
+                border-radius: 10px !important;
+                overflow: hidden !important;
+                display: flex !important; flex-direction: column !important;
+                box-shadow: 0 12px 40px rgba(0,0,0,0.8) !important;
+                font-family: 'Inter','Roboto',system-ui,sans-serif !important;
+                animation: sc-trivia-in 0.18s ease !important;
+            }
+            @keyframes sc-trivia-in {
+                from { opacity: 0; transform: translateY(-6px); }
+                to   { opacity: 1; transform: translateY(0); }
+            }
+            #sc-trivia-head {
+                display: flex !important; align-items: center !important; justify-content: space-between !important;
+                padding: 12px 16px !important; border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+                flex-shrink: 0 !important;
+            }
+            #sc-trivia-title { font-size: 13px !important; font-weight: 700 !important; color: var(--np-accent,#ff5b73) !important; }
+            #sc-trivia-close {
+                background: rgba(255,255,255,0.1) !important; border: none !important; color: #fff !important;
+                width: 24px !important; height: 24px !important; border-radius: 50% !important;
+                cursor: pointer !important; font-size: 11px !important; flex-shrink: 0 !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
+            }
+            #sc-trivia-close:hover { background: rgba(255,255,255,0.2) !important; }
+            #sc-trivia-list {
+                overflow-y: auto !important; padding: 4px 16px 16px !important;
+                scrollbar-width: thin !important;
+                scrollbar-color: rgba(255,255,255,0.28) transparent !important;
+            }
+            #sc-trivia-list::-webkit-scrollbar { width: 6px !important; }
+            #sc-trivia-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.28) !important; border-radius: 6px !important; }
+            .sc-trivia-item {
+                color: rgba(255,255,255,0.86) !important; font-size: 13px !important; line-height: 1.5 !important;
+                padding: 10px 0 !important; border-bottom: 1px solid rgba(255,255,255,0.07) !important;
+            }
+            .sc-trivia-item:last-child { border-bottom: none !important; }
+            body.sc-vertical #sc-trivia-panel { right: 4px !important; width: min(420px, 95vw) !important; }
