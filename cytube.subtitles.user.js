@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         CyTube Subtitle Sync
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
-// @description  Load a local .srt/.vtt subtitle file and sync it to native <video> playback, with a live offset control for imperfectly-aligned files. Not available for YouTube playback. Integrates with cytube.pc.user.js when installed, including an OpenSubtitles search link for the currently playing movie.
+// @version      1.2.0
+// @description  Load a local .srt/.vtt subtitle file and sync it to native <video> playback, with a persistent font-size setting and bold outlined captions positioned above the video controls. Not available for YouTube playback. Integrates with cytube.pc.user.js when installed, including an OpenSubtitles search link for the currently playing movie.
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
 // @run-at       document-start
@@ -10,7 +10,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.subtitles v1.1.0 loaded');
+    console.log('[SC] cytube.subtitles v1.2.0 loaded');
 
     /* ==========================================================
        PC-SCRIPT INTEGRATION BRIDGE
@@ -45,6 +45,23 @@
         if (document.querySelector('#ytapiplayer[src*="youtube.com"]')) return true;
         return false;
     }
+
+    /* ==========================================================
+       SETTINGS
+       Font size is a personal display preference (like pc.user.js's
+       LS_CHAT_FONT), so unlike the loaded file/offset below it persists
+       across sessions.
+    ========================================================== */
+    const LS_SUB_FONT_SIZE = 'sc_sub_fontsize'; // px
+    const SUB_FONT_SIZE_DEFAULT = 28;
+    const SUB_FONT_SIZE_MIN = 16;
+    const SUB_FONT_SIZE_MAX = 48;
+    const SUB_FONT_SIZE_STEP = 2;
+    function getSubFontSize() {
+        const v = parseInt(localStorage.getItem(LS_SUB_FONT_SIZE), 10);
+        return (Number.isFinite(v) && v >= SUB_FONT_SIZE_MIN && v <= SUB_FONT_SIZE_MAX) ? v : SUB_FONT_SIZE_DEFAULT;
+    }
+    let _subFontSizePx = getSubFontSize();
 
     /* ==========================================================
        SUBTITLE STATE (session-only — no localStorage persistence)
@@ -109,6 +126,11 @@
         updateOffsetDisplay();
     }
 
+    // % down the video frame the cue box sits at (snapToLines=false makes
+    // this a percentage, not a line count) -- leaves clearance below for
+    // CyTube's control bar/scrubber instead of the browser's bottom-edge default.
+    const CUE_LINE_PERCENT = 85;
+
     function rebuildCues() {
         if (!_subTrack) return;
         while (_subTrack.cues && _subTrack.cues.length) _subTrack.removeCue(_subTrack.cues[0]);
@@ -116,7 +138,9 @@
         for (const c of _subCuesOriginal) {
             const start = Math.max(0, c.start + offsetSec);
             const end = Math.max(start + 0.01, c.end + offsetSec);
-            try { _subTrack.addCue(new VTTCue(start, end, c.text)); } catch (e) {}
+            const cue = new VTTCue(start, end, c.text);
+            try { cue.snapToLines = false; cue.line = CUE_LINE_PERCENT; } catch (e) {}
+            try { _subTrack.addCue(cue); } catch (e) {}
         }
     }
 
@@ -148,6 +172,19 @@
         clearPanelError();
     }
 
+    function updateFontSizeDisplay() {
+        const el = document.getElementById('sc-sub-fontsize-value');
+        if (el) el.textContent = _subFontSizePx + 'px';
+    }
+
+    function setFontSizePx(px) {
+        _subFontSizePx = Math.max(SUB_FONT_SIZE_MIN, Math.min(SUB_FONT_SIZE_MAX, px));
+        localStorage.setItem(LS_SUB_FONT_SIZE, String(_subFontSizePx));
+        applyCueStyle();
+        updateFontSizeDisplay();
+    }
+    function nudgeFontSizePx(deltaPx) { setFontSizePx(_subFontSizePx + deltaPx); }
+
     /* ==========================================================
        OPENSUBTITLES SEARCH LINK
        PC-mode only -- uses cytube.pc.user.js's bridge to identify the
@@ -155,10 +192,6 @@
        only available once that script's TMDB lookup has resolved for
        this video) and falls back to a plain title+year search.
     ========================================================== */
-    function escapeHtml(s) {
-        return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    }
-
     function buildOpenSubtitlesUrl(info) {
         if (!info || !info.title) return null;
         if (info.imdbId) {
@@ -208,45 +241,56 @@
                 padding: 16px !important; display: flex !important; flex-direction: column !important; gap: 12px !important;
             }
             #sc-sub-filename { font-size: 12px !important; color: rgba(244,244,242,0.62) !important; }
-            #sc-sub-offset-row {
+            #sc-sub-offset-row, #sc-sub-fontsize-row {
                 display: flex !important; align-items: center !important; gap: 8px !important; flex-wrap: wrap !important;
             }
-            #sc-sub-offset-row button {
+            #sc-sub-fontsize-row label { font-size: 12px !important; color: rgba(244,244,242,0.62) !important; }
+            .sc-sub-btn {
                 background: rgba(255,255,255,0.08) !important; color: #f4f4f2 !important;
                 border: 1px solid rgba(255,255,255,0.18) !important; border-radius: 6px !important;
-                padding: 4px 8px !important; cursor: pointer !important; font-size: 12px !important;
+                padding: 6px 10px !important; cursor: pointer !important; font-size: 12px !important;
                 transition: background 120ms ease !important;
             }
-            #sc-sub-offset-row button:hover { background: rgba(255,255,255,0.22) !important; }
-            #sc-sub-offset-value { font-size: 12px !important; min-width: 56px !important; text-align: center !important; }
+            .sc-sub-btn:hover { background: rgba(255,255,255,0.22) !important; }
+            .sc-sub-btn-block {
+                display: block !important; width: 100% !important; text-align: center !important;
+                text-decoration: none !important; box-sizing: border-box !important;
+            }
+            #sc-sub-offset-value, #sc-sub-fontsize-value { font-size: 12px !important; min-width: 44px !important; text-align: center !important; }
             #sc-sub-offset-input {
                 width: 70px !important; background: rgba(255,255,255,0.06) !important; color: #f4f4f2 !important;
                 border: 1px solid rgba(255,255,255,0.18) !important; border-radius: 6px !important; padding: 4px 6px !important;
             }
-            #sc-sub-clear {
-                background: rgba(255,255,255,0.08) !important; color: #f4f4f2 !important;
-                border: 1px solid rgba(255,255,255,0.18) !important; border-radius: 6px !important;
-                padding: 6px 10px !important; cursor: pointer !important; font-size: 12px !important;
-                align-self: flex-start !important;
-            }
-            #sc-sub-clear:hover { background: rgba(255,255,255,0.22) !important; }
-            #sc-sub-opensubs {
-                display: inline-block !important; text-decoration: none !important;
-                background: rgba(255,255,255,0.08) !important; color: #f4f4f2 !important;
-                border: 1px solid rgba(255,255,255,0.18) !important; border-radius: 6px !important;
-                padding: 6px 10px !important; font-size: 12px !important;
-                align-self: flex-start !important; transition: background 120ms ease !important;
-            }
-            #sc-sub-opensubs:hover { background: rgba(255,255,255,0.22) !important; }
             #sc-sub-error { font-size: 12px !important; color: #ff6b6b !important; min-height: 14px !important; }
-            video::cue {
-                background: rgba(0,0,0,0.6);
-                color: #f4f4f2;
-                font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-                font-size: 1.05em;
-            }
         `;
         document.head.appendChild(style);
+    }
+
+    /* ==========================================================
+       CUE STYLE (block lettering: bold white text with a black
+       outline, no background box, so captions stay legible over any
+       video frame without covering the picture). Regenerated whenever
+       the font-size setting changes, not just injected once.
+    ========================================================== */
+    function applyCueStyle() {
+        let style = document.getElementById('scsub-cue-style');
+        if (!style) {
+            style = document.createElement('style');
+            style.id = 'scsub-cue-style';
+            document.head.appendChild(style);
+        }
+        style.textContent = `
+            video::cue {
+                background: transparent;
+                color: #ffffff;
+                font-family: "Arial Black", Impact, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+                font-weight: 900;
+                font-size: ${_subFontSizePx}px;
+                text-shadow:
+                    -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000,
+                    0 -2px 0 #000, 0 2px 0 #000, -2px 0 0 #000, 2px 0 0 #000;
+            }
+        `;
     }
 
     function openSubtitlePanel() {
@@ -257,7 +301,7 @@
             ? _pcBridge.getMovieInfo() : null;
         const osUrl = buildOpenSubtitlesUrl(movieInfo);
         const osLinkHtml = osUrl
-            ? `<a id="sc-sub-opensubs" href="${osUrl}" target="_blank" rel="noopener noreferrer">🔍 Search OpenSubtitles for &quot;${escapeHtml(movieInfo.title)}&quot;</a>`
+            ? `<a id="sc-sub-opensubs" class="sc-sub-btn sc-sub-btn-block" href="${osUrl}" target="_blank" rel="noopener noreferrer">Search OpenSubtitles</a>`
             : '';
 
         const panel = document.createElement('div');
@@ -268,20 +312,27 @@
                 <input type="file" id="sc-sub-file" accept=".srt,.vtt">
                 <div id="sc-sub-filename">No file loaded</div>
                 <div id="sc-sub-offset-row">
-                    <button id="sc-sub-offset-minus" type="button">−100ms</button>
+                    <button id="sc-sub-offset-minus" class="sc-sub-btn" type="button">−100ms</button>
                     <span id="sc-sub-offset-value">0ms</span>
-                    <button id="sc-sub-offset-plus" type="button">+100ms</button>
+                    <button id="sc-sub-offset-plus" class="sc-sub-btn" type="button">+100ms</button>
                     <input type="number" id="sc-sub-offset-input" step="100">
-                    <button id="sc-sub-offset-set" type="button">Set</button>
+                    <button id="sc-sub-offset-set" class="sc-sub-btn" type="button">Set</button>
+                </div>
+                <div id="sc-sub-fontsize-row">
+                    <label>Font size</label>
+                    <button id="sc-sub-fontsize-minus" class="sc-sub-btn" type="button">A−</button>
+                    <span id="sc-sub-fontsize-value">${_subFontSizePx}px</span>
+                    <button id="sc-sub-fontsize-plus" class="sc-sub-btn" type="button">A+</button>
                 </div>
                 ${osLinkHtml}
-                <button id="sc-sub-clear" type="button">Clear subtitles</button>
+                <button id="sc-sub-clear" class="sc-sub-btn sc-sub-btn-block" type="button">Clear subtitles</button>
                 <div id="sc-sub-error"></div>
             </div>`;
         document.body.appendChild(panel);
 
         const $ = id => panel.querySelector(id);
         updateOffsetDisplay();
+        updateFontSizeDisplay();
 
         $('#sc-sub-close').addEventListener('click', () => panel.remove());
 
@@ -311,6 +362,8 @@
             const v = parseInt($('#sc-sub-offset-input').value, 10);
             if (!isNaN(v)) setOffsetMs(v);
         });
+        $('#sc-sub-fontsize-minus').addEventListener('click', () => nudgeFontSizePx(-SUB_FONT_SIZE_STEP));
+        $('#sc-sub-fontsize-plus').addEventListener('click', () => nudgeFontSizePx(SUB_FONT_SIZE_STEP));
         $('#sc-sub-clear').addEventListener('click', () => resetSubtitles());
 
         const head = $('#sc-sub-head');
@@ -489,6 +542,7 @@
         if (bridge) { PC_MODE = true; _pcBridge = bridge; }
         ensureTriggerButton();
         updateTriggerButtonState();
+        applyCueStyle();
         initMediaWatcher();
         setInterval(checkVideoSwap, 800);
 
