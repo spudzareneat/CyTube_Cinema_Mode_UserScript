@@ -1,0 +1,37 @@
+{
+  "scriptId": "cytube.pc",
+  "displayName": "CyTube Fullscreen Video with Overlay Chat",
+  "baseVersion": "4.10.4",
+  "headerTemplate": "src/pc/header.template.js",
+  "match": [
+    "https://cytu.be/r/420Grindhouse",
+    "https://cytu.be/r/testing"
+  ],
+  "runAt": "document-start",
+  "modules": [
+    {
+      "id": "core",
+      "name": "Core (required)",
+      "locked": true,
+      "defaultOn": true,
+      "files": [
+        "src/pc/core/00-monolith.js"
+      ],
+      "cssFiles": [],
+      "dependsOn": [],
+      "grants": [
+        "GM_xmlhttpRequest"
+      ],
+      "connects": [
+        "api.themoviedb.org",
+        "en.wikipedia.org",
+        "raw.githubusercontent.com",
+        "api.languagetool.org",
+        "caching.graphql.imdb.com",
+        "api.imgbb.com",
+        "www.reddit.com"
+      ]
+    }
+  ],
+  "companions": []
+}
