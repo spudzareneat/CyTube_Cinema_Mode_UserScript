@@ -15,7 +15,8 @@
       "locked": true,
       "defaultOn": true,
       "files": [
-        "src/pc/core/00-monolith.js"
+        "src/pc/core/00-monolith.js",
+        "src/pc/core/01-movie-identity.js"
       ],
       "cssFiles": [],
       "dependsOn": [],
