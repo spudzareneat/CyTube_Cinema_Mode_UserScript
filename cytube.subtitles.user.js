@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube Subtitle Sync
 // @namespace    http://tampermonkey.net/
-// @version      1.4.0
+// @version      1.4.2
 // @description  Load a local .srt/.vtt subtitle file and sync it to native <video> playback, with a persistent font-size setting, a draggable/steppable position pad for on-screen caption placement, and a short-lived per-movie cache that survives a page refresh. Not available for YouTube playback. Integrates with cytube.pc.user.js when installed, including an OpenSubtitles search link for the currently playing movie.
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -10,7 +10,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.subtitles v1.4.0 loaded');
+    console.log('[SC] cytube.subtitles v1.4.2 loaded');
 
     /* ==========================================================
        PC-SCRIPT INTEGRATION BRIDGE
@@ -661,6 +661,7 @@
     }
 
     function tryRestoreSubCache() {
+        if (_subTrack) return; // don't stomp on subtitles already loaded/restored
         if (!_currentMovieKey) return;
         let raw;
         try { raw = JSON.parse(localStorage.getItem(LS_SUB_CACHE)); } catch (e) { return; }
@@ -671,6 +672,68 @@
         if (!video) return;
         applySubtitles(video, raw.cues, raw.filename || '');
         if (Number.isFinite(raw.offsetMs) && raw.offsetMs !== 0) setOffsetMs(raw.offsetMs);
+    }
+
+    /* ==========================================================
+       DOM-TITLE FALLBACK FOR THE CACHE
+       changeMedia's resync "can fire" on a fresh/refreshed page load per
+       cytube.pc.user.js's own comment (cytube.pc.user.js:2791) -- it isn't
+       guaranteed to. Without a second source for the movie title,
+       _currentMovieKey stays null after a refresh and tryRestoreSubCache()
+       never even gets called. cytube.pc.user.js solves this exact problem
+       for its own "now playing" title by watching #currenttitle directly
+       instead of only the socket (cytube.pc.user.js:1584-1614) -- same
+       fix applied here, scoped to just updating the cache key and
+       attempting a restore (never resetSubtitles(): on an actual movie
+       change changeMedia already owns the reset, and this path racing it
+       could wipe subtitles changeMedia's own restore just applied).
+    ========================================================== */
+    function getDomMovieTitle() {
+        const el = document.getElementById('currenttitle')
+            || document.querySelector('#videowrap-header .pull-left')
+            || document.querySelector('#videowrap-header span')
+            || document.querySelector('.video-title');
+        if (!el) return '';
+        return el.textContent.trim()
+            .replace(/^currently\s+playing[:\s]*/i, '')
+            .replace(/^now\s+playing[:\s]*/i, '').trim();
+    }
+
+    function updateMovieKeyFromDom() {
+        const raw = getDomMovieTitle();
+        if (!raw || raw.length < 2) return;
+        _currentMovieKey = raw;
+        // Always re-attempt (not just on a key change): the title can be
+        // known before the <video> element exists yet on a cold load, and
+        // tryRestoreSubCache() itself bails out silently if there's no
+        // video to attach to (see its `if (!video) return;`), with no
+        // retry of its own -- so if the *only* trigger were "key changed",
+        // that one early miss would be permanent. This call is cheap and
+        // already double-guarded (no-ops once something is loaded, or if
+        // the key hasn't resolved yet).
+        tryRestoreSubCache();
+    }
+
+    let _titleObsAttached = false;
+    function attachTitleObserver() {
+        if (_titleObsAttached) return;
+        const header = document.getElementById('videowrap-header');
+        if (!header) return;
+        _titleObsAttached = true;
+        new MutationObserver(updateMovieKeyFromDom).observe(header, { childList: true, subtree: true, characterData: true });
+    }
+
+    function watchMovieTitleForCache() {
+        updateMovieKeyFromDom();
+        attachTitleObserver();
+        // Poll for ~20s on cold load in case the header isn't ready yet
+        // (same pattern/budget as cytube.pc.user.js:1604-1614).
+        let tries = 0;
+        const poll = setInterval(() => {
+            attachTitleObserver();
+            updateMovieKeyFromDom();
+            if (++tries >= 14) clearInterval(poll);
+        }, 1500);
     }
 
     /* ==========================================================
@@ -692,6 +755,13 @@
         if (video !== _lastVideoEl) {
             _lastVideoEl = video;
             if (_subTrack) resetSubtitles();
+            // The <video> element itself can appear after the DOM-title
+            // watcher has already resolved _currentMovieKey (cold load:
+            // title text shows before the player finishes attaching) --
+            // covers the reverse ordering of the race handled above in
+            // updateMovieKeyFromDom(). No-ops via tryRestoreSubCache()'s
+            // own guards if there's nothing to restore.
+            else if (video) tryRestoreSubCache();
         }
     }
 
@@ -739,6 +809,7 @@
         updateTriggerButtonState();
         applyCueStyle();
         initMediaWatcher();
+        watchMovieTitleForCache();
         setInterval(checkVideoSwap, 800);
 
         if (!PC_MODE) {
