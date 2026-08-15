@@ -7,5 +7,6 @@
 // @match        https://cytu.be/r/testing
 {{GRANTS}}
 {{CONNECTS}}
+{{REQUIRES}}
 // @run-at       document-start
 // ==/UserScript==

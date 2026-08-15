@@ -98,18 +98,27 @@ function topoSort(modules) {
 }
 
 /**
- * Fills header.template.js's {{VERSION}}, {{GRANTS}}, {{CONNECTS}}
- * placeholders. Every other header field is left as-is in the template
- * (it's reused verbatim from the original script header).
+ * Fills header.template.js's {{VERSION}}, {{GRANTS}}, {{CONNECTS}},
+ * {{REQUIRES}} placeholders. Every other header field is left as-is in the
+ * template (it's reused verbatim from the original script header).
+ *
+ * {{REQUIRES}} differs from {{GRANTS}}/{{CONNECTS}} in one way: when
+ * `requires` is empty (the common case -- no module currently declares any),
+ * the whole placeholder line is removed, including its trailing newline, so
+ * no stray blank line is left in the header. `requires` is rarely non-empty
+ * (only gifmaker will need it), unlike grants/connects which the always-on
+ * core module keeps non-empty in every real build.
  */
-function fillHeaderTemplate(templateSrc, { version, grants, connects }) {
+function fillHeaderTemplate(templateSrc, { version, grants, connects, requires }) {
     const grantLines = grants.map((g) => `// @grant        ${g}`).join('\r\n');
     const connectLines = connects.map((c) => `// @connect      ${c}`).join('\r\n');
+    const requireLines = requires.map((r) => `// @require      ${r}`).join('\r\n');
 
     return templateSrc
         .replace('{{VERSION}}', version)
         .replace('{{GRANTS}}', grantLines)
-        .replace('{{CONNECTS}}', connectLines);
+        .replace('{{CONNECTS}}', connectLines)
+        .replace(requireLines ? '{{REQUIRES}}' : '{{REQUIRES}}\r\n', requireLines);
 }
 
 /**
@@ -149,12 +158,14 @@ export function assemble(manifest, selectedIds, { baseDir }) {
 
     const grants = [...new Set(orderedModules.flatMap((m) => m.grants || []))];
     const connects = [...new Set(orderedModules.flatMap((m) => m.connects || []))];
+    const requires = [...new Set(orderedModules.flatMap((m) => m.requires || []))];
 
     const headerTemplateSrc = fs.readFileSync(path.join(baseDir, manifest.headerTemplate), 'utf8');
     const filledHeader = fillHeaderTemplate(headerTemplateSrc, {
         version: manifest.baseVersion,
         grants,
         connects,
+        requires,
     });
 
     const chunks = [];

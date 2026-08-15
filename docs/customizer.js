@@ -70,10 +70,19 @@ function topoSort(modules) {
     return orderedIds.map((id) => byId.get(id));
 }
 
-function fillHeaderTemplate(templateSrc, { version, grants, connects }) {
+// {{REQUIRES}} differs from {{GRANTS}}/{{CONNECTS}}: when `requires` is
+// empty (the common case), the whole placeholder line is removed, including
+// its trailing newline, so no stray blank line is left in the header.
+// KEEP IN SYNC BY HAND with scripts/assemble.mjs's identical function.
+function fillHeaderTemplate(templateSrc, { version, grants, connects, requires }) {
     const grantLines = grants.map((g) => `// @grant        ${g}`).join('\r\n');
     const connectLines = connects.map((c) => `// @connect      ${c}`).join('\r\n');
-    return templateSrc.replace('{{VERSION}}', version).replace('{{GRANTS}}', grantLines).replace('{{CONNECTS}}', connectLines);
+    const requireLines = requires.map((r) => `// @require      ${r}`).join('\r\n');
+    return templateSrc
+        .replace('{{VERSION}}', version)
+        .replace('{{GRANTS}}', grantLines)
+        .replace('{{CONNECTS}}', connectLines)
+        .replace(requireLines ? '{{REQUIRES}}' : '{{REQUIRES}}\r\n', requireLines);
 }
 
 function normalize(text) {
@@ -99,6 +108,7 @@ async function assemble(manifest, selectedIds) {
 
     const grants = [...new Set(orderedModules.flatMap((m) => m.grants || []))];
     const connects = [...new Set(orderedModules.flatMap((m) => m.connects || []))];
+    const requires = [...new Set(orderedModules.flatMap((m) => m.requires || []))];
 
     const allPaths = [manifest.headerTemplate, ...emissionOrder.flatMap((m) => [...(m.files || []), ...(m.cssFiles || [])])];
     const uniquePaths = [...new Set(allPaths)];
@@ -108,6 +118,7 @@ async function assemble(manifest, selectedIds) {
         version: manifest.baseVersion,
         grants,
         connects,
+        requires,
     });
 
     const chunks = [];
