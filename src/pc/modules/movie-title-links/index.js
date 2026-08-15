@@ -7,7 +7,11 @@
        connect grant) — this module only calls it through a
        typeof-guard so a build without imdb-trivia still works, just
        without parental-guide chips. Same pattern for the "Trivia"
-       button's click handler (toggleTriviaPanel).
+       button's click handler (toggleTriviaPanel), and — in the other
+       direction — for this module's own calls into the optional
+       tonights-lineup module's lineupObserveTitleChange (feeds its
+       timing/ETA model; this module doesn't depend on tonights-lineup,
+       so a build without it just skips those calls).
     ========================================================== */
 
     const LINK_DEFS = [
@@ -258,7 +262,13 @@
         if (!rawTitle || rawTitle === lastMovieTitle || rawTitle.length < 2) return;
         lastMovieTitle = rawTitle;
         const knownSeconds = getCurrentMediaSeconds();
-        lineupObserveTitleChange(rawTitle, knownSeconds > 0 ? knownSeconds : null);
+        // lineupObserveTitleChange lives in the optional tonights-lineup module --
+        // typeof-guarded so a build without it (this module only depends on core)
+        // still injects links/stats normally, just without feeding the lineup's
+        // timing/ETA model.
+        if (typeof lineupObserveTitleChange === 'function') {
+            lineupObserveTitleChange(rawTitle, knownSeconds > 0 ? knownSeconds : null);
+        }
         _currentImdbId = null;
 
         // Clean up previous links/stats/trivia button
@@ -416,7 +426,10 @@
                     // Authoritative lineup match straight from the raw socket payload, ahead of
                     // (and independent from) the DOM-title path below -- see
                     // lineupObserveTitleChange's own comment for why this matters.
-                    if (data && data.title) lineupObserveTitleChange(data.title, data.seconds);
+                    // typeof-guarded -- see the other call site above in injectMovieLinks.
+                    if (data && data.title && typeof lineupObserveTitleChange === 'function') {
+                        lineupObserveTitleChange(data.title, data.seconds);
+                    }
                     setTimeout(triggerTitleInject, 350);
                 } catch (e) {}
             });

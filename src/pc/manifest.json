@@ -83,6 +83,28 @@
       "connects": [
         "caching.graphql.imdb.com"
       ]
+    },
+    {
+      "id": "tonights-lineup",
+      "name": "Tonight's Lineup",
+      "locked": false,
+      "defaultOn": true,
+      "phase": 1,
+      "files": [
+        "src/pc/modules/tonights-lineup/index.js"
+      ],
+      "cssFiles": [
+        "src/pc/modules/tonights-lineup/style.css"
+      ],
+      "dependsOn": ["core", "movie-title-links"],
+      "grants": [
+        "GM_xmlhttpRequest"
+      ],
+      "connects": [
+        "www.reddit.com",
+        "raw.githubusercontent.com",
+        "api.themoviedb.org"
+      ]
     }
   ],
   "companions": []
