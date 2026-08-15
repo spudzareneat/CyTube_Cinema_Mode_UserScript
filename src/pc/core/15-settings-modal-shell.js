@@ -8,12 +8,13 @@
     // still colocated in this file for now — see scRegisterInit above for why).
     // sc-input-spellcheck (grammar-check) moved to
     // src/pc/modules/grammar-check/index.js — see that file.
+    // sc-input-autoembed (chatimages) moved to
+    // src/pc/modules/chatimages/index.js — see that file.
     // `order` reproduces the original shipped script's row sequence
     // (spellcheck=1, movielinks=2, autoembed=3, gifoptimize=4); rows are
     // sorted by it below rather than rendered in registration order, since
     // registration order depends on which optional modules a build includes
     // and in what order their files happen to load.
-    scRegisterSetting({ id: 'sc-input-autoembed', group: 'chat-images', label: 'Auto-embed image links in chat', note: 'Shows a thumbnail preview under messages that link directly to an image, marked "🖼 embedded" (requires cytube.chatimages.user.js)', key: LS_AUTOEMBED, defaultOn: true, order: 3 });
     scRegisterSetting({ id: 'sc-input-gifoptimize', group: 'gif-maker', label: 'Optimize GIFs before upload', note: 'Losslessly shrinks the file with gifsicle before Download/Upload — adds a couple seconds (requires cytube.gifmaker.user.js)', key: LS_GIF_OPTIMIZE, defaultOn: true, order: 4 });
 
     // Renders one registered settings row, branching on `r.type` (defaulted to

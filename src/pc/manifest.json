@@ -128,6 +128,17 @@
       "connects": [
         "api.languagetool.org"
       ]
+    },
+    {
+      "id": "chatimages",
+      "name": "Chat Images",
+      "category": "Chat",
+      "locked": false,
+      "defaultOn": true,
+      "files": [
+        "src/pc/modules/chatimages/index.js"
+      ],
+      "dependsOn": ["core"]
     }
   ],
   "companions": [
