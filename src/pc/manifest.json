@@ -134,19 +134,19 @@
     {
       "id": "gifmaker",
       "name": "CyTube GIF Maker",
-      "description": "Standalone scene-to-GIF capture with meme captions and ImgBB upload — a record button (in the video's own control bar, or floating if cytube.pc.user.js is also installed), disabled during YouTube playback. Integrates with cytube.pc.user.js when installed.",
+      "description": "Standalone scene-to-GIF capture with meme captions and ImgBB upload — a record button (in the video's own control bar, or floating if cytube.pc.custom.user.js is also installed), disabled during YouTube playback. Integrates with cytube.pc.custom.user.js when installed.",
       "file": "cytube.gifmaker.user.js"
     },
     {
       "id": "subtitles",
       "name": "CyTube Subtitle Sync",
-      "description": "Load a local .srt/.vtt subtitle file and sync it to native <video> playback, with a persistent font-size setting, a draggable/steppable position pad for on-screen caption placement, and a short-lived per-movie cache that survives a page refresh. Not available for YouTube playback. Integrates with cytube.pc.user.js when installed, including an OpenSubtitles search link for the currently playing movie.",
+      "description": "Load a local .srt/.vtt subtitle file and sync it to native <video> playback, with a persistent font-size setting, a draggable/steppable position pad for on-screen caption placement, and a short-lived per-movie cache that survives a page refresh. Not available for YouTube playback. Integrates with cytube.pc.custom.user.js when installed, including an OpenSubtitles search link for the currently playing movie.",
       "file": "cytube.subtitles.user.js"
     },
     {
       "id": "chatimages",
       "name": "CyTube Chat Images",
-      "description": "Standalone auto-embed for direct image links in chat, with hover filenames and a per-image ban/unban. Works alone, or defers to cytube.pc.user.js's Settings Modal toggle when that script is also installed.",
+      "description": "Standalone auto-embed for direct image links in chat, with hover filenames and a per-image ban/unban. Works alone, or defers to cytube.pc.custom.user.js's Settings Modal toggle when that script is also installed.",
       "file": "cytube.chatimages.user.js"
     },
     {

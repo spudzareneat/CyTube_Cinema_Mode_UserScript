@@ -19,6 +19,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+// Escapes a CSS string for safe interpolation into a JS template literal
+// (`injectCSS('id', \`...\`)`  below). No current CSS file contains a
+// backtick, `${`, or a backslash escape sequence, but CSS `content:`
+// properties commonly use backslash escapes for icon glyphs (e.g.
+// `content: "\2192"`), so this guards every future CSS edit that flows
+// through here. Backslashes must be escaped FIRST, before the other two
+// replacements, since those replacements themselves introduce backslashes
+// that must not be re-escaped.
+// KEEP IN SYNC BY HAND with docs/customizer.js's identical helper.
+function escapeCssForTemplateLiteral(css) {
+    return css.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
+}
+
 /**
  * Resolves `selectedIds` plus their transitive `dependsOn` into a list of
  * module objects (order not yet meaningful — topoSort handles that).
@@ -151,7 +164,7 @@ export function assemble(manifest, selectedIds, { baseDir }) {
         }
         if (mod.cssFiles && mod.cssFiles.length) {
             const css = mod.cssFiles.map((f) => readNormalized(baseDir, f)).join('\r\n');
-            chunks.push(`injectCSS('${mod.id}', \`${css}\`);\r\n`);
+            chunks.push(`injectCSS('${mod.id}', \`${escapeCssForTemplateLiteral(css)}\`);\r\n`);
         }
     }
 

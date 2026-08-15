@@ -21,6 +21,25 @@
         return 0;
     }
 
+    // Lives in core (not movie-title-links) because it's needed unconditionally by
+    // the Movie Lead Time interceptor below, which core always ships regardless of
+    // which optional modules are included. movie-title-links also calls this (it
+    // depends on core, so it's always available there too) to decide whether to
+    // parse a title as a YouTube video vs. a movie filename.
+    function isYouTubeMedia() {
+        // CyTube exposes current media on the global PLAYER or window.player object.
+        // The type field is 'yt' for YouTube. Also check for the YouTube iframe directly.
+        try {
+            const p = window.PLAYER || window.player;
+            if (p && p.type === 'yt') return true;
+            if (p && p.mediaType === 'yt') return true;
+        } catch (e) {}
+        // Fallback: check if a YouTube iframe is present in the video wrapper
+        if (document.querySelector('#ytapiplayer iframe[src*="youtube.com"]')) return true;
+        if (document.querySelector('#ytapiplayer[src*="youtube.com"]')) return true;
+        return false;
+    }
+
     /* ==========================================================
        CHAT → MOVIE SEEK
        Right-click a chat message to desync and rewind the movie to
@@ -221,7 +240,7 @@
         function interceptor(data) {
             try {
                 const lead = getMovieLeadSec();
-                if (lead > 0 && typeof isYouTubeMedia === 'function' && !isYouTubeMedia() && typeof data?.currentTime === 'number') {
+                if (lead > 0 && !isYouTubeMedia() && typeof data?.currentTime === 'number') {
                     data.currentTime += lead;
                 }
             } catch (e) {}

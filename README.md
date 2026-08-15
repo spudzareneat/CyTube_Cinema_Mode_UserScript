@@ -64,7 +64,7 @@ When a new title starts playing, the script parses the filename and looks up the
 A stats bar fades in at the bottom-left of the video and auto-hides after 12 seconds showing:
 
 - **Kill count** — on-screen kills pulled from the [lklynet/Kill-Count](https://github.com/lklynet/Kill-Count) database
-- **Content warnings** from DoesTheDogDie — dog/cat deaths, jump scares, nudity, sexual violence, spiders, eye trauma, clowns, needles, decapitation, and more
+- **Content warnings** from IMDb's Parent's Guide (requires the IMDb Trivia & Parent Guide module) — color-coded severity per category (sex & nudity, violence & gore, profanity, alcohol/drugs/smoking, frightening scenes)
 
 Filename parsing handles formats like `White.Fire.[1984].mkv` cleanly. YouTube bumpers and intros are detected and skipped automatically.
 
@@ -128,7 +128,7 @@ Every username in the chat buffer is assigned a consistent, deterministic color 
 
 Capture any scene as an animated GIF, straight from the player — no external tools.
 
-> Requires installing **`cytube.gifmaker.user.js`** as a separate userscript (see Setup below) — it owns the actual capture/encode/upload logic. When it's installed alongside `cytube.pc.user.js`, the GIF button becomes the floating **◉** button described here, and the ImgBB API key field / Optimize toggle move into `cytube.pc.user.js`'s Settings Modal instead of appearing inline in the GIF panel. Installed on its own, `cytube.gifmaker.user.js` still works standalone, with those fields inline and the record button in the video's own control bar.
+> Requires installing **`cytube.gifmaker.user.js`** as a separate userscript (see Setup below) — it owns the actual capture/encode/upload logic. When it's installed alongside `cytube.pc.custom.user.js`, the GIF button becomes the floating **◉** button described here, and the ImgBB API key field / Optimize toggle move into `cytube.pc.custom.user.js`'s Settings Modal instead of appearing inline in the GIF panel. Installed on its own, `cytube.gifmaker.user.js` still works standalone, with those fields inline and the record button in the video's own control bar.
 
 - Click the **◉** floating button to open the GIF maker
 - **Lock in the start and end** of the clip with live preview thumbnails of each frame — use **⤓ Now** to grab the current playback position, or nudge each mark by ±0.5s
@@ -148,7 +148,7 @@ Capture any scene as an animated GIF, straight from the player — no external t
 
 Direct image links posted in chat (postimg.cc, imgur, Discord CDN, etc.) show up as an inline thumbnail instead of a bare link.
 
-> Requires installing **`cytube.chatimages.user.js`** as a separate userscript (see Setup below) — it owns the embedding logic. Installed on its own, it always embeds. Installed alongside `cytube.pc.user.js`, it defers to that script's Settings Modal toggle ("Auto-embed image links in chat") instead.
+> Requires installing **`cytube.chatimages.user.js`** as a separate userscript (see Setup below) — it owns the embedding logic. Installed on its own, it always embeds. Installed alongside `cytube.pc.custom.user.js`, it defers to that script's Settings Modal toggle ("Auto-embed image links in chat") instead.
 
 - Hover a thumbnail to see the original filename as a tooltip
 - Click **🔗** on an embed to flip that one instance between the thumbnail and the plain link, without affecting anything else
@@ -161,7 +161,7 @@ Direct image links posted in chat (postimg.cc, imgur, Discord CDN, etc.) show up
 
 Load a local `.srt` or `.vtt` file and sync it to the currently playing video, with a live offset control for files that aren't quite aligned.
 
-> Requires installing **`cytube.subtitles.user.js`** as a separate userscript (see Setup below) — it owns the subtitle parsing/sync logic. Installed on its own, its button sits in CyTube's native video control bar. Installed alongside `cytube.pc.user.js`, it becomes the floating **CC** button described in Floating Controls below. Not available for YouTube playback — native `<video>` only.
+> Requires installing **`cytube.subtitles.user.js`** as a separate userscript (see Setup below) — it owns the subtitle parsing/sync logic. Installed on its own, its button sits in CyTube's native video control bar. Installed alongside `cytube.pc.custom.user.js`, it becomes the floating **CC** button described in Floating Controls below. Not available for YouTube playback — native `<video>` only.
 
 - Click **CC** to open the Subtitles panel, then choose a `.srt` or `.vtt` file — cues render using the browser's native caption rendering, so sync tracks playback exactly
 - Nudge the offset ±100ms with the **−100ms** / **+100ms** buttons, or type an exact value and click **Set**
@@ -201,7 +201,6 @@ A row of buttons is fixed to the screen at all times, positioned relative to the
 A settings panel for managing API keys and preferences. It opens automatically on first run if no keys are stored. Keys are saved to `localStorage` — they are never hard-coded.
 
 - TMDB API key field (with a direct link to get one)
-- DoesTheDogDie API key field (with a direct link to get one)
 - ImgBB API key field for GIF uploads (with a direct link to get one)
 - Toggle to enable or disable the grammar/spell check popup
 - Chat font size slider
@@ -240,23 +239,15 @@ The main script is no longer a single file you copy-paste — it's assembled to 
 
 A settings modal will appear automatically the first time you visit the channel. You can re-open it any time via the **⚙** button.
 
-Both keys are free and optional, but unlock the movie info features:
+Both keys below are free and optional, but the TMDB key unlocks the movie info features:
 
 #### TMDB API Key
-Unlocks IMDb links, Letterboxd links, kill counts, and DoesTheDogDie lookups.
+Unlocks IMDb links, Letterboxd links, kill counts, and IMDb Parent's Guide content warnings.
 
 1. Create a free account at [themoviedb.org](https://www.themoviedb.org/)
 2. Go to **Settings → API**: `https://www.themoviedb.org/settings/api`
 3. Request an API key — choose "Personal / Developer" use
 4. Copy the **API Key (v3 auth)** value and paste it into the settings modal
-
-#### DoesTheDogDie API Key
-Unlocks content warnings (animal deaths, jump scares, nudity, etc.).
-
-1. Create a free account at [doesthedogdie.com](https://www.doesthedogdie.com/)
-2. Go to your **Profile** page: `https://www.doesthedogdie.com/profile`
-3. Locate your API key in the profile settings
-4. Copy it and paste it into the settings modal
 
 #### ImgBB API Key
 Optional — enables the **☁ Upload** button in the GIF maker to host a GIF and give you a shareable link.
@@ -284,7 +275,6 @@ This project was 100% vibe coded using [Claude](https://claude.ai) by Anthropic.
 | Service | Purpose | Requires Key |
 |---------|---------|-------------|
 | [TMDB](https://www.themoviedb.org/) | Movie metadata, IMDb ID, Letterboxd ID | Yes (free) |
-| [DoesTheDogDie](https://www.doesthedogdie.com/) | Content warnings | Yes (free) |
 | [LanguageTool](https://languagetool.org/) | Grammar and spell check | No |
 | [Wikipedia](https://en.wikipedia.org/) | Movie Wikipedia links | No |
 | [lklynet/Kill-Count](https://github.com/lklynet/Kill-Count) | On-screen kill counts | No |

@@ -13,6 +13,19 @@ const RAW_BASE = 'https://raw.githubusercontent.com/spudzareneat/CyTube_Cinema_M
 
 // ---- assembly logic (mirrors scripts/assemble.mjs) ------------------------
 
+// Escapes a CSS string for safe interpolation into a JS template literal
+// (`injectCSS('id', \`...\`)`  below). No current CSS file contains a
+// backtick, `${`, or a backslash escape sequence, but CSS `content:`
+// properties commonly use backslash escapes for icon glyphs (e.g.
+// `content: "\2192"`), so this guards every future CSS edit that flows
+// through here. Backslashes must be escaped FIRST, before the other two
+// replacements, since those replacements themselves introduce backslashes
+// that must not be re-escaped.
+// KEEP IN SYNC BY HAND with scripts/assemble.mjs's identical helper.
+function escapeCssForTemplateLiteral(css) {
+    return css.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
+}
+
 function resolveSelectedModules(manifest, selectedIds) {
     const byId = new Map(manifest.modules.map((m) => [m.id, m]));
     const resolvedIds = new Set();
@@ -104,7 +117,7 @@ async function assemble(manifest, selectedIds) {
         }
         if (mod.cssFiles && mod.cssFiles.length) {
             const css = mod.cssFiles.map((f) => normalize(texts.get(f))).join('\r\n');
-            chunks.push(`injectCSS('${mod.id}', \`${css}\`);\r\n`);
+            chunks.push(`injectCSS('${mod.id}', \`${escapeCssForTemplateLiteral(css)}\`);\r\n`);
         }
     }
 

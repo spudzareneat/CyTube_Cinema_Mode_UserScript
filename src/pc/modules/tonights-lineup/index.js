@@ -1200,3 +1200,11 @@
     }
 
     scRegisterInit(scInitPosterStripWhenReady);
+
+    // order: 5 -- next in the established row sequence (spellcheck=1, movielinks=2,
+    // autoembed=3, gifoptimize=4; see src/pc/core/15-settings-modal-shell.js, which
+    // sorts SC_SETTINGS_ROWS by this field before rendering). defaultOn: false
+    // because this toggle is opt-in (LS_LINEUP_TIMING defaults off -- see
+    // lineupTimingEnabled() in core/02-keys-and-helpers.js), unlike the other rows'
+    // opt-out default.
+    scRegisterSetting({ id: 'sc-input-lineuptiming', group: 'tonights-lineup', label: 'Coming Attractions live timing (Experimental)', note: 'Shows NOW PLAYING and estimated start times in Tonight\'s Lineup. Needs TMDB above for movie runtimes — without it, estimates can\'t guess well. Off by default, still being tuned.', key: LS_LINEUP_TIMING, defaultOn: false, order: 5 });

@@ -114,14 +114,6 @@
                         <a class="sc-settings-link" href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">
                             Get a free TMDB key ↗
                         </a>
-
-                        <label class="sc-settings-toggle-label sc-settings-divider">
-                            <span class="sc-toggle-row">
-                                <input type="checkbox" id="sc-input-lineuptiming" ${lineupTimingEnabled() ? 'checked' : ''} />
-                                <span class="sc-toggle-text">Coming Attractions live timing (Experimental)</span>
-                            </span>
-                            <span class="sc-settings-note">Shows NOW PLAYING and estimated start times in Tonight's Lineup. Needs TMDB above for movie runtimes — without it, estimates can't guess well. Off by default, still being tuned.</span>
-                        </label>
                     </div>
                 </div>
 
@@ -221,7 +213,6 @@
 
         document.getElementById('sc-settings-save').addEventListener('click', () => {
             const tmdb   = tmdbToggle.checked ? document.getElementById('sc-input-tmdb').value.trim() : '';
-            const lineupTiming = document.getElementById('sc-input-lineuptiming').checked;
             const imgbb  = document.getElementById('sc-input-imgbb').value.trim();
             const fontPx = parseInt(fontInput.value, 10);
             const leadSecInput = parseInt(document.getElementById('sc-input-leadsec').value, 10);
@@ -231,7 +222,6 @@
                 const el = document.getElementById(row.id);
                 if (el) setKey(row.key, el.checked ? 'on' : 'off');
             });
-            setKey(LS_LINEUP_TIMING, lineupTiming ? 'on' : 'off');
             setKey(LS_IMGBB,       imgbb);
             setKey(LS_CHAT_FONT,   String(fontPx));
             applyChatFontSize(fontPx);

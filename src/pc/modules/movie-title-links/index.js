@@ -173,19 +173,9 @@
         return result;
     }
 
-    function isYouTubeMedia() {
-        // CyTube exposes current media on the global PLAYER or window.player object.
-        // The type field is 'yt' for YouTube. Also check for the YouTube iframe directly.
-        try {
-            const p = window.PLAYER || window.player;
-            if (p && p.type === 'yt') return true;
-            if (p && p.mediaType === 'yt') return true;
-        } catch (e) {}
-        // Fallback: check if a YouTube iframe is present in the video wrapper
-        if (document.querySelector('#ytapiplayer iframe[src*="youtube.com"]')) return true;
-        if (document.querySelector('#ytapiplayer[src*="youtube.com"]')) return true;
-        return false;
-    }
+    // isYouTubeMedia() lives in core (12-playback-sync-and-seek.js) -- core is
+    // always a dependency of every module, so it's called directly here with no
+    // typeof-guard needed.
 
     // _currentImdbId is also read by the imdb-trivia module (which depends on this
     // one, so it's guaranteed to exist whenever imdb-trivia is present).
