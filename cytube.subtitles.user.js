@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CyTube Subtitle Sync
 // @namespace    http://tampermonkey.net/
-// @version      1.4.2
+// @version      1.4.3
 // @description  Load a local .srt/.vtt subtitle file and sync it to native <video> playback, with a persistent font-size setting, a draggable/steppable position pad for on-screen caption placement, and a short-lived per-movie cache that survives a page refresh. Not available for YouTube playback. Integrates with cytube.pc.user.js when installed, including an OpenSubtitles search link for the currently playing movie.
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -10,7 +10,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.subtitles v1.4.2 loaded');
+    console.log('[SC] cytube.subtitles v1.4.3 loaded');
 
     /* ==========================================================
        PC-SCRIPT INTEGRATION BRIDGE
@@ -573,6 +573,7 @@
                 transform: translateX(60px) !important; opacity: 0 !important; pointer-events: none !important;
             }
             #scsub-trigger-btn:hover { color: white !important; background: rgba(255,255,255,0.22) !important; }
+            #scsub-trigger-btn .vjs-icon-captions { font-size: 15px !important; line-height: 1 !important; }
             body.sc-horizontal #scsub-trigger-btn {
                 bottom: 6px !important;
                 right: calc(var(--sc-chat-w) + 1vw + 152px) !important;
@@ -597,7 +598,7 @@
             injectFloatingButtonCss();
             const btn = document.createElement('button');
             btn.id = 'scsub-trigger-btn';
-            btn.textContent = 'CC';
+            btn.innerHTML = '<span class="vjs-icon-captions" aria-hidden="true"></span>';
             btn.title = 'Load subtitles';
             btn.addEventListener('click', () => openSubtitlePanel());
             document.body.appendChild(btn);
@@ -612,7 +613,7 @@
             btn.type = 'button';
             btn.className = 'btn btn-sm btn-default';
             btn.title = 'Load subtitles';
-            btn.textContent = 'CC'; // no built-in Bootstrap glyphicon for subtitles/captions
+            btn.innerHTML = '<span class="vjs-icon-captions" style="font-size:13px;line-height:1;" aria-hidden="true"></span>'; // video.js's own icon font, already loaded by the player
             btn.addEventListener('click', () => openSubtitlePanel());
             group.appendChild(btn);
         } else if (btn.parentElement !== group) {
