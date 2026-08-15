@@ -221,42 +221,20 @@ You need a browser extension that can run userscripts. The most common options:
 - [Violentmonkey](https://violentmonkey.github.io/) (Chrome, Firefox)
 - [Greasemonkey](https://www.greasespot.net/) (Firefox)
 
-### 2. Install the script
+### 2. Build and install your script
 
-1. Open Tampermonkey's dashboard and click **Create a new script**
-2. Delete the placeholder content and paste in the full contents of `cytube.pc.user.js`
-3. Save with **Ctrl+S** (or **Cmd+S**)
-4. Navigate to `https://cytu.be/r/420Grindhouse` — the script runs automatically
+The main script is no longer a single file you copy-paste — it's assembled to order by a customizer page, so you only ship the features you actually want.
 
-### 2b. Install GIF Maker (optional, recommended)
+1. Visit the customizer: **https://spudzareneat.github.io/CyTube_Cinema_Mode_UserScript/**
+   > This is the standard GitHub Pages URL for this repo (it serves the `docs/` folder). If the page 404s, GitHub Pages hasn't been enabled for the repo yet — that's a one-time setting under the repo's **Settings → Pages** that only the repo owner can flip; it isn't something you can fix locally.
+2. Under **Features**, check whichever optional modules you want — Movie Title Links, IMDb Trivia, Tonight's Lineup, and Grammar Check are all checked by default. **Core** is always included and can't be unchecked.
+3. Under **Companion scripts**, check any of the standalone siblings you also want: GIF Maker, Subtitle Sync, Chat Images, or the Grindhouse Title Renamer (see their sections above for what each does).
+4. Click **Build my script**, then **Download** (or **Copy to clipboard**) — this produces one `cytube.pc.user.js` file for your chosen core/optional-module combination.
+5. Open Tampermonkey's dashboard, click **Create a new script**, and paste in (or drag in) the downloaded file. Save with **Ctrl+S** (or **Cmd+S**).
+6. If you checked any companion scripts, download and install each one the same way — one Tampermonkey script per file, just like step 5. Each companion still works fine on its own, and automatically integrates with the main script (floating buttons, shared settings toggles, etc.) when both are installed — see that feature's section above for specifics.
+7. Navigate to `https://cytu.be/r/420Grindhouse` — the script(s) run automatically.
 
-GIF capture lives in its own userscript. Repeat the steps above with `cytube.gifmaker.user.js` to add it:
-
-1. Open Tampermonkey's dashboard and click **Create a new script**
-2. Delete the placeholder content and paste in the full contents of `cytube.gifmaker.user.js`
-3. Save with **Ctrl+S** (or **Cmd+S**)
-
-It can run alone or alongside `cytube.pc.user.js`. With both installed, the GIF button becomes the floating **◉** button and the ImgBB key / Optimize toggle move into `cytube.pc.user.js`'s Settings Modal (see GIF Maker above).
-
-### 2c. Install Chat Images (optional, recommended)
-
-Chat image auto-embedding lives in its own userscript. Repeat the steps above with `cytube.chatimages.user.js` to add it:
-
-1. Open Tampermonkey's dashboard and click **Create a new script**
-2. Delete the placeholder content and paste in the full contents of `cytube.chatimages.user.js`
-3. Save with **Ctrl+S** (or **Cmd+S**)
-
-It can run alone (always embeds) or alongside `cytube.pc.user.js` (defers to its Settings Modal toggle — see Chat Image Embeds above).
-
-### 2d. Install Subtitle Sync (optional, recommended)
-
-Local subtitle loading lives in its own userscript. Repeat the steps above with `cytube.subtitles.user.js` to add it:
-
-1. Open Tampermonkey's dashboard and click **Create a new script**
-2. Delete the placeholder content and paste in the full contents of `cytube.subtitles.user.js`
-3. Save with **Ctrl+S** (or **Cmd+S**)
-
-It can run alone (button in CyTube's native video control bar) or alongside `cytube.pc.user.js` (becomes the floating **CC** button — see Subtitle Sync above).
+> **Note on phase-2 features:** emote-mirror, emote-relocation, movie-lead-time, chat-seek, chat-timestamps, channel-emoji, poll-watcher, user-count-panel, and chat-resizer are still bundled inside **Core** for now — they aren't independently toggleable on the customizer yet. A future update will split them out into their own selectable modules the same way Movie Title Links, IMDb Trivia, Tonight's Lineup, and Grammar Check already are.
 
 ### 3. Enter your API keys (first run)
 

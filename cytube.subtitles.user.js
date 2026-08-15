@@ -678,13 +678,14 @@
     /* ==========================================================
        DOM-TITLE FALLBACK FOR THE CACHE
        changeMedia's resync "can fire" on a fresh/refreshed page load per
-       cytube.pc.user.js's own comment (cytube.pc.user.js:2791) -- it isn't
-       guaranteed to. Without a second source for the movie title,
-       _currentMovieKey stays null after a refresh and tryRestoreSubCache()
-       never even gets called. cytube.pc.user.js solves this exact problem
-       for its own "now playing" title by watching #currenttitle directly
-       instead of only the socket (cytube.pc.user.js:1584-1614) -- same
-       fix applied here, scoped to just updating the cache key and
+       cytube.pc.user.js's own comment (see src/pc/modules/tonights-lineup/index.js,
+       lineupObserveTitleChange) -- it isn't guaranteed to. Without a second
+       source for the movie title, _currentMovieKey stays null after a
+       refresh and tryRestoreSubCache() never even gets called. cytube.pc.user.js
+       solves this exact problem for its own "now playing" title by watching
+       #currenttitle directly instead of only the socket (see
+       src/pc/modules/movie-title-links/index.js, watchMovieTitle/
+       attachHeaderObserver) -- same fix applied here, scoped to just updating the cache key and
        attempting a restore (never resetSubtitles(): on an actual movie
        change changeMedia already owns the reset, and this path racing it
        could wipe subtitles changeMedia's own restore just applied).
@@ -728,7 +729,8 @@
         updateMovieKeyFromDom();
         attachTitleObserver();
         // Poll for ~20s on cold load in case the header isn't ready yet
-        // (same pattern/budget as cytube.pc.user.js:1604-1614).
+        // (same pattern/budget as watchMovieTitle() in
+        // src/pc/modules/movie-title-links/index.js).
         let tries = 0;
         const poll = setInterval(() => {
             attachTitleObserver();
@@ -739,7 +741,8 @@
 
     /* ==========================================================
        MOVIE-CHANGE RESET
-       cytube.pc.user.js:1605-1622 establishes the reliable signal for
+       initMediaWatcher() in src/pc/modules/movie-title-links/index.js
+       establishes the reliable signal for
        this: CyTube's own changeMedia socket event fires on every movie
        change (reused/queued video or a fresh one), whether or not the
        underlying <video> DOM node is actually replaced. That's the
@@ -783,8 +786,9 @@
        OFFSET KEYBINDS
        [ / ] nudge by 100ms, Shift+[ / Shift+] nudge by 1000ms. Guarded
        against firing while chat/any input is focused -- same guard
-       cytube.pc.user.js:1719-1721 uses for its own arrow-key seeking
-       listener (a second, independent listener; no conflict since the
+       the arrow-key seeking listener in
+       src/pc/core/12-playback-sync-and-seek.js uses
+       (a second, independent listener; no conflict since the
        key sets don't overlap). No-op while nothing is loaded.
     ========================================================== */
     document.addEventListener('keydown', (e) => {
