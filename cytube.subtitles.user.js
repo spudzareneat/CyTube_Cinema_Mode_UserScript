@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         CyTube Subtitle Sync
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
-// @description  Load a local .srt/.vtt subtitle file and sync it to native <video> playback, with a persistent font-size setting and bold outlined captions positioned above the video controls. Not available for YouTube playback. Integrates with cytube.pc.user.js when installed, including an OpenSubtitles search link for the currently playing movie.
+// @version      1.3.0
+// @description  Load a local .srt/.vtt subtitle file and sync it to native <video> playback, with a persistent font-size setting, a draggable position pad for on-screen caption placement, and bold outlined captions positioned above the video controls by default. Not available for YouTube playback. Integrates with cytube.pc.user.js when installed, including an OpenSubtitles search link for the currently playing movie.
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
 // @run-at       document-start
@@ -10,7 +10,7 @@
 
 (function () {
     'use strict';
-    console.log('[SC] cytube.subtitles v1.2.0 loaded');
+    console.log('[SC] cytube.subtitles v1.3.0 loaded');
 
     /* ==========================================================
        PC-SCRIPT INTEGRATION BRIDGE
@@ -62,6 +62,20 @@
         return (Number.isFinite(v) && v >= SUB_FONT_SIZE_MIN && v <= SUB_FONT_SIZE_MAX) ? v : SUB_FONT_SIZE_DEFAULT;
     }
     let _subFontSizePx = getSubFontSize();
+
+    // Caption position on the video, as a percentage (X from left, Y from
+    // top) -- also a persisted display preference, adjustable via the
+    // panel's position pad.
+    const LS_SUB_POS_X = 'sc_sub_posx';
+    const LS_SUB_POS_Y = 'sc_sub_posy';
+    const SUB_POS_X_DEFAULT = 50;
+    const SUB_POS_Y_DEFAULT = 85; // leaves clearance below for CyTube's control bar/scrubber
+    function getSubPos(key, def) {
+        const v = parseInt(localStorage.getItem(key), 10);
+        return (Number.isFinite(v) && v >= 0 && v <= 100) ? v : def;
+    }
+    let _subPosX = getSubPos(LS_SUB_POS_X, SUB_POS_X_DEFAULT);
+    let _subPosY = getSubPos(LS_SUB_POS_Y, SUB_POS_Y_DEFAULT);
 
     /* ==========================================================
        SUBTITLE STATE (session-only — no localStorage persistence)
@@ -126,11 +140,6 @@
         updateOffsetDisplay();
     }
 
-    // % down the video frame the cue box sits at (snapToLines=false makes
-    // this a percentage, not a line count) -- leaves clearance below for
-    // CyTube's control bar/scrubber instead of the browser's bottom-edge default.
-    const CUE_LINE_PERCENT = 85;
-
     function rebuildCues() {
         if (!_subTrack) return;
         while (_subTrack.cues && _subTrack.cues.length) _subTrack.removeCue(_subTrack.cues[0]);
@@ -139,10 +148,36 @@
             const start = Math.max(0, c.start + offsetSec);
             const end = Math.max(start + 0.01, c.end + offsetSec);
             const cue = new VTTCue(start, end, c.text);
-            try { cue.snapToLines = false; cue.line = CUE_LINE_PERCENT; } catch (e) {}
+            try {
+                // snapToLines=false makes line/position percentages of the
+                // video frame (not line counts) -- lets the pad set both
+                // axes freely instead of only snapping to text-line rows.
+                cue.snapToLines = false;
+                cue.line = _subPosY;
+                cue.position = _subPosX;
+                cue.align = 'center';
+                cue.size = 90; // leaves a small margin so centered text doesn't clip at the edges
+            } catch (e) {}
             try { _subTrack.addCue(cue); } catch (e) {}
         }
     }
+
+    function updatePositionDisplay() {
+        const readout = document.getElementById('sc-sub-pos-readout');
+        if (readout) readout.textContent = _subPosX + '%, ' + _subPosY + '%';
+        const dot = document.getElementById('sc-sub-pospad-dot');
+        if (dot) { dot.style.left = _subPosX + '%'; dot.style.top = _subPosY + '%'; }
+    }
+
+    function setSubPosition(x, y) {
+        _subPosX = Math.max(0, Math.min(100, Math.round(x)));
+        _subPosY = Math.max(0, Math.min(100, Math.round(y)));
+        localStorage.setItem(LS_SUB_POS_X, String(_subPosX));
+        localStorage.setItem(LS_SUB_POS_Y, String(_subPosY));
+        rebuildCues();
+        updatePositionDisplay();
+    }
+    function resetSubPosition() { setSubPosition(SUB_POS_X_DEFAULT, SUB_POS_Y_DEFAULT); }
 
     function setOffsetMs(ms) {
         _subOffsetMs = ms;
@@ -227,7 +262,8 @@
                 display: flex !important; align-items: center !important; justify-content: space-between !important;
                 padding: 10px 16px !important;
                 border-bottom: 1px solid rgba(244,244,242,0.08) !important;
-                font-weight: 600 !important; font-size: 14px !important; color: #f4f4f2 !important;
+                font-weight: 700 !important; font-size: 14px !important; color: #4dd0e1 !important;
+                letter-spacing: 0.01em !important;
                 cursor: grab !important; user-select: none !important; touch-action: none !important;
             }
             #sc-sub-head.sc-sub-dragging { cursor: grabbing !important; }
@@ -238,29 +274,67 @@
             }
             #sc-sub-close:hover { color: #f4f4f2 !important; }
             #sc-sub-body {
-                padding: 16px !important; display: flex !important; flex-direction: column !important; gap: 12px !important;
+                padding: 16px !important; display: flex !important; flex-direction: column !important; gap: 14px !important;
+            }
+            .sc-sub-section {
+                display: flex !important; flex-direction: column !important; gap: 8px !important;
+                padding-top: 14px !important; border-top: 1px solid rgba(244,244,242,0.08) !important;
+            }
+            .sc-sub-section:first-child { padding-top: 0 !important; border-top: none !important; }
+            .sc-sub-eyebrow {
+                font-size: 10px !important; font-weight: 700 !important; letter-spacing: 0.08em !important;
+                text-transform: uppercase !important; color: rgba(77,208,225,0.75) !important;
             }
             #sc-sub-filename { font-size: 12px !important; color: rgba(244,244,242,0.62) !important; }
-            #sc-sub-offset-row, #sc-sub-fontsize-row {
-                display: flex !important; align-items: center !important; gap: 8px !important; flex-wrap: wrap !important;
+            .sc-sub-row { display: flex !important; align-items: center !important; gap: 8px !important; }
+            .sc-sub-label { font-size: 12px !important; color: rgba(244,244,242,0.62) !important; flex: none !important; }
+            .sc-sub-readout {
+                font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace !important;
+                font-size: 12px !important; min-width: 48px !important; text-align: center !important;
             }
-            #sc-sub-fontsize-row label { font-size: 12px !important; color: rgba(244,244,242,0.62) !important; }
             .sc-sub-btn {
                 background: rgba(255,255,255,0.08) !important; color: #f4f4f2 !important;
                 border: 1px solid rgba(255,255,255,0.18) !important; border-radius: 6px !important;
                 padding: 6px 10px !important; cursor: pointer !important; font-size: 12px !important;
+                text-decoration: none !important; text-align: center !important;
                 transition: background 120ms ease !important;
             }
             .sc-sub-btn:hover { background: rgba(255,255,255,0.22) !important; }
-            .sc-sub-btn-block {
-                display: block !important; width: 100% !important; text-align: center !important;
-                text-decoration: none !important; box-sizing: border-box !important;
+            .sc-sub-btn-icon {
+                width: 26px !important; height: 26px !important; padding: 0 !important; flex: none !important;
+                display: inline-flex !important; align-items: center !important; justify-content: center !important;
+                font-weight: 700 !important; line-height: 1 !important;
             }
-            #sc-sub-offset-value, #sc-sub-fontsize-value { font-size: 12px !important; min-width: 44px !important; text-align: center !important; }
+            .sc-sub-btn-accent {
+                background: rgba(77,208,225,0.14) !important; color: #4dd0e1 !important;
+                border: 1px solid rgba(77,208,225,0.4) !important; font-weight: 600 !important;
+                border-radius: 6px !important; padding: 6px 10px !important; font-size: 12px !important;
+                text-decoration: none !important; text-align: center !important;
+                display: inline-flex !important; align-items: center !important; justify-content: center !important;
+                transition: background 120ms ease !important;
+            }
+            .sc-sub-btn-accent:hover { background: rgba(77,208,225,0.24) !important; }
             #sc-sub-offset-input {
-                width: 70px !important; background: rgba(255,255,255,0.06) !important; color: #f4f4f2 !important;
+                width: 64px !important; flex: none !important; background: rgba(255,255,255,0.06) !important; color: #f4f4f2 !important;
                 border: 1px solid rgba(255,255,255,0.18) !important; border-radius: 6px !important; padding: 4px 6px !important;
+                font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace !important; font-size: 12px !important;
             }
+            .sc-sub-posrow { display: flex !important; align-items: center !important; gap: 12px !important; }
+            #sc-sub-pospad {
+                position: relative !important; width: 96px !important; height: 54px !important; flex: none !important;
+                background: linear-gradient(160deg, rgba(77,208,225,0.10), rgba(255,255,255,0.03)) !important;
+                border: 1px solid rgba(244,244,242,0.16) !important; border-radius: 6px !important;
+                cursor: crosshair !important; touch-action: none !important;
+            }
+            #sc-sub-pospad-dot {
+                position: absolute !important; width: 10px !important; height: 10px !important;
+                background: #4dd0e1 !important; border: 1.5px solid #0c0c0e !important; border-radius: 50% !important;
+                transform: translate(-50%, -50%) !important; box-shadow: 0 0 6px rgba(77,208,225,0.7) !important;
+                pointer-events: none !important;
+            }
+            .sc-sub-poscol { display: flex !important; flex-direction: column !important; gap: 6px !important; align-items: flex-start !important; }
+            .sc-sub-footer { display: flex !important; gap: 8px !important; }
+            .sc-sub-footer .sc-sub-btn, .sc-sub-footer .sc-sub-btn-accent { flex: 1 1 0 !important; }
             #sc-sub-error { font-size: 12px !important; color: #ff6b6b !important; min-height: 14px !important; }
         `;
         document.head.appendChild(style);
@@ -301,7 +375,7 @@
             ? _pcBridge.getMovieInfo() : null;
         const osUrl = buildOpenSubtitlesUrl(movieInfo);
         const osLinkHtml = osUrl
-            ? `<a id="sc-sub-opensubs" class="sc-sub-btn sc-sub-btn-block" href="${osUrl}" target="_blank" rel="noopener noreferrer">Search OpenSubtitles</a>`
+            ? `<a id="sc-sub-opensubs" class="sc-sub-btn-accent" href="${osUrl}" target="_blank" rel="noopener noreferrer">Search OpenSubtitles</a>`
             : '';
 
         const panel = document.createElement('div');
@@ -309,23 +383,42 @@
         panel.innerHTML = `
             <div id="sc-sub-head">Subtitles <button id="sc-sub-close" type="button">✕</button></div>
             <div id="sc-sub-body">
-                <input type="file" id="sc-sub-file" accept=".srt,.vtt">
-                <div id="sc-sub-filename">No file loaded</div>
-                <div id="sc-sub-offset-row">
-                    <button id="sc-sub-offset-minus" class="sc-sub-btn" type="button">−100ms</button>
-                    <span id="sc-sub-offset-value">0ms</span>
-                    <button id="sc-sub-offset-plus" class="sc-sub-btn" type="button">+100ms</button>
-                    <input type="number" id="sc-sub-offset-input" step="100">
-                    <button id="sc-sub-offset-set" class="sc-sub-btn" type="button">Set</button>
+                <div class="sc-sub-section">
+                    <div class="sc-sub-eyebrow">File</div>
+                    <input type="file" id="sc-sub-file" accept=".srt,.vtt">
+                    <div id="sc-sub-filename">No file loaded</div>
                 </div>
-                <div id="sc-sub-fontsize-row">
-                    <label>Font size</label>
-                    <button id="sc-sub-fontsize-minus" class="sc-sub-btn" type="button">A−</button>
-                    <span id="sc-sub-fontsize-value">${_subFontSizePx}px</span>
-                    <button id="sc-sub-fontsize-plus" class="sc-sub-btn" type="button">A+</button>
+                <div class="sc-sub-section">
+                    <div class="sc-sub-eyebrow">Sync</div>
+                    <div class="sc-sub-row">
+                        <button id="sc-sub-offset-minus" class="sc-sub-btn sc-sub-btn-icon" type="button">−</button>
+                        <span id="sc-sub-offset-value" class="sc-sub-readout">0ms</span>
+                        <button id="sc-sub-offset-plus" class="sc-sub-btn sc-sub-btn-icon" type="button">+</button>
+                        <input type="number" id="sc-sub-offset-input" step="100" placeholder="ms">
+                        <button id="sc-sub-offset-set" class="sc-sub-btn" type="button">Set</button>
+                    </div>
                 </div>
-                ${osLinkHtml}
-                <button id="sc-sub-clear" class="sc-sub-btn sc-sub-btn-block" type="button">Clear subtitles</button>
+                <div class="sc-sub-section">
+                    <div class="sc-sub-eyebrow">Appearance</div>
+                    <div class="sc-sub-row">
+                        <span class="sc-sub-label">Size</span>
+                        <button id="sc-sub-fontsize-minus" class="sc-sub-btn sc-sub-btn-icon" type="button">−</button>
+                        <span id="sc-sub-fontsize-value" class="sc-sub-readout">${_subFontSizePx}px</span>
+                        <button id="sc-sub-fontsize-plus" class="sc-sub-btn sc-sub-btn-icon" type="button">+</button>
+                    </div>
+                    <div class="sc-sub-posrow">
+                        <div id="sc-sub-pospad" title="Drag to position captions"><div id="sc-sub-pospad-dot"></div></div>
+                        <div class="sc-sub-poscol">
+                            <span class="sc-sub-label">Position</span>
+                            <span id="sc-sub-pos-readout" class="sc-sub-readout">${_subPosX}%, ${_subPosY}%</span>
+                            <button id="sc-sub-pos-reset" class="sc-sub-btn" type="button">Reset</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="sc-sub-footer">
+                    <button id="sc-sub-clear" class="sc-sub-btn" type="button">Clear subtitles</button>
+                    ${osLinkHtml}
+                </div>
                 <div id="sc-sub-error"></div>
             </div>`;
         document.body.appendChild(panel);
@@ -333,6 +426,7 @@
         const $ = id => panel.querySelector(id);
         updateOffsetDisplay();
         updateFontSizeDisplay();
+        updatePositionDisplay();
 
         $('#sc-sub-close').addEventListener('click', () => panel.remove());
 
@@ -364,7 +458,35 @@
         });
         $('#sc-sub-fontsize-minus').addEventListener('click', () => nudgeFontSizePx(-SUB_FONT_SIZE_STEP));
         $('#sc-sub-fontsize-plus').addEventListener('click', () => nudgeFontSizePx(SUB_FONT_SIZE_STEP));
+        $('#sc-sub-pos-reset').addEventListener('click', () => resetSubPosition());
         $('#sc-sub-clear').addEventListener('click', () => resetSubtitles());
+
+        const pad = $('#sc-sub-pospad');
+        let posDragging = false;
+        const posFromEvent = (e) => {
+            const rect = pad.getBoundingClientRect();
+            return {
+                x: ((e.clientX - rect.left) / rect.width) * 100,
+                y: ((e.clientY - rect.top) / rect.height) * 100,
+            };
+        };
+        pad.addEventListener('pointerdown', (e) => {
+            posDragging = true;
+            pad.setPointerCapture(e.pointerId);
+            const { x, y } = posFromEvent(e);
+            setSubPosition(x, y);
+        });
+        pad.addEventListener('pointermove', (e) => {
+            if (!posDragging) return;
+            const { x, y } = posFromEvent(e);
+            setSubPosition(x, y);
+        });
+        const endPosDrag = (e) => {
+            posDragging = false;
+            try { pad.releasePointerCapture(e.pointerId); } catch (err) {}
+        };
+        pad.addEventListener('pointerup', endPosDrag);
+        pad.addEventListener('pointercancel', endPosDrag);
 
         const head = $('#sc-sub-head');
         let dragging = false, dragDX = 0, dragDY = 0;
