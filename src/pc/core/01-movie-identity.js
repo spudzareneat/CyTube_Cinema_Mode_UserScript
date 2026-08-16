@@ -99,11 +99,11 @@
     let _npData         = null;
     // Set by Movie Links' lookupMovie() once it resolves an IMDb id for the
     // current title; read by IMDb Trivia's showTriviaCard() (and its 'T'
-    // hotkey handler). Declared here rather than in either optional module
-    // so a build that includes imdb-trivia without movie-title-links (valid
-    // -- movie-title-links isn't `locked`) still has this declared under
-    // 'use strict', instead of throwing a ReferenceError the moment trivia
-    // is opened.
+    // hotkey handler). Declared here alongside lastMovieTitle/_npData for
+    // consistency with the rest of this shared now-playing state block --
+    // not because it's needed to cover a build combination that no longer
+    // exists (imdb-trivia now hard-depends on movie-title-links, see
+    // imdb-trivia's manifest.json).
     let _currentImdbId  = null;
 
     // Filesystem/URL-safe slug of the currently playing movie, e.g. "Blade-Runner-1982".

@@ -64,7 +64,7 @@ When a new title starts playing, the script parses the filename and looks up the
 A stats bar fades in at the bottom-left of the video and auto-hides after 12 seconds showing:
 
 - **Kill count** — on-screen kills pulled from the [lklynet/Kill-Count](https://github.com/lklynet/Kill-Count) database
-- **Content warnings** from IMDb's Parent's Guide (requires the IMDb Trivia & Parent Guide module) — color-coded severity per category (sex & nudity, violence & gore, profanity, alcohol/drugs/smoking, frightening scenes)
+- **Content warnings** from IMDb's Parent's Guide — color-coded severity per category (sex & nudity, violence & gore, profanity, alcohol/drugs/smoking, frightening scenes; red = severe, yellow = moderate, green = mild)
 
 Filename parsing handles formats like `White.Fire.[1984].mkv` cleanly. YouTube bumpers and intros are detected and skipped automatically.
 
@@ -72,9 +72,9 @@ Filename parsing handles formats like `White.Fire.[1984].mkv` cleanly. YouTube b
 
 ---
 
-### IMDb Trivia & Parent Guide
+### IMDb Trivia
 
-When a recognized movie is playing, a **Trivia** button appears (or press **T**) to pop open a scrollable panel of behind-the-scenes trivia facts pulled live from IMDb — up to 30 per title, cached so reopening it is instant. Separately, the stats bar under the title shows IMDb's Parent's Guide content as color-coded severity dots per category (red = severe, yellow = moderate, green = mild), so content concerns are visible at a glance without leaving the player. Press **Escape** to close the trivia panel.
+When a recognized movie is playing, a **Trivia** button appears (or press **T**) to pop open a scrollable panel of behind-the-scenes trivia facts pulled live from IMDb — up to 30 per title, cached so reopening it is instant. Press **Escape** to close the trivia panel.
 
 <!-- Add screenshot here -->
 

@@ -230,8 +230,10 @@
         const t = e.target;
         if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;
         // hideLineupScreen lives in the optional tonights-lineup module -- typeof-guarded
-        // so a build without it doesn't throw here (same pattern movie-title-links and
-        // imdb-trivia use for calls into each other).
+        // so a build without it doesn't throw here (the same guard movie-title-links uses
+        // for its own optional call into imdb-trivia's toggleTriviaPanel -- imdb-trivia's
+        // call back into movie-title-links is unguarded, since movie-title-links is now
+        // imdb-trivia's hard dependency).
         if (e.key === 'Escape') { if (typeof hideLineupScreen === 'function') hideLineupScreen(); return; }
         if (e.key === 'ArrowLeft') {
             e.preventDefault();
