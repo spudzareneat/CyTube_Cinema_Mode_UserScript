@@ -303,6 +303,7 @@
                         <div id="sc-np-meta"></div>
                         <div id="sc-np-overview"></div>
                         <div id="sc-np-chips"></div>
+                        <div id="sc-np-links"></div>
                     </div>
                 </div>`;
             document.body.appendChild(card);
@@ -331,6 +332,28 @@
             chipHtml.push(`<span class="sc-np-chip">💀 ${data.killCount} kills</span>`);
         }
         card.querySelector('#sc-np-chips').innerHTML = chipHtml.join('');
+
+        // Render movie links badges
+        if (movieLinksEnabled()) {
+            const linksEl = card.querySelector('#sc-np-links');
+            linksEl.innerHTML = '';
+            LINK_DEFS.forEach(({ key, label, color, fg, char }) => {
+                const url = data.links[key];
+                if (!url) return;
+                const a = document.createElement('a');
+                a.href = url;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.title = label;
+                a.className = 'sc-movie-link';
+                a.style.background = color;
+                a.style.color = fg;
+                a.textContent = char;
+                a.addEventListener('click', (e) => e.stopPropagation());
+                linksEl.appendChild(a);
+            });
+        }
+
         card.classList.add('sc-np-visible');
         clearTimeout(_npHideTimer);
         if (opts.autoHide) _npHideTimer = setTimeout(hideNowPlayingCard, 7000);
@@ -375,13 +398,6 @@
         const { title, year } = isYt ? parseYouTubeTitle(rawTitle) : parseMovieFilename(rawTitle);
         if (!title || title.length < 2) return;
 
-        if (movieLinksEnabled()) {
-            const linkRow = document.createElement('span');
-            linkRow.id = 'sc-movie-links';
-            linkRow.innerHTML = '<span class="sc-movie-loading">…</span>';
-            titleEl.parentElement.insertBefore(linkRow, titleEl.nextSibling);
-        }
-
         lookupMovie(title, year).then(({ links, killCount, parentalGuide, imdbId, cleanTitle, cleanYear, rating, runtime, genres, poster, backdrop, overview }) => {
             if (isYt && !cleanTitle) {
                 const r = document.getElementById('sc-movie-links');
@@ -394,7 +410,7 @@
             }
 
             _currentImdbId = imdbId || null;
-            _npData = { cleanTitle, cleanYear, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, killCount, imdbId };
+            _npData = { cleanTitle, cleanYear, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, killCount, imdbId, links };
 
             // Update title with clean IMDb title, wrapped in a clickable span
             if (cleanTitle && titleEl) {
@@ -411,28 +427,6 @@
                     else titleEl.insertBefore(span, titleEl.firstChild);
                 }
                 span.textContent = newText;
-            }
-
-            // Icon links row
-            if (movieLinksEnabled()) {
-                const currentRow = document.getElementById('sc-movie-links');
-                if (currentRow) {
-                    currentRow.innerHTML = '';
-                    let anyLink = false;
-                    LINK_DEFS.forEach(({ key, label, color, fg, char }) => {
-                        const url = links[key];
-                        if (!url) return;
-                        anyLink = true;
-                        const a = document.createElement('a');
-                        a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
-                        a.title = `${label}: "${cleanTitle || title}"${cleanYear ? ` (${cleanYear})` : ''}`;
-                        a.className = 'sc-movie-link';
-                        a.style.background = color; a.style.color = fg;
-                        a.textContent = char;
-                        currentRow.appendChild(a);
-                    });
-                    if (!anyLink) currentRow.remove();
-                }
             }
 
             // Trivia button — only when we have an IMDb ID and the imdb-trivia module is
