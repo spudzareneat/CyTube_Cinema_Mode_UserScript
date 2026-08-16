@@ -45,9 +45,15 @@
     }
 
     // Text-input row, modeled on the hardcoded TMDB key field below
-    // (input + optional Test button + status line). `r.testHandler`, if
-    // present, is an async (value) => 'valid'|'invalid'|'error' function —
-    // wireTextRowTestButton() below hooks it up once the row is in the DOM.
+    // (input + optional Test button + status line + optional "get a key"
+    // link). `r.testHandler`, if present, is an async (value) =>
+    // 'valid'|'invalid'|'error' function — wireTextRowTestButton() below
+    // hooks it up once the row is in the DOM. `r.link`/`r.linkText`, if
+    // both present, render an <a target="_blank" rel="noopener"> below the
+    // status line, matching the hardcoded TMDB field's own "Get a free TMDB
+    // key ↗" link — lets a registered row (e.g. gifmaker's ImgBB field)
+    // carry the same kind of sign-up instructions/link the TMDB field has
+    // without smuggling markup through `note`.
     function textRowHtml(r) {
         const val = getKey(r.key);
         return `
@@ -62,6 +68,7 @@
                         ${r.testHandler ? `<button id="${r.id}-test" class="sc-settings-test" type="button">Test</button>` : ''}
                     </div>
                     ${r.testHandler ? `<span id="${r.id}-test-status" class="sc-settings-test-status"></span>` : ''}
+                    ${r.link && r.linkText ? `<a class="sc-settings-link" href="${r.link}" target="_blank" rel="noopener">${r.linkText}</a>` : ''}
                 </div>`;
     }
 

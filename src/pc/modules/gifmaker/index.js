@@ -2010,8 +2010,10 @@
     // after sortedSettingsRows() and before the (still-hardcoded) chat font
     // size / movie lead time rows. Status-message copy
     // (testEmptyMessage/testValidMessage/testInvalidMessage/
-    // testErrorMessage) is carried over byte-for-byte from the old
-    // hardcoded core/15-settings-modal-shell.js ImgBB Test button.
+    // testErrorMessage) and the link/linkText (rendered via the `link`/
+    // `linkText` row fields textRowHtml() now supports) are both carried
+    // over byte-for-byte from the old hardcoded
+    // core/15-settings-modal-shell.js ImgBB field.
     scRegisterSetting({
         id: 'sc-input-imgbb', group: 'gif-maker', type: 'text',
         label: 'ImgBB GIF upload',
@@ -2023,6 +2025,8 @@
         testValidMessage: '✓ Valid API key',
         testInvalidMessage: '✗ Invalid API key',
         testErrorMessage: '⚠ Couldn\'t reach ImgBB',
+        link: 'https://api.imgbb.com/',
+        linkText: 'Get a free ImgBB API key ↗ (sign up, then "Add API key" — no app registration)',
         order: 6,
     });
 
