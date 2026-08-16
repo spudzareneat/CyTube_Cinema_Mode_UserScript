@@ -57,14 +57,12 @@
       "cssFiles": [
         "src/pc/modules/movie-title-links/style.css"
       ],
-      "dependsOn": ["core"],
+      "dependsOn": ["core", "imdb-trivia"],
       "grants": [
         "GM_xmlhttpRequest"
       ],
       "connects": [
-        "api.themoviedb.org",
-        "en.wikipedia.org",
-        "raw.githubusercontent.com"
+        "en.wikipedia.org"
       ]
     },
     {

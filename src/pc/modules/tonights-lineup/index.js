@@ -805,10 +805,11 @@
         if (lastMovieTitle) {
             const { title, year } = parseMovieFilename(lastMovieTitle);
             const info = await lookupMovie(title, year);
-            // Skip likely bumpers/shorts: if TMDB is configured and confidently found
-            // nothing for this exact title, it's probably not a real feature. Without a
-            // TMDB key at all there's no way to tell, so default to showing it.
-            if (!hasKey(LS_TMDB) || info.cleanTitle) {
+            // Skip likely bumpers/shorts: lookupMovie's `resolved` flag is IMDb's
+            // confident "did we find this as a real title" signal (IMDb is a hard,
+            // always-on dependency of lookupMovie now, unlike the old TMDB-key-gated
+            // check this replaced) -- if it's false, this probably isn't a feature.
+            if (info.resolved) {
                 items.push({ ...lineupBuildItem(info, title, year), isNowPlaying: true, etaLabel: '' });
             }
         }

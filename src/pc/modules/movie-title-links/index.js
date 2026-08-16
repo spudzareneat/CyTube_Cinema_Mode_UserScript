@@ -1,17 +1,30 @@
     /* ==========================================================
-       MOVIE LINKS — TMDB lookup → confirmed IMDb + Letterboxd + Wikipedia
-       Populates the shared `_npData` (declared once in core's
-       01-movie-identity.js) with everything the Now Playing card and
-       the floating stats bar render. `fetchImdbParentalGuide` lives
-       in the imdb-trivia module (it shares that module's IMDb GraphQL
-       connect grant) — this module only calls it through a
-       typeof-guard so a build without imdb-trivia still works, just
-       without parental-guide chips. Same pattern for the "Trivia"
-       button's click handler (toggleTriviaPanel), and — in the other
-       direction — for this module's own calls into the optional
-       tonights-lineup module's lineupObserveTitleChange (feeds its
-       timing/ETA model; this module doesn't depend on tonights-lineup,
-       so a build without it just skips those calls).
+       MOVIE LINKS — IMDb lookup (primary) + optional TMDB supplemental
+       + Wikipedia. Populates the shared `_npData` (declared once in
+       core's 01-movie-identity.js) with everything the Now Playing
+       card and the floating stats bar render.
+
+       IMDb-first: this module hard-depends on imdb-trivia's
+       fetchImdbMovieByTitle(title, year) for the primary title
+       resolution (tconst, rating, runtime, overview, poster, genres)
+       — imdb-trivia is a required `dependsOn` entry below, so this is
+       an unguarded call, not a typeof-guard. `fetchImdbParentalGuide`
+       (also in imdb-trivia) stays typeof-guarded since it's an
+       independent, purely additive enhancement (parental-guide chips)
+       rather than a value this module's own return shape depends on.
+
+       TMDB is now optional supplemental data only (poster/backdrop
+       fallback + kill count), supplied by the `tmdb` module's
+       fetchTmdbSupplemental(imdbId) — called through a typeof-guard so
+       a build without it (or before that module exists) still resolves
+       the rest of the lookup, just without TMDB's poster/backdrop/killCount.
+
+       Same typeof-guard pattern applies to the "Trivia" button's click
+       handler (toggleTriviaPanel), and — in the other direction — for
+       this module's own calls into the optional tonights-lineup
+       module's lineupObserveTitleChange (feeds its timing/ETA model;
+       this module doesn't depend on tonights-lineup, so a build
+       without it just skips those calls).
     ========================================================== */
 
     const LINK_DEFS = [
@@ -21,7 +34,7 @@
     ];
 
     // Cache by raw title to avoid repeat lookups — persisted to localStorage so a page
-    // reload doesn't re-hit TMDB/Wikipedia/IMDb for every title already looked up.
+    // reload doesn't re-hit IMDb/Wikipedia/TMDB for every title already looked up.
     let movieLinkCache = (() => {
         try {
             const raw = localStorage.getItem(LS_MOVIE_CACHE);
@@ -29,93 +42,21 @@
         } catch (e) { return {}; }
     })();
 
-    // ── Kill-Count JSONL (fetched once, keyed by tmdbId) ───────────────────────
-    let killCountDb = null; // null = not loaded yet, {} = loaded (may be empty)
-
-    async function getKillCountDb() {
-        if (killCountDb !== null) return killCountDb;
-        killCountDb = {};
-        try {
-            // Use GM_xmlhttpRequest to bypass any CORS issues with raw.githubusercontent.com
-            const text = await new Promise((resolve, reject) => {
-                GM_xmlhttpRequest({
-                    method: 'GET',
-                    url: 'https://raw.githubusercontent.com/lklynet/Kill-Count/main/killcounts.jsonl',
-                    onload: r => r.status === 200 ? resolve(r.responseText) : reject(new Error(`HTTP ${r.status}`)),
-                    onerror: reject,
-                });
-            });
-            let loaded = 0;
-            for (const line of text.split('\n')) {
-                const s = line.trim();
-                if (!s) continue;
-                try {
-                    const entry = JSON.parse(s);
-                    // Field name confirmed from repo: tmdb_id and count
-                    if (entry.tmdb_id != null) {
-                        killCountDb[String(entry.tmdb_id)] = entry.count;
-                        loaded++;
-                    }
-                } catch (e) {}
-            }
-        } catch (e) {
-            console.warn('[CyTube SC] Kill count DB failed to load:', e);
-        }
-        return killCountDb;
-    }
-
     async function lookupMovie(title, year) {
         const cacheKey = title + (year || '');
         if (movieLinkCache[cacheKey] !== undefined) return movieLinkCache[cacheKey];
 
-        // ── TMDB + Wikipedia in parallel ─────────────────────────────────────────
-        let tmdbResult = null;
-        let wikiUrl    = null;
+        // ── IMDb (primary, hard dependency) + Wikipedia in parallel ─────────────
+        // fetchImdbMovieByTitle lives in the imdb-trivia module, a required
+        // dependsOn entry for this module (see manifest.json) -- called
+        // unguarded, unlike the typeof-guarded optional calls below.
+        let wikiUrl = null;
 
-        const tmdbPromise = hasKey(LS_TMDB) ? (async () => {
-            try {
-                const params = new URLSearchParams({ api_key: getKey(LS_TMDB), query: title, language: 'en-US' });
-                if (year) params.set('year', year);
-                let res = await fetch(`https://api.themoviedb.org/3/search/movie?${params}`);
-                if (!res.ok) return;
-                let data = await res.json();
-                // TMDB's `year` param is a hard filter, not a ranking hint -- a schedule's
-                // listed year one off from TMDB's own release date returns zero results even
-                // though the film is right there under a yearless search. Retry once without it.
-                if (!data.results?.length && year) {
-                    params.delete('year');
-                    res = await fetch(`https://api.themoviedb.org/3/search/movie?${params}`);
-                    if (!res.ok) return;
-                    data = await res.json();
-                }
-                if (!data.results?.length) return;
-                let best = data.results[0];
-                if (year) {
-                    const withYear = data.results.find(r => r.release_date?.startsWith(year));
-                    if (withYear) best = withYear;
-                }
-                const detailRes = await fetch(
-                    `https://api.themoviedb.org/3/movie/${best.id}?api_key=${getKey(LS_TMDB)}&append_to_response=external_ids`
-                );
-                if (!detailRes.ok) return;
-                const detail = await detailRes.json();
-                tmdbResult = {
-                    tmdbId:   best.id,
-                    imdbId:   detail.imdb_id || detail.external_ids?.imdb_id || null,
-                    title:    detail.title,
-                    year:     detail.release_date ? detail.release_date.slice(0, 4) : year,
-                    rating:   detail.vote_average  ? Math.round(detail.vote_average * 10) / 10 : null,
-                    runtime:  detail.runtime || null,
-                    genres:   (detail.genres || []).map(g => g.name),
-                    poster:   detail.poster_path   ? `https://image.tmdb.org/t/p/w342${detail.poster_path}` : null,
-                    backdrop: detail.backdrop_path ? `https://image.tmdb.org/t/p/w780${detail.backdrop_path}` : null,
-                    overview: detail.overview || null,
-                };
-            } catch (e) {}
-        })() : Promise.resolve();
+        const imdbPromise = fetchImdbMovieByTitle(title, year);
 
-        // Wikipedia can start immediately with the raw title; we'll use tmdbResult.title if available
-        // but since it runs in parallel we use the raw title — good enough for wiki search
+        // Wikipedia can start immediately with the raw title; we'll use the IMDb
+        // result's title if available, but since it runs in parallel we use the
+        // raw title — good enough for wiki search.
         const wikiPromise = (async () => {
             try {
                 const searchTitle = title + (year ? ' ' + year : '') + ' film';
@@ -131,40 +72,49 @@
             } catch (e) {}
         })();
 
-        await Promise.all([tmdbPromise, wikiPromise]);
+        const [imdbResult] = await Promise.all([imdbPromise, wikiPromise]);
+        const imdbId = imdbResult?.tconst || null;
 
-        // ── Kill count (from cached JSONL) ───────────────────────────────────────
-        let killCount = null;
-        if (tmdbResult?.tmdbId) {
-            const db = await getKillCountDb();
-            const count = db[String(tmdbResult.tmdbId)];
-            if (count !== undefined && count !== null) killCount = count;
-        }
+        // ── TMDB supplemental — poster/backdrop fallback + kill count. Defined in
+        // the (optional) tmdb module; typeof-guarded so a build without it (or,
+        // right now, before that module exists at all) still resolves the rest of
+        // this lookup, just without TMDB's poster/backdrop/killCount. ────────────
+        const tmdbSupplemental = (typeof fetchTmdbSupplemental === 'function')
+            ? await fetchTmdbSupplemental(imdbId)
+            : null;
 
-        // ── IMDb Parent Guide — defined in the imdb-trivia module (shares its IMDb
-        // GraphQL connect grant); typeof-guarded so a build without imdb-trivia still
-        // resolves the rest of this lookup instead of throwing. ──────────────────────
+        // ── IMDb Parent Guide — also defined in the imdb-trivia module; typeof-
+        // guarded independently of the hard fetchImdbMovieByTitle call above since
+        // it's a purely additive enhancement (parental-guide chips), not something
+        // this function's own return shape depends on. ─────────────────────────
         const parentalGuide = (typeof fetchImdbParentalGuide === 'function')
-            ? await fetchImdbParentalGuide(tmdbResult?.imdbId)
+            ? await fetchImdbParentalGuide(imdbId)
             : null;
 
         const result = {
             links: {
-                imdb:       tmdbResult?.imdbId  ? `https://www.imdb.com/title/${tmdbResult.imdbId}/` : null,
-                letterboxd: tmdbResult?.tmdbId  ? `https://letterboxd.com/tmdb/${tmdbResult.tmdbId}` : null,
+                imdb:       imdbId ? `https://www.imdb.com/title/${imdbId}/` : null,
+                // Omitted (not guessed at an alternate URL scheme) when no TMDB id
+                // is available -- Letterboxd has no IMDb-keyed URL form.
+                letterboxd: tmdbSupplemental?.tmdbId ? `https://letterboxd.com/tmdb/${tmdbSupplemental.tmdbId}` : null,
                 wiki:       wikiUrl,
             },
-            killCount,
+            resolved:      !!imdbResult,
+            killCount:     tmdbSupplemental?.killCount ?? null,
             parentalGuide,
-            imdbId:     tmdbResult?.imdbId   || null,
-            cleanTitle: tmdbResult?.title    || null,
-            cleanYear:  tmdbResult?.year     || null,
-            rating:     tmdbResult?.rating   ?? null,
-            runtime:    tmdbResult?.runtime  || null,
-            genres:     tmdbResult?.genres   || [],
-            poster:     tmdbResult?.poster   || null,
-            backdrop:   tmdbResult?.backdrop || null,
-            overview:   tmdbResult?.overview || null,
+            imdbId,
+            cleanTitle: imdbResult?.title    || null,
+            cleanYear:  imdbResult?.year     || null,
+            rating:     imdbResult?.rating   ?? null,
+            runtime:    imdbResult?.runtime  || null,
+            genres:     imdbResult?.genres   || [],
+            // TMDB's poster overlays IMDb's when TMDB supplied one; otherwise fall
+            // back to IMDb's poster (if Task 1's lookup found one) until the tmdb
+            // module is present to supply it. Backdrop has no IMDb equivalent, so
+            // it's TMDB-only regardless.
+            poster:     tmdbSupplemental?.poster   || imdbResult?.poster || null,
+            backdrop:   tmdbSupplemental?.backdrop || null,
+            overview:   imdbResult?.overview || null,
         };
 
         movieLinkCache[cacheKey] = result;
@@ -177,8 +127,12 @@
     // always a dependency of every module, so it's called directly here with no
     // typeof-guard needed.
 
-    // _currentImdbId is also read by the imdb-trivia module (which depends on this
-    // one, so it's guaranteed to exist whenever imdb-trivia is present).
+    // _currentImdbId is also read by the imdb-trivia module. Declaration order
+    // between the two files no longer matters for this reference (imdb-trivia's
+    // functions only read it at call time, well after both modules' top-level
+    // code -- including this `let` -- has run); this module now depends on
+    // imdb-trivia (not the other way around), so imdb-trivia is guaranteed
+    // present whenever this variable is read from there.
     let _currentImdbId = null;
     let _npHideTimer   = null;
 
@@ -253,9 +207,9 @@
         lastMovieTitle = rawTitle;
         const knownSeconds = getCurrentMediaSeconds();
         // lineupObserveTitleChange lives in the optional tonights-lineup module --
-        // typeof-guarded so a build without it (this module only depends on core)
-        // still injects links/stats normally, just without feeding the lineup's
-        // timing/ETA model.
+        // typeof-guarded so a build without it (this module doesn't depend on
+        // tonights-lineup) still injects links/stats normally, just without
+        // feeding the lineup's timing/ETA model.
         if (typeof lineupObserveTitleChange === 'function') {
             lineupObserveTitleChange(rawTitle, knownSeconds > 0 ? knownSeconds : null);
         }
@@ -298,7 +252,7 @@
             _currentImdbId = imdbId || null;
             _npData = { cleanTitle, cleanYear, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, killCount, imdbId };
 
-            // Update title with clean TMDB title, wrapped in a clickable span
+            // Update title with clean IMDb title, wrapped in a clickable span
             if (cleanTitle && titleEl) {
                 const newText = cleanTitle + (cleanYear ? ` (${cleanYear})` : '');
                 let span = document.getElementById('sc-title-text');
@@ -444,7 +398,6 @@
         }
     });
 
-    scRegisterInit(getKillCountDb); // pre-fetch kill count DB
     scRegisterInit(watchMovieTitle);
     scRegisterInit(initMediaWatcher);
 
