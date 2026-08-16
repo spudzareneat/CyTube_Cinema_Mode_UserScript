@@ -6,7 +6,9 @@
     const LS_CHAT_FONT   = 'sc_chat_fontsize';
     const LS_MOVIE_LINKS = 'sc_movie_links';
     const LS_IMGBB       = 'sc_imgbb_key';
-    const LS_MOVIE_CACHE = 'sc_movie_cache_v1';
+    const LS_MOVIE_CACHE = 'sc_movie_cache_v2'; // v2: IMDb-first rewrite -- v1 entries predate `resolved` and can carry
+                                                 // permanently-null TMDB-only results from pre-upgrade builds; bump forces
+                                                 // a clean slate so those don't shadow the new IMDb lookup forever.
     const LS_LINEUP_TIMING = 'sc_lineup_timing'; // Experimental: live NOW PLAYING/ETA tracking; off by default
     const LS_CHAT_PANEL_W = 'sc_chat_panel_w';   // vw — horizontal-layout chat panel width
     const LS_CHAT_PANEL_H = 'sc_chat_panel_h';   // vh — vertical-layout chat panel height

@@ -97,6 +97,14 @@
 
     let lastMovieTitle = '';
     let _npData         = null;
+    // Set by Movie Links' lookupMovie() once it resolves an IMDb id for the
+    // current title; read by IMDb Trivia's showTriviaCard() (and its 'T'
+    // hotkey handler). Declared here rather than in either optional module
+    // so a build that includes imdb-trivia without movie-title-links (valid
+    // -- movie-title-links isn't `locked`) still has this declared under
+    // 'use strict', instead of throwing a ReferenceError the moment trivia
+    // is opened.
+    let _currentImdbId  = null;
 
     // Filesystem/URL-safe slug of the currently playing movie, e.g. "Blade-Runner-1982".
     // Falls back to '' when no title has been detected yet.

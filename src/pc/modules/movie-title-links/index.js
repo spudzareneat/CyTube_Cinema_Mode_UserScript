@@ -117,9 +117,16 @@
             overview:   imdbResult?.overview || null,
         };
 
-        movieLinkCache[cacheKey] = result;
-        try { localStorage.setItem(LS_MOVIE_CACHE, JSON.stringify(movieLinkCache)); }
-        catch (e) { /* storage full/unavailable -- in-memory cache for this session still works */ }
+        // Only persist a resolved result -- caching an unresolved one (e.g. a
+        // transient IMDb GraphQL failure) would permanently poison future
+        // lookups for this title, the same trap the old TMDB-absent case fell
+        // into pre-upgrade. An unresolved result still gets returned to the
+        // caller this time, just not cached.
+        if (result.resolved) {
+            movieLinkCache[cacheKey] = result;
+            try { localStorage.setItem(LS_MOVIE_CACHE, JSON.stringify(movieLinkCache)); }
+            catch (e) { /* storage full/unavailable -- in-memory cache for this session still works */ }
+        }
         return result;
     }
 
@@ -127,13 +134,11 @@
     // always a dependency of every module, so it's called directly here with no
     // typeof-guard needed.
 
-    // _currentImdbId is also read by the imdb-trivia module. Declaration order
-    // between the two files no longer matters for this reference (imdb-trivia's
-    // functions only read it at call time, well after both modules' top-level
-    // code -- including this `let` -- has run); this module now depends on
-    // imdb-trivia (not the other way around), so imdb-trivia is guaranteed
-    // present whenever this variable is read from there.
-    let _currentImdbId = null;
+    // _currentImdbId is declared once in core's 01-movie-identity.js (shared
+    // now-playing state), not here -- imdb-trivia also reads it but only
+    // depends on `core`, not on this module, so a `let` declared here
+    // wouldn't be guaranteed to exist in a build that includes imdb-trivia
+    // without movie-title-links.
     let _npHideTimer   = null;
 
     const NP_PG_SHORT = {
