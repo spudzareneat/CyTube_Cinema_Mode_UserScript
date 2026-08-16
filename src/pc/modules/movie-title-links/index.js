@@ -231,9 +231,11 @@
         const result = {
             links: {
                 imdb:       imdbId ? `https://www.imdb.com/title/${imdbId}/` : null,
-                // Omitted (not guessed at an alternate URL scheme) when no TMDB id
-                // is available -- Letterboxd has no IMDb-keyed URL form.
-                letterboxd: tmdbSupplemental?.tmdbId ? `https://letterboxd.com/tmdb/${tmdbSupplemental.tmdbId}` : null,
+                // Letterboxd supports an /imdb/<id> redirect (same as its /tmdb/<id>
+                // one), so this keys off imdbId directly -- available whenever the
+                // primary IMDb lookup resolves, unlike tmdbSupplemental which needs
+                // the optional tmdb module *and* a user-supplied TMDB API key.
+                letterboxd: imdbId ? `https://letterboxd.com/imdb/${imdbId}` : null,
                 wiki:       wikiUrl,
             },
             resolved:      !!imdbResult,
