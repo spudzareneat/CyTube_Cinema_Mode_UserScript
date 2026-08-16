@@ -367,10 +367,30 @@
         clearTimeout(_npHideTimer);
     }
 
-    function injectMovieLinks(titleEl) {
-        const rawTitle = titleEl.textContent.trim()
+    // Incremented once per injectMovieLinks() call that passes the dedup/idle
+    // guards and reaches a real lookupMovie() call. mySeq is captured locally
+    // at that point; the lookupMovie().then() callback checks it against the
+    // current value before applying anything, so an out-of-order-resolving
+    // (e.g. cache-hit-fast) stale lookup can never overwrite what a
+    // more-recently-started lookup already applied.
+    let _titleRequestSeq = 0;
+
+    // overrideRawTitle, when given, is trusted verbatim instead of re-deriving
+    // the title from titleEl's live text -- used by the changeMedia socket
+    // handler below, which has an authoritative title straight from the
+    // server. titleEl is still needed for the visible title-bar rewrite.
+    function injectMovieLinks(titleEl, overrideRawTitle) {
+        const rawTitle = overrideRawTitle !== undefined ? overrideRawTitle : titleEl.textContent.trim()
             .replace(/^currently\s+playing[:\s]*/i, '')
             .replace(/^now\s+playing[:\s]*/i, '').trim();
+
+        // CyTube shows this literal placeholder in #currenttitle when nothing is
+        // queued. It's not a real title, but real enough that IMDb's fuzzy search
+        // can return a plausible-looking (real, unrelated) movie for it -- confirmed
+        // live, it matched "Double or Nothing with Your Life (2018)". Bail before
+        // any lookup; don't touch lastMovieTitle so a later real title never gets
+        // deduped against this placeholder.
+        if (/^nothing\s+playing$/i.test(rawTitle)) return;
 
         if (!rawTitle || rawTitle === lastMovieTitle || rawTitle.length < 2) return;
         lastMovieTitle = rawTitle;
@@ -400,7 +420,10 @@
         const { title, year } = isYt ? parseYouTubeTitle(rawTitle) : parseMovieFilename(rawTitle);
         if (!title || title.length < 2) return;
 
+        const mySeq = ++_titleRequestSeq;
         lookupMovie(title, year).then(({ links, killCount, parentalGuide, imdbId, cleanTitle, cleanYear, rating, runtime, genres, poster, backdrop, overview }) => {
+            if (mySeq !== _titleRequestSeq) return; // a newer title lookup has since superseded this one — discard
+
             if (isYt && !cleanTitle) {
                 return;
             }
@@ -466,15 +489,37 @@
         });
     }
 
-    function triggerTitleInject() {
+    function findTitleEl() {
         for (const el of [
             document.getElementById('currenttitle'),
             document.querySelector('#videowrap-header .pull-left'),
             document.querySelector('#videowrap-header span'),
             document.querySelector('.video-title'),
         ]) {
-            if (el && el.textContent.trim()) { injectMovieLinks(el); return; }
+            if (el && el.textContent.trim()) return el;
         }
+        return null;
+    }
+
+    // Right after a real media change, CyTube's title element (and/or a
+    // third-party player script sharing it) can flicker through a transient
+    // bumper/trailer title before settling -- confirmed via debug logging: a
+    // reload showed "Currently Playing: The.Crippled.Masters.[1979].mp4" then
+    // "Playing Double or Nothing with Your Life (2018)" (a different, real
+    // IMDb title -- not garbage, so nothing in the parse/lookup layer could
+    // have caught it) then back to the correct title, then the bumper again,
+    // where it stuck. tonights-lineup already learned this exact lesson (see
+    // its lineupBuildDaySections comment) and prefers the socket's changeMedia
+    // payload over DOM observation for that reason. _socketTitleLockUntil
+    // mirrors that here: while set, DOM-triggered triggerTitleInject() calls
+    // are ignored so this flicker window can't clobber the authoritative
+    // title the socket handler below just committed.
+    let _socketTitleLockUntil = 0;
+
+    function triggerTitleInject() {
+        if (_socketTitleLockUntil && Date.now() < _socketTitleLockUntil) return;
+        const el = findTitleEl();
+        if (el) injectMovieLinks(el);
     }
 
     let _titleObsAttached = false;
@@ -511,6 +556,20 @@
                     // typeof-guarded -- see the other call site above in injectMovieLinks.
                     if (data && data.title && typeof lineupObserveTitleChange === 'function') {
                         lineupObserveTitleChange(data.title, data.seconds);
+                    }
+                    if (data && data.title) {
+                        // Authoritative straight from the server -- process it directly
+                        // instead of trusting the DOM, and hold off DOM-triggered
+                        // re-processing for a few seconds so a transient bumper/trailer
+                        // title flicker (see findTitleEl/triggerTitleInject comment)
+                        // can't overwrite it before things settle. Only lock once we've
+                        // actually processed it -- if the title element genuinely isn't
+                        // in the DOM yet, leave the DOM path free to pick things up.
+                        const el = findTitleEl();
+                        if (el) {
+                            _socketTitleLockUntil = Date.now() + 8000;
+                            injectMovieLinks(el, data.title);
+                        }
                     }
                     setTimeout(triggerTitleInject, 350);
                 } catch (e) {}
