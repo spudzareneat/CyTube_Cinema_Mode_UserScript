@@ -19,6 +19,12 @@
 // @run-at       document-start
 // ==/UserScript==
 
+// NOTE: This file is a stale, hand-maintained snapshot. Source of truth is
+// src/pc/** (core + modules); this file is not kept in sync with it on
+// every change. Regenerate a current build with `node scripts/build-dev-bundle.mjs`
+// (writes cytube.pc.dev.user.js) when you actually need an up-to-date copy
+// to install -- don't hand-edit this file expecting it to match src/pc/**.
+
 (function () {
     'use strict';
 
