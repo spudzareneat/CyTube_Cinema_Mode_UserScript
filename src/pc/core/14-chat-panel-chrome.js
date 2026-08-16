@@ -326,11 +326,14 @@
         };
 
         const updateCount = () => {
+            const connected = getUsers().length;
             // Prefer CyTube's own count (accurate, socket-driven)
             const cytubCount = document.getElementById('usercount');
             const raw = cytubCount?.textContent?.match(/\d+/)?.[0];
-            const count = raw ? parseInt(raw) : getUsers().length;
-            btn.textContent = count + ' USERS';
+            const total = raw ? parseInt(raw) : connected;
+            btn.innerHTML =
+                `<span class="sc-usercount-part" title="Connected">🗨 ${connected}</span>` +
+                `<span class="sc-usercount-part" title="Total users">👁 ${total}</span>`;
         };
 
         const renderPanel = () => {

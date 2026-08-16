@@ -119,6 +119,7 @@
             #sc-usercount-btn:hover, #sc-poll-btn:hover { color: rgba(255,255,255,0.9) !important; }
             #sc-usercount-btn.sc-users-active,
             #sc-poll-btn.sc-poll-btn-active { color: white !important; }
+            .sc-usercount-part { margin: 0 3px !important; }
 
             /* Users panel — drops down from usercount, same style as poll panel */
             #sc-users-panel {
