@@ -64,8 +64,11 @@
             try { fn(); } catch (e) { console.error('[SC] init failed:', fn.name, e); }
         });
 
-        // First-run settings modal
-        if (!hasKey(LS_TMDB)) {
+        // First-run settings modal -- gated on the generic `sc_onboarded` flag
+        // (core has no feature-specific key of its own to gate on anymore),
+        // so this still shows once on a clean profile regardless of which
+        // optional modules a build includes.
+        if (!localStorage.getItem('sc_onboarded')) {
             setTimeout(openSettingsModal, 1200);
         }
 
@@ -142,8 +145,6 @@
                 flex: 0 0 auto !important; cursor: pointer !important; accent-color: #c0b0ff !important;
             }
             .sc-toggle-text { line-height: 1.2 !important; }
-            #sc-tmdb-fields { display: flex !important; flex-direction: column !important; gap: 6px !important; margin: 8px 0 0 26px !important; }
-            #sc-tmdb-fields.sc-hidden { display: none !important; }
             .sc-settings-range { width: 100% !important; accent-color: #c0b0ff !important; cursor: pointer !important; }
             .sc-font-sample {
                 margin-top: 6px !important; padding: 8px 12px !important;

@@ -2,7 +2,6 @@
        API KEYS — stored in localStorage, managed via settings modal.
        Keys are never hard-coded; the settings modal handles first-run.
     ========================================================== */
-    const LS_TMDB        = 'sc_tmdb_key';
     const LS_SPELLCHECK  = 'sc_spellcheck';
     const LS_CHAT_FONT   = 'sc_chat_fontsize';
     const LS_MOVIE_LINKS = 'sc_movie_links';

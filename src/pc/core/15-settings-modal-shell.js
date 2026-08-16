@@ -1,7 +1,12 @@
     /* ==========================================================
        SETTINGS MODAL
-       First-run: shown automatically if TMDB key is absent.
-       Re-openable via the ⚙ button added to the floating buttons.
+       First-run: shown automatically once, gated on the generic
+       `sc_onboarded` localStorage flag (set the first time this modal
+       opens, below) rather than on any particular feature's key --
+       core has no feature-specific keys of its own anymore, so this
+       stays true regardless of which optional modules a build
+       includes. Re-openable via the ⚙ button added to the floating
+       buttons.
     ========================================================== */
 
     // Per-feature toggle rows, registered by the feature that owns them (all
@@ -44,16 +49,15 @@
                 </div>`;
     }
 
-    // Text-input row, modeled on the hardcoded TMDB key field below
-    // (input + optional Test button + status line + optional "get a key"
-    // link). `r.testHandler`, if present, is an async (value) =>
-    // 'valid'|'invalid'|'error' function — wireTextRowTestButton() below
-    // hooks it up once the row is in the DOM. `r.link`/`r.linkText`, if
-    // both present, render an <a target="_blank" rel="noopener"> below the
-    // status line, matching the hardcoded TMDB field's own "Get a free TMDB
-    // key ↗" link — lets a registered row (e.g. gifmaker's ImgBB field)
-    // carry the same kind of sign-up instructions/link the TMDB field has
-    // without smuggling markup through `note`.
+    // Text-input row (input + optional Test button + status line + optional
+    // "get a key" link), used by every registered type:'text' row -- e.g.
+    // the tmdb module's API-key row, gifmaker's ImgBB field. `r.testHandler`,
+    // if present, is an async (value) => 'valid'|'invalid'|'error' function
+    // — wireTextRowTestButton() below hooks it up once the row is in the
+    // DOM. `r.link`/`r.linkText`, if both present, render an
+    // <a target="_blank" rel="noopener"> below the status line, letting a
+    // row carry sign-up instructions/a link without smuggling markup
+    // through `note`.
     function textRowHtml(r) {
         const val = getKey(r.key);
         return `
@@ -92,9 +96,9 @@
     }
 
     // Wires up the Test button for a rendered text row that declared a
-    // testHandler, mirroring the TMDB Test button behavior below: disable
-    // while checking, show a pending message, then a result message with
-    // the matching status class. Messages are overridable per-row via
+    // testHandler: disable while checking, show a pending message, then a
+    // result message with the matching status class. Messages are
+    // overridable per-row via
     // testEmptyMessage/testValidMessage/testInvalidMessage/testErrorMessage
     // so a registered row (e.g. gifmaker's ImgBB field) can match its own
     // pre-existing copy exactly.
@@ -136,27 +140,10 @@
         return SC_SETTINGS_ROWS.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     }
 
-    async function validateTmdbKey(key) {
-        try {
-            const res = await new Promise((resolve, reject) => {
-                GM_xmlhttpRequest({
-                    method: 'GET',
-                    url: `https://api.themoviedb.org/3/configuration?api_key=${encodeURIComponent(key)}`,
-                    onload: r => resolve(r),
-                    onerror: reject,
-                });
-            });
-            if (res.status === 200) return 'valid';
-            if (res.status === 401) return 'invalid';
-            return 'error';
-        } catch (e) { return 'error'; }
-    }
-
     function openSettingsModal() {
         const old = document.getElementById('sc-settings-overlay');
         if (old) old.remove();
 
-        const tmdbVal  = getKey(LS_TMDB);
         const firstRun = !localStorage.getItem('sc_onboarded');
         try { localStorage.setItem('sc_onboarded', '1'); } catch (e) {}
         const fontSize = getChatFontSize();
@@ -166,28 +153,7 @@
         overlay.innerHTML = `
             <div id="sc-settings-modal">
                 <div id="sc-settings-title">⚙ Grindhouse Settings</div>
-                ${firstRun ? '<div class="sc-settings-intro">First-time setup — everything here is optional. Enable TMDB for richer movie info. Reopen any time with the ⚙ button.</div>' : ''}
-
-                <div class="sc-settings-group sc-settings-divider">
-                    <label class="sc-settings-toggle-label">
-                        <span class="sc-toggle-row">
-                            <input type="checkbox" id="sc-input-tmdb-enable" ${tmdbVal ? 'checked' : ''} />
-                            <span class="sc-toggle-text">Enable TMDB features</span>
-                        </span>
-                        <span class="sc-settings-note">Movie posters, ratings, runtime, IMDb/Letterboxd links, trivia</span>
-                    </label>
-                    <div id="sc-tmdb-fields" class="${tmdbVal ? '' : 'sc-hidden'}">
-                        <div class="sc-settings-input-row">
-                            <input id="sc-input-tmdb" class="sc-settings-input" type="text"
-                                placeholder="Paste TMDB v3 key…" value="${tmdbVal}" spellcheck="false" />
-                            <button id="sc-test-tmdb" class="sc-settings-test" type="button">Test</button>
-                        </div>
-                        <span id="sc-test-tmdb-status" class="sc-settings-test-status"></span>
-                        <a class="sc-settings-link" href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">
-                            Get a free TMDB key ↗
-                        </a>
-                    </div>
-                </div>
+                ${firstRun ? '<div class="sc-settings-intro">First-time setup — everything here is optional. Reopen any time with the ⚙ button.</div>' : ''}
 
                 ${sortedSettingsRows().map(r => settingsRowHtml(r)).join('')}
 
@@ -216,11 +182,6 @@
         // Wire up Test buttons for any registered text rows that declared one.
         sortedSettingsRows().forEach(r => wireTextRowTestButton(r));
 
-        // TMDB toggle shows/hides key fields
-        const tmdbToggle = document.getElementById('sc-input-tmdb-enable');
-        const tmdbFields = document.getElementById('sc-tmdb-fields');
-        tmdbToggle.addEventListener('change', () => tmdbFields.classList.toggle('sc-hidden', !tmdbToggle.checked));
-
         // Font size live preview
         const fontInput  = document.getElementById('sc-input-fontsize');
         const fontVal    = document.getElementById('sc-font-val');
@@ -232,25 +193,8 @@
             applyChatFontSize(px);
         });
 
-        // TMDB test button
-        const testBtn    = document.getElementById('sc-test-tmdb');
-        const testStatus = document.getElementById('sc-test-tmdb-status');
-        testBtn.addEventListener('click', async () => {
-            const key = document.getElementById('sc-input-tmdb').value.trim();
-            if (!key) { testStatus.textContent = 'Enter a key first'; testStatus.className = 'sc-settings-test-status sc-test-bad'; return; }
-            testBtn.disabled = true;
-            testStatus.textContent = 'Checking…'; testStatus.className = 'sc-settings-test-status sc-test-pending';
-            const result = await validateTmdbKey(key);
-            testBtn.disabled = false;
-            if (result === 'valid')        { testStatus.textContent = '✓ Valid key';           testStatus.className = 'sc-settings-test-status sc-test-ok'; }
-            else if (result === 'invalid') { testStatus.textContent = '✗ Invalid key';         testStatus.className = 'sc-settings-test-status sc-test-bad'; }
-            else                           { testStatus.textContent = '⚠ Couldn\'t reach API'; testStatus.className = 'sc-settings-test-status sc-test-bad'; }
-        });
-
         document.getElementById('sc-settings-save').addEventListener('click', () => {
-            const tmdb   = tmdbToggle.checked ? document.getElementById('sc-input-tmdb').value.trim() : '';
             const fontPx = parseInt(fontInput.value, 10);
-            setKey(LS_TMDB,        tmdb);
             SC_SETTINGS_ROWS.forEach(row => {
                 const el = document.getElementById(row.id);
                 if (!el) return;
