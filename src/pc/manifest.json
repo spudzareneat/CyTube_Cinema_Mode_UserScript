@@ -150,6 +150,17 @@
         "src/pc/modules/rename-title/index.js"
       ],
       "dependsOn": ["core"]
+    },
+    {
+      "id": "subtitles",
+      "name": "Subtitle Sync",
+      "category": "Misc",
+      "locked": false,
+      "defaultOn": true,
+      "files": [
+        "src/pc/modules/subtitles/index.js"
+      ],
+      "dependsOn": ["core"]
     }
   ],
   "companions": [
