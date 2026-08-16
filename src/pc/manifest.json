@@ -141,6 +141,17 @@
       "dependsOn": ["core"]
     },
     {
+      "id": "movie-lead-time",
+      "name": "Movie Lead Time",
+      "category": "Misc",
+      "locked": false,
+      "defaultOn": true,
+      "files": [
+        "src/pc/modules/movie-lead-time/index.js"
+      ],
+      "dependsOn": ["core"]
+    },
+    {
       "id": "rename-title",
       "name": "Grindhouse Title Renamer",
       "category": "Misc",

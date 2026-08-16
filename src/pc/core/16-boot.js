@@ -50,7 +50,8 @@
     scRegisterInit(initTopBar);
     scRegisterInit(initGapButtonDim);
     scRegisterInit(initDesyncButton);
-    scRegisterInit(initMovieLeadOffset);
+    // initMovieLeadOffset moved to src/pc/modules/movie-lead-time/index.js,
+    // which self-registers via its own scRegisterInit call — see that file.
     scRegisterInit(initChatSeekMenu);
     scRegisterInit(initChatHeader);
     scRegisterInit(initChatResizer);

@@ -160,7 +160,6 @@
         const firstRun = !localStorage.getItem('sc_onboarded');
         try { localStorage.setItem('sc_onboarded', '1'); } catch (e) {}
         const fontSize = getChatFontSize();
-        const leadSec  = getMovieLeadSec();
 
         const overlay = document.createElement('div');
         overlay.id = 'sc-settings-overlay';
@@ -201,14 +200,6 @@
                     <div class="sc-font-sample" id="sc-font-sample" style="font-size:${fontSize}px">
                         The quick brown fox jumps over the lazy dog.
                     </div>
-                </div>
-
-                <div class="sc-settings-group sc-settings-toggle-group">
-                    <label class="sc-settings-label">
-                        Movie lead time (seconds ahead of sync)
-                        <span class="sc-settings-note">Keeps you a few seconds ahead of the group during movies (not YouTube) — cushions against your own buffering. 0 = off.</span>
-                    </label>
-                    <input id="sc-input-leadsec" class="sc-settings-input" type="number" min="${MOVIE_LEAD_MIN}" max="${MOVIE_LEAD_MAX}" step="1" value="${leadSec}" style="width:5em" />
                 </div>
 
                 <div id="sc-settings-actions">
@@ -259,8 +250,6 @@
         document.getElementById('sc-settings-save').addEventListener('click', () => {
             const tmdb   = tmdbToggle.checked ? document.getElementById('sc-input-tmdb').value.trim() : '';
             const fontPx = parseInt(fontInput.value, 10);
-            const leadSecInput = parseInt(document.getElementById('sc-input-leadsec').value, 10);
-            const leadSec = Math.min(MOVIE_LEAD_MAX, Math.max(MOVIE_LEAD_MIN, Number.isFinite(leadSecInput) ? leadSecInput : MOVIE_LEAD_DEFAULT));
             setKey(LS_TMDB,        tmdb);
             SC_SETTINGS_ROWS.forEach(row => {
                 const el = document.getElementById(row.id);
@@ -278,7 +267,6 @@
             });
             setKey(LS_CHAT_FONT,   String(fontPx));
             applyChatFontSize(fontPx);
-            setKey(LS_MOVIE_LEAD,  String(leadSec));
             if (typeof movieLinkCache !== 'undefined') { movieLinkCache = {}; }
             try { localStorage.removeItem(LS_MOVIE_CACHE); } catch (e) {}
             lastMovieTitle = '';

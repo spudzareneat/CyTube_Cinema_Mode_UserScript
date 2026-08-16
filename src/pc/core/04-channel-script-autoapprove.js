@@ -48,11 +48,8 @@
         const v = parseInt(getKey(LS_CHAT_FONT), 10);
         return (Number.isFinite(v) && v >= 10 && v <= 32) ? v : 14;
     }
-    const MOVIE_LEAD_MIN = 0, MOVIE_LEAD_MAX = 10, MOVIE_LEAD_DEFAULT = 2;
-    function getMovieLeadSec() {
-        const v = parseInt(getKey(LS_MOVIE_LEAD), 10);
-        return (Number.isFinite(v) && v >= MOVIE_LEAD_MIN && v <= MOVIE_LEAD_MAX) ? v : MOVIE_LEAD_DEFAULT;
-    }
+    // MOVIE_LEAD_MIN/MAX/DEFAULT + getMovieLeadSec() moved to
+    // src/pc/modules/movie-lead-time/index.js — see that file.
     function applyChatFontSize(px) {
         const buf = document.getElementById('messagebuffer');
         if (buf) buf.style.setProperty('font-size', px + 'px', 'important');
