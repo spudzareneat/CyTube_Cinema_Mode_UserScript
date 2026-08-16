@@ -10,12 +10,13 @@
     // src/pc/modules/grammar-check/index.js — see that file.
     // sc-input-autoembed (chatimages) moved to
     // src/pc/modules/chatimages/index.js — see that file.
-    // `order` reproduces the original shipped script's row sequence
-    // (spellcheck=1, movielinks=2, autoembed=3, gifoptimize=4); rows are
-    // sorted by it below rather than rendered in registration order, since
-    // registration order depends on which optional modules a build includes
-    // and in what order their files happen to load.
-    scRegisterSetting({ id: 'sc-input-gifoptimize', group: 'gif-maker', label: 'Optimize GIFs before upload', note: 'Losslessly shrinks the file with gifsicle before Download/Upload — adds a couple seconds (requires cytube.gifmaker.user.js)', key: LS_GIF_OPTIMIZE, defaultOn: true, order: 4 });
+    // sc-input-gifoptimize and sc-input-imgbb (gif-maker) moved to
+    // src/pc/modules/gifmaker/index.js — see that file. `order` reproduces
+    // the original shipped script's row sequence (spellcheck=1,
+    // movielinks=2, autoembed=3, gifoptimize=4, lineuptiming=5, imgbb=6);
+    // rows are sorted by it below rather than rendered in registration
+    // order, since registration order depends on which optional modules a
+    // build includes and in what order their files happen to load.
 
     // Renders one registered settings row, branching on `r.type` (defaulted to
     // 'checkbox' by scRegisterSetting). Dispatches to a per-type renderer below.
@@ -43,7 +44,7 @@
                 </div>`;
     }
 
-    // Text-input row, modeled on the hardcoded TMDB/ImgBB key fields below
+    // Text-input row, modeled on the hardcoded TMDB key field below
     // (input + optional Test button + status line). `r.testHandler`, if
     // present, is an async (value) => 'valid'|'invalid'|'error' function —
     // wireTextRowTestButton() below hooks it up once the row is in the DOM.
@@ -84,11 +85,12 @@
     }
 
     // Wires up the Test button for a rendered text row that declared a
-    // testHandler, mirroring the TMDB/ImgBB Test button behavior below:
-    // disable while checking, show a pending message, then a result message
-    // with the matching status class. Messages are overridable per-row via
+    // testHandler, mirroring the TMDB Test button behavior below: disable
+    // while checking, show a pending message, then a result message with
+    // the matching status class. Messages are overridable per-row via
     // testEmptyMessage/testValidMessage/testInvalidMessage/testErrorMessage
-    // so a later row (e.g. ImgBB) can match its existing copy exactly.
+    // so a registered row (e.g. gifmaker's ImgBB field) can match its own
+    // pre-existing copy exactly.
     function wireTextRowTestButton(r) {
         if (r.type !== 'text' || !r.testHandler) return;
         const btn = document.getElementById(r.id + '-test');
@@ -143,33 +145,11 @@
         } catch (e) { return 'error'; }
     }
 
-    async function validateImgbbKey(apiKey) {
-        // ImgBB has no key-check endpoint, so probe with a tiny 1x1 PNG upload.
-        const onePx = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
-        try {
-            const res = await new Promise((resolve, reject) => {
-                GM_xmlhttpRequest({
-                    method: 'POST',
-                    // expiration=60 so the throwaway test image self-deletes.
-                    url: 'https://api.imgbb.com/1/upload?expiration=60&key=' + encodeURIComponent(apiKey),
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    data: 'image=' + encodeURIComponent(onePx),
-                    onload: r => resolve(r),
-                    onerror: reject,
-                });
-            });
-            if (res.status >= 200 && res.status < 300) return 'valid';
-            if (res.status === 400 || res.status === 403) return 'invalid';
-            return 'error';
-        } catch (e) { return 'error'; }
-    }
-
     function openSettingsModal() {
         const old = document.getElementById('sc-settings-overlay');
         if (old) old.remove();
 
         const tmdbVal  = getKey(LS_TMDB);
-        const imgbbVal = getKey(LS_IMGBB);
         const firstRun = !localStorage.getItem('sc_onboarded');
         try { localStorage.setItem('sc_onboarded', '1'); } catch (e) {}
         const fontSize = getChatFontSize();
@@ -204,22 +184,6 @@
                 </div>
 
                 ${sortedSettingsRows().map(r => settingsRowHtml(r)).join('')}
-
-                <div class="sc-settings-group sc-settings-divider">
-                    <label class="sc-settings-label">
-                        ImgBB GIF upload
-                        <span class="sc-settings-note">Optional — lets the ☁ Upload button in the GIF maker host a GIF and give you a shareable link (requires cytube.gifmaker.user.js)</span>
-                    </label>
-                    <div class="sc-settings-input-row">
-                        <input id="sc-input-imgbb" class="sc-settings-input" type="text"
-                            placeholder="Paste ImgBB API key…" value="${imgbbVal}" spellcheck="false" />
-                        <button id="sc-test-imgbb" class="sc-settings-test" type="button">Test</button>
-                    </div>
-                    <span id="sc-test-imgbb-status" class="sc-settings-test-status"></span>
-                    <a class="sc-settings-link" href="https://api.imgbb.com/" target="_blank" rel="noopener">
-                        Get a free ImgBB API key ↗ (sign up, then "Add API key" — no app registration)
-                    </a>
-                </div>
 
                 <div class="sc-settings-group sc-settings-toggle-group">
                     <label class="sc-settings-label">
@@ -285,24 +249,8 @@
             else                           { testStatus.textContent = '⚠ Couldn\'t reach API'; testStatus.className = 'sc-settings-test-status sc-test-bad'; }
         });
 
-        // ImgBB API key test button
-        const imgbbTestBtn    = document.getElementById('sc-test-imgbb');
-        const imgbbTestStatus = document.getElementById('sc-test-imgbb-status');
-        imgbbTestBtn.addEventListener('click', async () => {
-            const id = document.getElementById('sc-input-imgbb').value.trim();
-            if (!id) { imgbbTestStatus.textContent = 'Enter an API key first'; imgbbTestStatus.className = 'sc-settings-test-status sc-test-bad'; return; }
-            imgbbTestBtn.disabled = true;
-            imgbbTestStatus.textContent = 'Checking…'; imgbbTestStatus.className = 'sc-settings-test-status sc-test-pending';
-            const result = await validateImgbbKey(id);
-            imgbbTestBtn.disabled = false;
-            if (result === 'valid')        { imgbbTestStatus.textContent = '✓ Valid API key';        imgbbTestStatus.className = 'sc-settings-test-status sc-test-ok'; }
-            else if (result === 'invalid') { imgbbTestStatus.textContent = '✗ Invalid API key';      imgbbTestStatus.className = 'sc-settings-test-status sc-test-bad'; }
-            else                           { imgbbTestStatus.textContent = '⚠ Couldn\'t reach ImgBB'; imgbbTestStatus.className = 'sc-settings-test-status sc-test-bad'; }
-        });
-
         document.getElementById('sc-settings-save').addEventListener('click', () => {
             const tmdb   = tmdbToggle.checked ? document.getElementById('sc-input-tmdb').value.trim() : '';
-            const imgbb  = document.getElementById('sc-input-imgbb').value.trim();
             const fontPx = parseInt(fontInput.value, 10);
             const leadSecInput = parseInt(document.getElementById('sc-input-leadsec').value, 10);
             const leadSec = Math.min(MOVIE_LEAD_MAX, Math.max(MOVIE_LEAD_MIN, Number.isFinite(leadSecInput) ? leadSecInput : MOVIE_LEAD_DEFAULT));
@@ -321,7 +269,6 @@
                     setKey(row.key, el.checked ? 'on' : 'off');
                 }
             });
-            setKey(LS_IMGBB,       imgbb);
             setKey(LS_CHAT_FONT,   String(fontPx));
             applyChatFontSize(fontPx);
             setKey(LS_MOVIE_LEAD,  String(leadSec));
