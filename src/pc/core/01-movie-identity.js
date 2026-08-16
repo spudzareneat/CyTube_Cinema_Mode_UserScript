@@ -99,11 +99,11 @@
     let _npData         = null;
     // Set by Movie Links' lookupMovie() once it resolves an IMDb id for the
     // current title; read by IMDb Trivia's showTriviaCard() (and its 'T'
-    // hotkey handler). Declared here rather than in either optional module
-    // so a build that includes imdb-trivia without movie-title-links (valid
-    // -- movie-title-links isn't `locked`) still has this declared under
-    // 'use strict', instead of throwing a ReferenceError the moment trivia
-    // is opened.
+    // hotkey handler). Declared here alongside lastMovieTitle/_npData for
+    // consistency with the rest of this shared now-playing state block --
+    // not because it's needed to cover a build combination that no longer
+    // exists (imdb-trivia now hard-depends on movie-title-links, see
+    // imdb-trivia's manifest.json).
     let _currentImdbId  = null;
 
     // Filesystem/URL-safe slug of the currently playing movie, e.g. "Blade-Runner-1982".
@@ -121,9 +121,9 @@
     // cytube.subtitles.user.js) can build lookups without re-deriving this
     // themselves. title/year come from the same source _gifTitleSlug() uses
     // (available once a video is playing); imdbId is only set once the Now
-    // Playing card's TMDB lookup has resolved for this video (requires a TMDB
-    // key -- null otherwise, caller falls back). Returns null when no title
-    // has been detected yet.
+    // Playing card's IMDb lookup has resolved for this video (no key
+    // required -- null until then, caller falls back). Returns null when no
+    // title has been detected yet.
     function getBridgeMovieInfo() {
         if (!lastMovieTitle) return null;
         const { title, year } = parseMovieFilename(lastMovieTitle);

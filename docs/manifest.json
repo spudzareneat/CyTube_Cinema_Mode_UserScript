@@ -51,11 +51,12 @@
       "cssFiles": [
         "src/pc/modules/movie-title-links/style.css"
       ],
-      "dependsOn": ["core", "imdb-trivia"],
+      "dependsOn": ["core"],
       "grants": [
         "GM_xmlhttpRequest"
       ],
       "connects": [
+        "caching.graphql.imdb.com",
         "en.wikipedia.org"
       ]
     },
@@ -72,13 +73,7 @@
       "cssFiles": [
         "src/pc/modules/imdb-trivia/style.css"
       ],
-      "dependsOn": ["core"],
-      "grants": [
-        "GM_xmlhttpRequest"
-      ],
-      "connects": [
-        "caching.graphql.imdb.com"
-      ]
+      "dependsOn": ["core", "movie-title-links"]
     },
     {
       "id": "tonights-lineup",
