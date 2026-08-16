@@ -1432,11 +1432,14 @@
         };
 
         const updateCount = () => {
+            const connected = getUsers().length;
             // Prefer CyTube's own count (accurate, socket-driven)
             const cytubCount = document.getElementById('usercount');
             const raw = cytubCount?.textContent?.match(/\d+/)?.[0];
-            const count = raw ? parseInt(raw) : getUsers().length;
-            btn.textContent = count + ' USERS';
+            const total = raw ? parseInt(raw) : connected;
+            btn.innerHTML =
+                `<span class="sc-usercount-part" title="Connected">🗨 ${connected}</span>` +
+                `<span class="sc-usercount-part" title="Total users">👁 ${total}</span>`;
         };
 
         const renderPanel = () => {
@@ -2188,6 +2191,7 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
             #sc-usercount-btn:hover, #sc-poll-btn:hover { color: rgba(255,255,255,0.9) !important; }
             #sc-usercount-btn.sc-users-active,
             #sc-poll-btn.sc-poll-btn-active { color: white !important; }
+            .sc-usercount-part { margin: 0 3px !important; }
 
             /* Users panel — drops down from usercount, same style as poll panel */
             #sc-users-panel {
@@ -2872,6 +2876,7 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
                         <div id="sc-np-meta"></div>
                         <div id="sc-np-overview"></div>
                         <div id="sc-np-chips"></div>
+                        <div id="sc-np-links"></div>
                     </div>
                 </div>`;
             document.body.appendChild(card);
@@ -2900,6 +2905,28 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
             chipHtml.push(`<span class="sc-np-chip">💀 ${data.killCount} kills</span>`);
         }
         card.querySelector('#sc-np-chips').innerHTML = chipHtml.join('');
+
+        // Render movie links badges
+        if (movieLinksEnabled()) {
+            const linksEl = card.querySelector('#sc-np-links');
+            linksEl.innerHTML = '';
+            LINK_DEFS.forEach(({ key, label, color, fg, char }) => {
+                const url = data.links[key];
+                if (!url) return;
+                const a = document.createElement('a');
+                a.href = url;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.title = label;
+                a.className = 'sc-movie-link';
+                a.style.background = color;
+                a.style.color = fg;
+                a.textContent = char;
+                a.addEventListener('click', (e) => e.stopPropagation());
+                linksEl.appendChild(a);
+            });
+        }
+
         card.classList.add('sc-np-visible');
         clearTimeout(_npHideTimer);
         if (opts.autoHide) _npHideTimer = setTimeout(hideNowPlayingCard, 7000);
@@ -2944,13 +2971,6 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
         const { title, year } = isYt ? parseYouTubeTitle(rawTitle) : parseMovieFilename(rawTitle);
         if (!title || title.length < 2) return;
 
-        if (movieLinksEnabled()) {
-            const linkRow = document.createElement('span');
-            linkRow.id = 'sc-movie-links';
-            linkRow.innerHTML = '<span class="sc-movie-loading">…</span>';
-            titleEl.parentElement.insertBefore(linkRow, titleEl.nextSibling);
-        }
-
         lookupMovie(title, year).then(({ links, killCount, parentalGuide, imdbId, cleanTitle, cleanYear, rating, runtime, genres, poster, backdrop, overview }) => {
             if (isYt && !cleanTitle) {
                 const r = document.getElementById('sc-movie-links');
@@ -2963,7 +2983,7 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
             }
 
             _currentImdbId = imdbId || null;
-            _npData = { cleanTitle, cleanYear, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, killCount, imdbId };
+            _npData = { cleanTitle, cleanYear, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, killCount, imdbId, links };
 
             // Update title with clean TMDB title, wrapped in a clickable span
             if (cleanTitle && titleEl) {
@@ -2980,28 +3000,6 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
                     else titleEl.insertBefore(span, titleEl.firstChild);
                 }
                 span.textContent = newText;
-            }
-
-            // Icon links row
-            if (movieLinksEnabled()) {
-                const currentRow = document.getElementById('sc-movie-links');
-                if (currentRow) {
-                    currentRow.innerHTML = '';
-                    let anyLink = false;
-                    LINK_DEFS.forEach(({ key, label, color, fg, char }) => {
-                        const url = links[key];
-                        if (!url) return;
-                        anyLink = true;
-                        const a = document.createElement('a');
-                        a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
-                        a.title = `${label}: "${cleanTitle || title}"${cleanYear ? ` (${cleanYear})` : ''}`;
-                        a.className = 'sc-movie-link';
-                        a.style.background = color; a.style.color = fg;
-                        a.textContent = char;
-                        currentRow.appendChild(a);
-                    });
-                    if (!anyLink) currentRow.remove();
-                }
             }
 
             // Trivia button — only when we have an IMDb ID and the imdb-trivia module is
@@ -3121,18 +3119,6 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
     // this field before rendering.
     scRegisterSetting({ id: 'sc-input-movielinks', group: 'movie-title-links', label: 'Show movie links (IMDb / Letterboxd / Wiki)', note: 'Adds clickable badge icons next to the title', key: LS_MOVIE_LINKS, defaultOn: true, order: 2 });
 injectCSS('movie-title-links', `            /* ===== MOVIE LINKS ===== */
-            #sc-movie-links {
-                display: inline-flex !important;
-                gap: 3px !important;
-                margin-left: 8px !important;
-                vertical-align: middle !important;
-            }
-            /* Dim: override inline background with transparent, fade text to ghost */
-            #sc-movie-links.sc-bar-dim .sc-movie-link {
-                background: transparent !important;
-                color: rgba(255,255,255,0.3) !important;
-                box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15) !important;
-            }
             .sc-movie-link {
                 display: inline-flex !important;
                 align-items: center !important; justify-content: center !important;
@@ -3145,7 +3131,6 @@ injectCSS('movie-title-links', `            /* ===== MOVIE LINKS ===== */
                 transition: background 2s ease, color 2s ease, box-shadow 2s ease, filter 0.2s ease !important;
             }
             .sc-movie-link:hover { filter: brightness(1.3) !important; }
-            .sc-movie-loading { font-size: 11px !important; color: rgba(255,255,255,0.3) !important; margin-left: 6px !important; }
             /* Stats bar — floats over bottom-left of video, auto-hides after 12s */
             #sc-movie-stats {
                 position: fixed !important;
@@ -3223,6 +3208,7 @@ injectCSS('movie-title-links', `            /* ===== MOVIE LINKS ===== */
                 -webkit-box-orient: vertical !important; overflow: hidden !important;
             }
             #sc-np-chips { display: flex !important; flex-wrap: wrap !important; gap: 8px !important; }
+            #sc-np-links { display: flex !important; gap: 6px !important; margin-top: 10px !important; }
             .sc-np-chip {
                 font-size: 12px !important; color: rgba(255,255,255,0.9) !important;
                 background: rgba(255,255,255,0.12) !important;
