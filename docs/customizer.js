@@ -82,7 +82,14 @@ function fillHeaderTemplate(templateSrc, { version, grants, connects, requires }
         .replace('{{VERSION}}', version)
         .replace('{{GRANTS}}', grantLines)
         .replace('{{CONNECTS}}', connectLines)
-        .replace(requireLines ? '{{REQUIRES}}' : '{{REQUIRES}}\r\n', requireLines);
+        // The empty-requires branch matches an optional \r before \n (not a
+        // literal '\r\n') because header.template.js is stored in git with
+        // LF-only line endings; a literal '\r\n' match never fires against
+        // the raw LF bytes GitHub Pages serves here, leaving a stray,
+        // unprefixed "{{REQUIRES}}" in the generated header -- which then
+        // parses as (meaningless-but-valid) JS and throws
+        // `ReferenceError: REQUIRES is not defined` at script load.
+        .replace(requireLines ? '{{REQUIRES}}' : /\{\{REQUIRES\}\}\r?\n/, requireLines);
 }
 
 function normalize(text) {
