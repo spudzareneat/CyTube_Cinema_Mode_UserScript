@@ -53,7 +53,7 @@ A full-screen schedule overlay that shows off the whole weekend's programming, n
 
 ### Movie Info Bar
 
-When a new title starts playing, the script parses the filename and looks up the movie automatically. A row of icon links appears next to the title.
+When a new title starts playing, the script parses the filename and looks up the movie automatically. Click the title to open the Now Playing card, where a row of icon links appears.
 
 | Icon | Service | Requires |
 |------|---------|----------|

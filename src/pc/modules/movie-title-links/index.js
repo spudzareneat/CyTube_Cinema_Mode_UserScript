@@ -334,11 +334,11 @@
         card.querySelector('#sc-np-chips').innerHTML = chipHtml.join('');
 
         // Render movie links badges
+        const linksEl = card.querySelector('#sc-np-links');
+        linksEl.innerHTML = '';
         if (movieLinksEnabled()) {
-            const linksEl = card.querySelector('#sc-np-links');
-            linksEl.innerHTML = '';
             LINK_DEFS.forEach(({ key, label, color, fg, char }) => {
-                const url = data.links[key];
+                const url = (data.links || {})[key];
                 if (!url) return;
                 const a = document.createElement('a');
                 a.href = url;
@@ -400,13 +400,11 @@
 
         lookupMovie(title, year).then(({ links, killCount, parentalGuide, imdbId, cleanTitle, cleanYear, rating, runtime, genres, poster, backdrop, overview }) => {
             if (isYt && !cleanTitle) {
-                const r = document.getElementById('sc-movie-links');
-                if (r) r.remove();
                 return;
             }
             if (isYt && runtime && ytSeconds) {
                 const diff = Math.abs(runtime - ytSeconds / 60);
-                if (diff > 30) { const r = document.getElementById('sc-movie-links'); if (r) r.remove(); return; }
+                if (diff > 30) { return; }
             }
 
             _currentImdbId = imdbId || null;
@@ -543,4 +541,4 @@
     // (spellcheck, movielinks, autoembed, gifoptimize) — see
     // src/pc/core/15-settings-modal-shell.js, which sorts SC_SETTINGS_ROWS by
     // this field before rendering.
-    scRegisterSetting({ id: 'sc-input-movielinks', group: 'movie-title-links', label: 'Show movie links (IMDb / Letterboxd / Wiki)', note: 'Adds clickable badge icons next to the title', key: LS_MOVIE_LINKS, defaultOn: true, order: 2 });
+    scRegisterSetting({ id: 'sc-input-movielinks', group: 'movie-title-links', label: 'Show movie links (IMDb / Letterboxd / Wiki)', note: 'Adds clickable badge icons to the Now Playing card', key: LS_MOVIE_LINKS, defaultOn: true, order: 2 });

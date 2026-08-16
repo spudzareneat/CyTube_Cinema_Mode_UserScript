@@ -791,6 +791,7 @@
             parentalGuide: info.parentalGuide || null,
             killCount: info.killCount ?? null,
             imdbId: info.imdbId || null,
+            links: info.links || {},
         };
     }
 
