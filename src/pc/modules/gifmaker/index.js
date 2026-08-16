@@ -9,7 +9,7 @@
        detection/poll loop, upgradeToPcMode(), and the control-bar-
        docked UI path are all gone — only the floating `#sc-gif-btn`
        trigger remains.
-       getKey/setKey/LS_IMGBB/LS_GIF_OPTIMIZE/gifOptimizeEnabled/
+       getKey/LS_IMGBB/LS_GIF_OPTIMIZE/gifOptimizeEnabled/
        getPlayerVideoEl/isYouTubeMedia are core's
        (02-keys-and-helpers.js / 12-playback-sync-and-seek.js) — this
        module doesn't redeclare them. activeTitleSlug() calls core's
@@ -2017,7 +2017,7 @@
     scRegisterSetting({
         id: 'sc-input-imgbb', group: 'gif-maker', type: 'text',
         label: 'ImgBB GIF upload',
-        note: 'Optional — lets the ☁ Upload button in the GIF maker host a GIF and give you a shareable link (requires cytube.gifmaker.user.js)',
+        note: 'Optional — lets the ☁ Upload button in the GIF maker host a GIF and give you a shareable link',
         key: LS_IMGBB,
         placeholder: 'Paste ImgBB API key…',
         testHandler: validateImgbbKey,
@@ -2035,4 +2035,4 @@
     // didn't exist yet). order: 4 reproduces the original shipped script's
     // settings-row sequence (spellcheck=1, movielinks=2, autoembed=3,
     // gifoptimize=4, lineuptiming=5).
-    scRegisterSetting({ id: 'sc-input-gifoptimize', group: 'gif-maker', label: 'Optimize GIFs before upload', note: 'Losslessly shrinks the file with gifsicle before Download/Upload — adds a couple seconds (requires cytube.gifmaker.user.js)', key: LS_GIF_OPTIMIZE, defaultOn: true, order: 4 });
+    scRegisterSetting({ id: 'sc-input-gifoptimize', group: 'gif-maker', label: 'Optimize GIFs before upload', note: 'Losslessly shrinks the file with gifsicle before Download/Upload — adds a couple seconds', key: LS_GIF_OPTIMIZE, defaultOn: true, order: 4 });

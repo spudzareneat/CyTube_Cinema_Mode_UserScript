@@ -171,6 +171,22 @@ Load a local `.srt` or `.vtt` file and sync it to the currently playing video, w
 
 ---
 
+### Movie Lead Time
+
+Keeps your playback a few seconds ahead of the group's synced position during movies, cushioning against your own buffering — if playback stalls, the next sync correction settles you back to "group position + lead" instead of all the way down to the bare group position.
+
+> Movie Lead Time is an optional module — check it in the customizer (see Setup below) to include it in your build. Once included, it adds a **Movie lead time (seconds ahead of sync)** number field (0–10, default 2) to the Settings Modal. Not applied during YouTube playback.
+
+---
+
+### Grindhouse Title Renamer
+
+Renames the browser tab title to "The Grindhouse" in place of CyTube's default title.
+
+> The Grindhouse Title Renamer is an optional module — check it in the customizer (see Setup below) to include it in your build. It's scoped specifically to the `420Grindhouse` channel and does nothing on any other channel, even though the shared bundle's `@match` also covers `/r/testing`.
+
+---
+
 ### Chat-to-Movie Seek
 
 **Right-click any chat message** for two options based on roughly when that message was posted (minus a 5-second lead-in):
@@ -205,6 +221,8 @@ A settings panel for managing API keys and preferences. It opens automatically o
 - Toggle to enable or disable the grammar/spell check popup
 - Chat font size slider
 - Toggle for experimental **Coming Attractions live timing** (NOW PLAYING / ETA badges in Tonight's Lineup — requires a TMDB key, off by default, still being tuned)
+
+> Some fields are module-conditional: the ImgBB API key field and "Optimize GIFs before upload" toggle only appear when GIF Maker is included in your build, "Auto-embed image links in chat" only appears when Chat Images is included, and "Movie lead time" only appears when Movie Lead Time is included. Unchecking a module in the customizer removes its fields from the modal entirely, rather than just disabling them.
 
 <img width="357" height="355" alt="Screenshot 2026-05-18 191527" src="https://github.com/user-attachments/assets/69fa3a59-e05d-4237-8ce1-0a93ae9a8407" />
 
@@ -279,3 +297,5 @@ This project was 100% vibe coded using [Claude](https://claude.ai) by Anthropic.
 | [Wikipedia](https://en.wikipedia.org/) | Movie Wikipedia links | No |
 | [lklynet/Kill-Count](https://github.com/lklynet/Kill-Count) | On-screen kill counts | No |
 | [ImgBB](https://imgbb.com/) | GIF hosting / shareable links | Yes (free) |
+| [cdnjs.cloudflare.com](https://cdnjs.com/) | Serves gif.js (GIF encoding library, GIF Maker module) | No |
+| [cdn.jsdelivr.net](https://www.jsdelivr.com/) | Serves gifsicle (GIF optimization library, GIF Maker module) | No |

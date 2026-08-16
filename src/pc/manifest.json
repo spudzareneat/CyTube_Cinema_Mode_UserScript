@@ -41,8 +41,7 @@
         "GM_xmlhttpRequest"
       ],
       "connects": [
-        "api.themoviedb.org",
-        "api.imgbb.com"
+        "api.themoviedb.org"
       ]
     },
     {

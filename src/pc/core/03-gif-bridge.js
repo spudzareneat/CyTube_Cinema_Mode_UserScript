@@ -29,5 +29,5 @@
         // link. See getBridgeMovieInfo() in 01-movie-identity.js for the
         // derivation.
         getMovieInfo: () => getBridgeMovieInfo(),
-        openGifPanel: undefined, // filled in by cytube.gifmaker.user.js once it boots
+        openGifPanel: undefined, // filled in by the gifmaker module once it boots
     };

@@ -239,4 +239,4 @@
     // this field before rendering. Row relocated here from core per Task 4 of
     // the companion-scripts-to-modules plan (was previously hardcoded in core
     // since this module didn't exist yet).
-    scRegisterSetting({ id: 'sc-input-autoembed', group: 'chat-images', label: 'Auto-embed image links in chat', note: 'Shows a thumbnail preview under messages that link directly to an image, marked "🖼 embedded" (requires cytube.chatimages.user.js)', key: LS_AUTOEMBED, defaultOn: true, order: 3 });
+    scRegisterSetting({ id: 'sc-input-autoembed', group: 'chat-images', label: 'Auto-embed image links in chat', note: 'Shows a thumbnail preview under messages that link directly to an image, marked "🖼 embedded"', key: LS_AUTOEMBED, defaultOn: true, order: 3 });
