@@ -121,9 +121,9 @@
     // cytube.subtitles.user.js) can build lookups without re-deriving this
     // themselves. title/year come from the same source _gifTitleSlug() uses
     // (available once a video is playing); imdbId is only set once the Now
-    // Playing card's TMDB lookup has resolved for this video (requires a TMDB
-    // key -- null otherwise, caller falls back). Returns null when no title
-    // has been detected yet.
+    // Playing card's IMDb lookup has resolved for this video (no key
+    // required -- null until then, caller falls back). Returns null when no
+    // title has been detected yet.
     function getBridgeMovieInfo() {
         if (!lastMovieTitle) return null;
         const { title, year } = parseMovieFilename(lastMovieTitle);

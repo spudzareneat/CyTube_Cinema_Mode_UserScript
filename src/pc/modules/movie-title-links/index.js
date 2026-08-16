@@ -4,14 +4,12 @@
        core's 01-movie-identity.js) with everything the Now Playing
        card and the floating stats bar render.
 
-       IMDb-first: this module hard-depends on imdb-trivia's
-       fetchImdbMovieByTitle(title, year) for the primary title
-       resolution (tconst, rating, runtime, overview, poster, genres)
-       — imdb-trivia is a required `dependsOn` entry below, so this is
-       an unguarded call, not a typeof-guard. `fetchImdbParentalGuide`
-       (also in imdb-trivia) stays typeof-guarded since it's an
-       independent, purely additive enhancement (parental-guide chips)
-       rather than a value this module's own return shape depends on.
+       IMDb-first: both fetchImdbMovieByTitle(title, year) (primary
+       title resolution — tconst, rating, runtime, overview, poster,
+       genres) and fetchImdbParentalGuide (parental-guide chips) are
+       now core-provided (src/pc/core/17-imdb-lookup.js), so both are
+       called unguarded — core is always present, so no manifest
+       `dependsOn` on another module is needed for either.
 
        TMDB is now optional supplemental data only (poster/backdrop
        fallback + kill count), supplied by the `tmdb` module's
@@ -20,11 +18,12 @@
        the rest of the lookup, just without TMDB's poster/backdrop/killCount.
 
        Same typeof-guard pattern applies to the "Trivia" button's click
-       handler (toggleTriviaPanel), and — in the other direction — for
-       this module's own calls into the optional tonights-lineup
-       module's lineupObserveTitleChange (feeds its timing/ETA model;
-       this module doesn't depend on tonights-lineup, so a build
-       without it just skips those calls).
+       handler (toggleTriviaPanel), since imdb-trivia is a genuinely
+       optional module now — and, in the other direction, for this
+       module's own calls into the optional tonights-lineup module's
+       lineupObserveTitleChange (feeds its timing/ETA model; this
+       module doesn't depend on tonights-lineup, so a build without it
+       just skips those calls).
     ========================================================== */
 
     const LINK_DEFS = [
@@ -46,10 +45,11 @@
         const cacheKey = title + (year || '');
         if (movieLinkCache[cacheKey] !== undefined) return movieLinkCache[cacheKey];
 
-        // ── IMDb (primary, hard dependency) + Wikipedia in parallel ─────────────
-        // fetchImdbMovieByTitle lives in the imdb-trivia module, a required
-        // dependsOn entry for this module (see manifest.json) -- called
-        // unguarded, unlike the typeof-guarded optional calls below.
+        // ── IMDb (primary) + Wikipedia in parallel ───────────────────────────────
+        // fetchImdbMovieByTitle lives in core (17-imdb-lookup.js) -- called
+        // unguarded because core is always present, not because of a manifest
+        // dependsOn on another module (unlike the typeof-guarded optional calls
+        // below).
         let wikiUrl = null;
 
         const imdbPromise = fetchImdbMovieByTitle(title, year);
@@ -83,13 +83,9 @@
             ? await fetchTmdbSupplemental(imdbId)
             : null;
 
-        // ── IMDb Parent Guide — also defined in the imdb-trivia module; typeof-
-        // guarded independently of the hard fetchImdbMovieByTitle call above since
-        // it's a purely additive enhancement (parental-guide chips), not something
-        // this function's own return shape depends on. ─────────────────────────
-        const parentalGuide = (typeof fetchImdbParentalGuide === 'function')
-            ? await fetchImdbParentalGuide(imdbId)
-            : null;
+        // ── IMDb Parent Guide — also core-provided (17-imdb-lookup.js); called
+        // unguarded, same as fetchImdbMovieByTitle above. ───────────────────────
+        const parentalGuide = await fetchImdbParentalGuide(imdbId);
 
         const result = {
             links: {

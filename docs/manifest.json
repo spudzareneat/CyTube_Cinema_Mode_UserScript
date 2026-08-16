@@ -19,6 +19,7 @@
         "src/pc/core/02-keys-and-helpers.js",
         "src/pc/core/10-registry.js",
         "src/pc/core/01-movie-identity.js",
+        "src/pc/core/17-imdb-lookup.js",
         "src/pc/core/03-gif-bridge.js",
         "src/pc/core/04-channel-script-autoapprove.js",
         "src/pc/core/05-monitor-orientation.js",
@@ -36,7 +37,13 @@
       "cssFiles": [
         "src/pc/core/css/00-layout-core.css"
       ],
-      "dependsOn": []
+      "dependsOn": [],
+      "grants": [
+        "GM_xmlhttpRequest"
+      ],
+      "connects": [
+        "caching.graphql.imdb.com"
+      ]
     },
     {
       "id": "movie-title-links",
@@ -51,10 +58,7 @@
       "cssFiles": [
         "src/pc/modules/movie-title-links/style.css"
       ],
-      "dependsOn": ["core", "imdb-trivia"],
-      "grants": [
-        "GM_xmlhttpRequest"
-      ],
+      "dependsOn": ["core"],
       "connects": [
         "en.wikipedia.org"
       ]
@@ -72,13 +76,7 @@
       "cssFiles": [
         "src/pc/modules/imdb-trivia/style.css"
       ],
-      "dependsOn": ["core"],
-      "grants": [
-        "GM_xmlhttpRequest"
-      ],
-      "connects": [
-        "caching.graphql.imdb.com"
-      ]
+      "dependsOn": ["core"]
     },
     {
       "id": "tonights-lineup",
