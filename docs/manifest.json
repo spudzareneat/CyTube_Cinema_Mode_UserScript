@@ -80,7 +80,7 @@
       "cssFiles": [
         "src/pc/modules/imdb-trivia/style.css"
       ],
-      "dependsOn": ["core", "movie-title-links"],
+      "dependsOn": ["core"],
       "grants": [
         "GM_xmlhttpRequest"
       ],
