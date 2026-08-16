@@ -341,8 +341,10 @@
             panel.innerHTML = `
                 <div class="sc-users-panel-header">${users.length} connected</div>
                 ${users.map(u => {
-                    const color = usernameToColor(u);
-                    return `<div class="sc-users-panel-name" style="color:${color}">${u}</div>`;
+                    const color = resolveUserColor(u);
+                    const emoji = getExternalUserEmoji(u);
+                    const emojiHtml = emoji ? `<span class="sc-users-panel-emoji">${emoji}</span>` : '';
+                    return `<div class="sc-users-panel-name" style="color:${color}">${emojiHtml}${u}</div>`;
                 }).join('')}
             `;
         };

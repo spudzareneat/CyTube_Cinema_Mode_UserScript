@@ -44,6 +44,14 @@
         return (Array.isArray(entry) && entry[1]) ? entry[1] : null;
     }
 
+    // Single source of truth for "what color is this username" outside of an
+    // actual rendered chat message (e.g. the users panel) -- same precedence
+    // chat itself lands on: the channel script's own per-user color first,
+    // else our hash color.
+    function resolveUserColor(u) {
+        return getExternalUserColor(u) || usernameToColor(u);
+    }
+
     function applyUserDecorations() {
         document.querySelectorAll('#messagebuffer [class*="chat-msg-"]').forEach(el => {
             const cls = [...el.classList].find(c => c.startsWith('chat-msg-'));
