@@ -245,12 +245,13 @@
             rating:     imdbResult?.rating   ?? null,
             runtime:    imdbResult?.runtime  || null,
             genres:     imdbResult?.genres   || [],
-            // TMDB's poster overlays IMDb's when TMDB supplied one; otherwise fall
-            // back to IMDb's poster (if Task 1's lookup found one) until the tmdb
-            // module is present to supply it. Backdrop has no IMDb equivalent, so
-            // it's TMDB-only regardless.
+            // TMDB's poster/backdrop overlay IMDb's when TMDB supplied one; otherwise
+            // fall back to IMDb's primaryImage (if the lookup found one). IMDb has no
+            // dedicated wide "backdrop" field, so its (usually portrait) primaryImage
+            // is reused for both -- the card's CSS crops it to fill (`background-size:
+            // cover`), same pattern apps use when no dedicated backdrop exists.
             poster:     tmdbSupplemental?.poster   || imdbResult?.poster || null,
-            backdrop:   tmdbSupplemental?.backdrop || null,
+            backdrop:   tmdbSupplemental?.backdrop || imdbResult?.poster || null,
             overview:   imdbResult?.overview || null,
         };
 
