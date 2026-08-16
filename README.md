@@ -179,14 +179,6 @@ Keeps your playback a few seconds ahead of the group's synced position during mo
 
 ---
 
-### Grindhouse Title Renamer
-
-Renames the browser tab title to "The Grindhouse" in place of CyTube's default title.
-
-> The Grindhouse Title Renamer is an optional module — check it in the customizer (see Setup below) to include it in your build. It's scoped specifically to the `420Grindhouse` channel and does nothing on any other channel, even though the shared bundle's `@match` also covers `/r/testing`.
-
----
-
 ### Chat-to-Movie Seek
 
 **Right-click any chat message** for two options based on roughly when that message was posted (minus a 5-second lead-in):
@@ -244,7 +236,7 @@ The main script is no longer a single file you copy-paste — it's assembled to 
 
 1. Visit the customizer: **https://spudzareneat.github.io/CyTube_Cinema_Mode_UserScript/**
    > This is the standard GitHub Pages URL for this repo (it serves the `docs/` folder). If the page 404s, GitHub Pages hasn't been enabled for the repo yet — that's a one-time setting under the repo's **Settings → Pages** that only the repo owner can flip; it isn't something you can fix locally. (Whether this particular branch's changes are live there depends on whether it has been pushed and merged — not something that can be confirmed from here.)
-2. Under **Features**, check whichever optional modules you want. **Core** is always included and can't be unchecked; every optional module — Movie Title Links, IMDb Trivia, Tonight's Lineup, Grammar Check, Chat Images, GIF Maker, Subtitle Sync, Movie Lead Time, and the Grindhouse Title Renamer — is checked by default and can be unchecked individually (see their sections above for what each does).
+2. Under **Features**, check whichever optional modules you want. **Core** is always included and can't be unchecked; every optional module — Movie Title Links, IMDb Trivia, Tonight's Lineup, Grammar Check, Chat Images, GIF Maker, Subtitle Sync, and Movie Lead Time — is checked by default and can be unchecked individually (see their sections above for what each does).
 3. Click **Build my script**, then **Download** (or **Copy to clipboard**) — this produces one `cytube.pc.custom.user.js` file for your chosen module combination.
 4. Open Tampermonkey's dashboard, click **Create a new script**, and paste in (or drag in) the downloaded file. Save with **Ctrl+S** (or **Cmd+S**).
 5. Navigate to `https://cytu.be/r/420Grindhouse` — the script runs automatically.
