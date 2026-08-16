@@ -128,7 +128,7 @@ Every username in the chat buffer is assigned a consistent, deterministic color 
 
 Capture any scene as an animated GIF, straight from the player — no external tools.
 
-> Requires installing **`cytube.gifmaker.user.js`** as a separate userscript (see Setup below) — it owns the actual capture/encode/upload logic. When it's installed alongside `cytube.pc.custom.user.js`, the GIF button becomes the floating **◉** button described here, and the ImgBB API key field / Optimize toggle move into `cytube.pc.custom.user.js`'s Settings Modal instead of appearing inline in the GIF panel. Installed on its own, `cytube.gifmaker.user.js` still works standalone, with those fields inline and the record button in the video's own control bar.
+> GIF Maker is an optional module — check it in the customizer (see Setup below) to include it in your build. The floating **◉** button and the ImgBB API key field / Optimize toggle in the Settings Modal described here only appear when the module is selected.
 
 - Click the **◉** floating button to open the GIF maker
 - **Lock in the start and end** of the clip with live preview thumbnails of each frame — use **⤓ Now** to grab the current playback position, or nudge each mark by ±0.5s
@@ -148,7 +148,7 @@ Capture any scene as an animated GIF, straight from the player — no external t
 
 Direct image links posted in chat (postimg.cc, imgur, Discord CDN, etc.) show up as an inline thumbnail instead of a bare link.
 
-> Requires installing **`cytube.chatimages.user.js`** as a separate userscript (see Setup below) — it owns the embedding logic. Installed on its own, it always embeds. Installed alongside `cytube.pc.custom.user.js`, it defers to that script's Settings Modal toggle ("Auto-embed image links in chat") instead.
+> Chat Images is an optional module — check it in the customizer (see Setup below) to include it in your build. Once included, it's governed by the Settings Modal's "Auto-embed image links in chat" toggle.
 
 - Hover a thumbnail to see the original filename as a tooltip
 - Click **🔗** on an embed to flip that one instance between the thumbnail and the plain link, without affecting anything else
@@ -161,7 +161,7 @@ Direct image links posted in chat (postimg.cc, imgur, Discord CDN, etc.) show up
 
 Load a local `.srt` or `.vtt` file and sync it to the currently playing video, with a live offset control for files that aren't quite aligned.
 
-> Requires installing **`cytube.subtitles.user.js`** as a separate userscript (see Setup below) — it owns the subtitle parsing/sync logic. Installed on its own, its button sits in CyTube's native video control bar. Installed alongside `cytube.pc.custom.user.js`, it becomes the floating **CC** button described in Floating Controls below. Not available for YouTube playback — native `<video>` only.
+> Subtitle Sync is an optional module — check it in the customizer (see Setup below) to include it in your build. Once included, it adds the floating **CC** button described in Floating Controls below. Not available for YouTube playback — native `<video>` only.
 
 - Click **CC** to open the Subtitles panel, then choose a `.srt` or `.vtt` file — cues render using the browser's native caption rendering, so sync tracks playback exactly
 - Nudge the offset ±100ms with the **−100ms** / **+100ms** buttons, or type an exact value and click **Set**
@@ -175,7 +175,7 @@ Load a local `.srt` or `.vtt` file and sync it to the currently playing video, w
 
 **Right-click any chat message** for two options based on roughly when that message was posted (minus a 5-second lead-in):
 - **⤺ Jump movie to...** desyncs you from the group stream and rewinds to that moment
-- **◉ Create a GIF from here** opens the GIF Maker with its start mark already scrubbed to that moment (requires `cytube.gifmaker.user.js`)
+- **◉ Create a GIF from here** opens the GIF Maker with its start mark already scrubbed to that moment (requires the GIF Maker module)
 
 Messages from a previous movie are detected and don't offer either option.
 
@@ -190,8 +190,8 @@ A row of buttons is fixed to the screen at all times, positioned relative to the
 | ⛶ | Toggle browser fullscreen |
 | ▦ | Open the CyTube emote picker |
 | ⟳ | Free watch — desync from the group stream, click again to re-sync |
-| ◉ | Open the GIF maker (requires `cytube.gifmaker.user.js`) |
-| CC | Open the Subtitles panel (requires `cytube.subtitles.user.js`) |
+| ◉ | Open the GIF maker (requires the GIF Maker module) |
+| CC | Open the Subtitles panel (requires the Subtitle Sync module) |
 | ⚙ | Open the script settings modal |
 
 ---
@@ -225,15 +225,15 @@ You need a browser extension that can run userscripts. The most common options:
 The main script is no longer a single file you copy-paste — it's assembled to order by a customizer page, so you only ship the features you actually want.
 
 1. Visit the customizer: **https://spudzareneat.github.io/CyTube_Cinema_Mode_UserScript/**
-   > This is the standard GitHub Pages URL for this repo (it serves the `docs/` folder). If the page 404s, GitHub Pages hasn't been enabled for the repo yet — that's a one-time setting under the repo's **Settings → Pages** that only the repo owner can flip; it isn't something you can fix locally.
-2. Under **Features**, check whichever optional modules you want — Movie Title Links, IMDb Trivia, Tonight's Lineup, and Grammar Check are all checked by default. **Core** is always included and can't be unchecked.
-3. Under **Companion scripts**, check any of the standalone siblings you also want: GIF Maker, Subtitle Sync, Chat Images, or the Grindhouse Title Renamer (see their sections above for what each does).
-4. Click **Build my script**, then **Download** (or **Copy to clipboard**) — this produces one `cytube.pc.custom.user.js` file for your chosen core/optional-module combination.
-5. Open Tampermonkey's dashboard, click **Create a new script**, and paste in (or drag in) the downloaded file. Save with **Ctrl+S** (or **Cmd+S**).
-6. If you checked any companion scripts, download and install each one the same way — one Tampermonkey script per file, just like step 5. Each companion still works fine on its own, and automatically integrates with the main script (floating buttons, shared settings toggles, etc.) when both are installed — see that feature's section above for specifics.
-7. Navigate to `https://cytu.be/r/420Grindhouse` — the script(s) run automatically.
+   > This is the standard GitHub Pages URL for this repo (it serves the `docs/` folder). If the page 404s, GitHub Pages hasn't been enabled for the repo yet — that's a one-time setting under the repo's **Settings → Pages** that only the repo owner can flip; it isn't something you can fix locally. (Whether this particular branch's changes are live there depends on whether it has been pushed and merged — not something that can be confirmed from here.)
+2. Under **Features**, check whichever optional modules you want. **Core** is always included and can't be unchecked; every optional module — Movie Title Links, IMDb Trivia, Tonight's Lineup, Grammar Check, Chat Images, GIF Maker, Subtitle Sync, Movie Lead Time, and the Grindhouse Title Renamer — is checked by default and can be unchecked individually (see their sections above for what each does).
+3. Click **Build my script**, then **Download** (or **Copy to clipboard**) — this produces one `cytube.pc.custom.user.js` file for your chosen module combination.
+4. Open Tampermonkey's dashboard, click **Create a new script**, and paste in (or drag in) the downloaded file. Save with **Ctrl+S** (or **Cmd+S**).
+5. Navigate to `https://cytu.be/r/420Grindhouse` — the script runs automatically.
 
-> **Note on phase-2 features:** emote-mirror, emote-relocation, movie-lead-time, chat-seek, chat-timestamps, channel-emoji, poll-watcher, user-count-panel, and chat-resizer are still bundled inside **Core** for now — they aren't independently toggleable on the customizer yet. A future update will split them out into their own selectable modules the same way Movie Title Links, IMDb Trivia, Tonight's Lineup, and Grammar Check already are.
+> **Note on phase-2 features:** emote-mirror, emote-relocation, chat-seek, chat-timestamps, channel-emoji, poll-watcher, user-count-panel, and chat-resizer are still bundled inside **Core** for now — they aren't independently toggleable on the customizer yet. A future update may split them out into their own selectable modules the same way the others already have been.
+
+> **Legacy standalone scripts:** The original single-purpose scripts this project shipped before the customizer existed — `cytube.gifmaker.user.js`, `cytube.chatimages.user.js`, `cytube.subtitles.user.js`, and `cytube.rename-title.user.js` — still live at the repo root for anyone who'd rather install one individually the old way (each is still a self-contained Tampermonkey script). They're kept around as-is, but they are **unsupported and legacy going forward**: they won't receive further updates, and future module work targets only the customizer-built script. The supported path is checking the equivalent module in the customizer, as described above.
 
 ### 3. Enter your API keys (first run)
 
