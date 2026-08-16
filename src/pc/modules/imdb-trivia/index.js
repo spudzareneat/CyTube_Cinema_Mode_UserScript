@@ -4,10 +4,13 @@
        (fetchImdbTrivia), its floating UI (showTriviaCard /
        hideTriviaCard / toggleTriviaPanel), CSS, and the 'T' hotkey.
        The primary title lookup (fetchImdbMovieByTitle) and the
-       parental guide (fetchImdbParentalGuide) moved to core's
-       17-imdb-lookup.js, since movie-title-links depends on those
-       unconditionally; this module builds on top of that core data
-       layer via imdbQuery(), which it does not redeclare.
+       parental guide (fetchImdbParentalGuide) live in
+       movie-title-links, which this module hard-depends on
+       (`dependsOn: ["core", "movie-title-links"]` in manifest.json) --
+       trivia inherently needs a movie to already be identified, so
+       forcing that dependency is honest rather than incidental. This
+       module builds on top of movie-title-links' imdbQuery()/
+       imdbGmFetch(), which it does not redeclare.
 
        No user-facing on/off toggle exists for this feature in the
        original script; it simply runs whenever an IMDb ID is
