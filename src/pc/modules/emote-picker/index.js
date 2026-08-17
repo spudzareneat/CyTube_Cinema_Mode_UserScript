@@ -178,7 +178,7 @@
                 flex: none !important;
                 padding: 10px 16px !important;
                 border-bottom: 1px solid rgba(244,244,242,0.08) !important;
-                font-weight: 700 !important; font-size: 14px !important; color: #ff5fa8 !important;
+                font-weight: 700 !important; font-size: 14px !important; color: #3ecbff !important;
                 letter-spacing: 0.01em !important;
                 cursor: grab !important; user-select: none !important; touch-action: none !important;
             }
@@ -202,12 +202,12 @@
                 box-sizing: border-box !important; width: 100% !important;
                 transition: border-color 120ms ease !important;
             }
-            .sc-emotes-search:hover, .sc-emotes-search:focus { border-color: rgba(255,95,168,0.5) !important; }
+            .sc-emotes-search:hover, .sc-emotes-search:focus { border-color: rgba(62,203,255,0.5) !important; }
             .sc-emotes-search::placeholder { color: rgba(244,244,242,0.34) !important; }
             .sc-emotes-grid {
                 flex: 1 1 auto !important; min-height: 0 !important; overflow-y: auto !important;
                 display: grid !important;
-                grid-template-columns: repeat(auto-fill, minmax(48px, 1fr)) !important;
+                grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)) !important;
                 gap: 6px !important;
                 align-content: start !important;
                 scrollbar-width: thin !important; scrollbar-color: rgba(244,244,242,0.2) #000 !important;
@@ -217,24 +217,41 @@
             .sc-emotes-grid::-webkit-scrollbar-thumb {
                 background: rgba(244,244,242,0.2) !important; border-radius: 6px !important; border: 2px solid #000 !important;
             }
-            .sc-emotes-grid::-webkit-scrollbar-thumb:hover { background: #ff5fa8 !important; }
+            .sc-emotes-grid::-webkit-scrollbar-thumb:hover { background: #3ecbff !important; }
             .sc-emotes-tile {
                 position: relative !important;
                 display: flex !important; align-items: center !important; justify-content: center !important;
                 background: rgba(244,244,242,0.04) !important;
                 border: 1px solid rgba(244,244,242,0.08) !important; border-radius: 6px !important;
-                padding: 4px !important; height: 44px !important; box-sizing: border-box !important;
+                padding: 4px !important; height: 60px !important; box-sizing: border-box !important;
                 cursor: pointer !important;
                 transition: background-color 120ms ease, border-color 120ms ease !important;
             }
             .sc-emotes-tile:hover, .sc-emotes-tile:focus-visible {
-                background: rgba(255,95,168,0.14) !important; border-color: #ff5fa8 !important;
+                background: rgba(62,203,255,0.14) !important; border-color: #3ecbff !important;
                 outline: none !important;
             }
             .sc-emotes-tile img {
-                max-width: 100% !important; max-height: 32px !important;
+                max-width: 100% !important; max-height: 46px !important;
                 display: block !important; pointer-events: none !important;
+                opacity: 0 !important; transition: opacity 150ms ease !important;
             }
+            .sc-emotes-tile.sc-emotes-img-loaded img { opacity: 1 !important; }
+            /* Shown until the tile's image fires load/error (see
+               wireImageLoadSpinners()), then hidden via the same
+               .sc-emotes-img-loaded class that fades the image in. */
+            .sc-emotes-spinner {
+                position: absolute !important; top: 50% !important; left: 50% !important;
+                transform: translate(-50%, -50%) !important;
+                width: 18px !important; height: 18px !important; box-sizing: border-box !important;
+                border: 2px solid rgba(244,244,242,0.18) !important;
+                border-top-color: #3ecbff !important;
+                border-radius: 50% !important;
+                animation: sc-emotes-spin 700ms linear infinite !important;
+                pointer-events: none !important;
+            }
+            .sc-emotes-tile.sc-emotes-img-loaded .sc-emotes-spinner { display: none !important; }
+            @keyframes sc-emotes-spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
             /* Holds the star favorite-toggle. pointer-events:none here so
                the container itself never swallows clicks meant for
                anything else in the tile; .sc-emotes-star below overrides
@@ -282,7 +299,7 @@
                 display: none !important; padding: 0 !important; margin: 0 !important; border: none !important;
             }
             .sc-emotes-favorites .sc-emotes-tile {
-                flex: 0 0 44px !important; width: 44px !important;
+                flex: 0 0 60px !important; width: 60px !important;
             }
 
             /* Orientation-aware sizing/placement -- mirrors the pattern
@@ -306,7 +323,7 @@
                 width: 420px !important; max-height: 46vh !important;
             }
             body.sc-horizontal .sc-emotes-grid {
-                grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)) !important;
+                grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)) !important;
             }
             body.sc-vertical #sc-emotes-panel {
                 /* proxy: bottom 18px, ~30px tall -> top edge ~48px up */
@@ -314,7 +331,7 @@
                 width: 280px !important; max-height: 66vh !important;
             }
             body.sc-vertical .sc-emotes-grid {
-                grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)) !important;
+                grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)) !important;
             }
         `;
         document.head.appendChild(style);
@@ -500,6 +517,7 @@
         const name = _emoteEscHtml(e.name);
         const starLabel = _emoteStarLabel(isFav);
         return `<button type="button" class="sc-emotes-tile" data-emote-name="${name}">` +
+                `<span class="sc-emotes-spinner" aria-hidden="true"></span>` +
                 `<img src="${_emoteEscHtml(e.image)}" alt="${name}" title="${name}" loading="lazy">` +
                 `<span class="sc-emotes-tile-actions">` +
                     `<span class="sc-emotes-star${isFav ? ' sc-emotes-star-active' : ''}" role="button" tabindex="0" ` +
@@ -507,6 +525,24 @@
                         `aria-label="${starLabel}" title="${starLabel}">${isFav ? '★' : '☆'}</span>` +
                 `</span>` +
             `</button>`;
+    }
+
+    // Each tile starts with its .sc-emotes-spinner visible and its <img>
+    // faded to opacity:0 (see injectEmotesPanelCss()) until that image's
+    // load/error event fires -- 'load'/'error' don't bubble, so each <img>
+    // needs its own listener rather than a single delegated one on the
+    // container. An already-cached image reports `.complete` synchronously,
+    // so this checks that first instead of waiting on an event that already
+    // fired before the listener was attached.
+    function wireImageLoadSpinners(container) {
+        container.querySelectorAll('img').forEach(img => {
+            const tile = img.closest('.sc-emotes-tile');
+            if (!tile) return;
+            if (img.complete) { tile.classList.add('sc-emotes-img-loaded'); return; }
+            const onDone = () => tile.classList.add('sc-emotes-img-loaded');
+            img.addEventListener('load', onDone, { once: true });
+            img.addEventListener('error', onDone, { once: true });
+        });
     }
 
     // Live case-insensitive substring filter on emote.name, re-rendered
@@ -519,6 +555,7 @@
             return;
         }
         grid.innerHTML = filtered.map(e => renderEmoteTile(e, _scEmoteFavorites.has(e.name))).join('');
+        wireImageLoadSpinners(grid);
     }
 
     // Pinned row directly under the search input, above the main grid.
@@ -532,6 +569,7 @@
         if (!_scEmoteFavorites.size) { row.innerHTML = ''; return; }
         const favTiles = list.filter(e => _scEmoteFavorites.has(e.name));
         row.innerHTML = favTiles.map(e => renderEmoteTile(e, true)).join('');
+        wireImageLoadSpinners(row);
     }
 
     /* ==========================================================
