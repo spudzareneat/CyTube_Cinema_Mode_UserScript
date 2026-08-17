@@ -7,9 +7,10 @@
        #emotelistbtn/#emotelist themselves are left untouched in the
        DOM -- this module only reads from them as a data-source
        fallback (see EMOTE DATA below), never shows them.
-       Star/pin favoriting (a later task) gets an obvious empty slot
-       per tile (.sc-emotes-tile-actions) to drop its icon into --
-       nothing about favorites is built here.
+       Star/pin favoriting lives in the FAVORITES sections below --
+       the star toggle sits inside each tile's .sc-emotes-tile-actions
+       slot (originally left empty), and LS_EMOTE_FAVORITES persists
+       the favorited name list.
     ========================================================== */
 
     /* ==========================================================
@@ -120,6 +121,8 @@
         if (!grid) return;
         const search = document.getElementById('sc-emotes-search');
         renderEmoteGrid(grid, _scEmoteData, search ? search.value : '');
+        const favRow = document.getElementById('sc-emotes-favorites');
+        if (favRow) renderFavoritesRow(favRow, _scEmoteData);
     }
 
     // Guarded/retried the same way core's initChatTimestamps guards its
@@ -232,15 +235,54 @@
                 max-width: 100% !important; max-height: 32px !important;
                 display: block !important; pointer-events: none !important;
             }
-            /* Empty for now -- Task 2 (star favoriting) drops its icon in here. */
+            /* Holds the star favorite-toggle. pointer-events:none here so
+               the container itself never swallows clicks meant for
+               anything else in the tile; .sc-emotes-star below overrides
+               back to pointer-events:auto on itself so it still receives
+               its own clicks. */
             .sc-emotes-tile-actions {
                 position: absolute !important; top: 2px !important; right: 2px !important;
                 pointer-events: none !important;
             }
+            .sc-emotes-star {
+                pointer-events: auto !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
+                width: 16px !important; height: 16px !important;
+                font-size: 12px !important; line-height: 1 !important;
+                color: rgba(244,244,242,0.5) !important;
+                background: rgba(0,0,0,0.4) !important;
+                border-radius: 4px !important;
+                cursor: pointer !important;
+                transition: color 120ms ease, transform 120ms ease !important;
+            }
+            .sc-emotes-star:hover, .sc-emotes-star:focus-visible {
+                color: #f4f4f2 !important; outline: none !important; transform: scale(1.12) !important;
+            }
+            .sc-emotes-star-active {
+                color: #ffd24a !important;
+            }
+            .sc-emotes-star-active:hover, .sc-emotes-star-active:focus-visible { color: #ffdd70 !important; }
             .sc-emotes-empty {
                 grid-column: 1 / -1 !important;
                 padding: 18px 4px !important; text-align: center !important;
                 color: rgba(244,244,242,0.4) !important; font-size: 12px !important;
+            }
+            /* Pinned favorites row -- lives between the search input and
+               the main grid, only occupying space when non-empty (see
+               renderFavoritesRow()). Same tile size as the grid, just
+               wrapped in a flex row instead of a grid so a handful of
+               favorites don't stretch to fill the panel's full width. */
+            .sc-emotes-favorites {
+                display: flex !important; flex-wrap: wrap !important; gap: 6px !important;
+                flex: none !important; max-height: 100px !important; overflow-y: auto !important;
+                padding-bottom: 8px !important; margin-bottom: 2px !important;
+                border-bottom: 1px solid rgba(244,244,242,0.1) !important;
+            }
+            .sc-emotes-favorites:empty {
+                display: none !important; padding: 0 !important; margin: 0 !important; border: none !important;
+            }
+            .sc-emotes-favorites .sc-emotes-tile {
+                flex: 0 0 44px !important; width: 44px !important;
             }
 
             /* Orientation-aware sizing/placement -- mirrors the pattern
@@ -343,6 +385,51 @@
     }
 
     /* ==========================================================
+       PERSISTED FAVORITES — LS_EMOTE_FAVORITES / getKey / setKey are
+       core's (02-keys-and-helpers.js), same JSON-array convention as
+       chatimages' LS_BANNED (src/pc/modules/chatimages/index.js).
+       _scEmoteFavorites is the in-memory Set of favorited emote
+       `name` strings; loadFavorites() (re)reads it from storage on
+       every panel open so the star states/pinned row start accurate,
+       and saveFavorites() persists it on every toggle. A favorited
+       name that no longer resolves to a current channel emote (e.g.
+       it was removed) is never pruned here -- renderFavoritesRow()
+       below just skips rendering it, storage keeps the name in case
+       the emote comes back.
+    ========================================================== */
+    let _scEmoteFavorites = new Set();
+    function loadFavorites() {
+        try {
+            const arr = JSON.parse(getKey(LS_EMOTE_FAVORITES) || '[]');
+            if (Array.isArray(arr)) return new Set(arr.filter(n => typeof n === 'string' && n));
+        } catch (e) {}
+        return new Set();
+    }
+    function saveFavorites() {
+        try { setKey(LS_EMOTE_FAVORITES, JSON.stringify([..._scEmoteFavorites])); } catch (e) {}
+    }
+    function toggleFavorite(name) {
+        if (!name) return;
+        if (_scEmoteFavorites.has(name)) _scEmoteFavorites.delete(name);
+        else _scEmoteFavorites.add(name);
+        saveFavorites();
+        refreshFavoritesUI();
+    }
+    // Re-renders both the main grid's star states and the pinned row
+    // after a toggle, without disturbing the active search filter.
+    // No-op if the panel isn't open (toggling only ever happens from
+    // a click/keypress on an already-rendered star, so this is mostly
+    // defensive).
+    function refreshFavoritesUI() {
+        const grid = document.getElementById('sc-emotes-grid');
+        const favRow = document.getElementById('sc-emotes-favorites');
+        if (!grid && !favRow) return;
+        const search = document.getElementById('sc-emotes-search');
+        if (grid) renderEmoteGrid(grid, _scEmoteData, search ? search.value : '');
+        if (favRow) renderFavoritesRow(favRow, _scEmoteData);
+    }
+
+    /* ==========================================================
        INSERTION — #sc-chat-textarea is the real send-source (doSend()
        in 11-chat-input-and-emotes.js reads its .value directly), so
        this writes there and nowhere else -- no round-trip through the
@@ -364,6 +451,28 @@
         return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
     }
 
+    // Shared tile markup for both the main grid and the pinned favorites
+    // row -- keeps the two renderers from carrying near-duplicate copies
+    // of this template. The tile itself is a <button> (click = insert),
+    // so the star toggle inside it is deliberately NOT a <button> --
+    // nested buttons get silently mangled/reparented by the browser.
+    // isFav drives the filled/outline glyph and aria-pressed state; the
+    // star sets its own pointer-events:auto to override the container's
+    // pointer-events:none (see .sc-emotes-tile-actions in
+    // injectEmotesPanelCss()) so it actually receives clicks.
+    function renderEmoteTile(e, isFav) {
+        const name = _emoteEscHtml(e.name);
+        const starLabel = isFav ? 'Remove from favorites' : 'Add to favorites';
+        return `<button type="button" class="sc-emotes-tile" data-emote-name="${name}">` +
+                `<img src="${_emoteEscHtml(e.image)}" alt="${name}" title="${name}" loading="lazy">` +
+                `<span class="sc-emotes-tile-actions">` +
+                    `<span class="sc-emotes-star${isFav ? ' sc-emotes-star-active' : ''}" role="button" tabindex="0" ` +
+                        `data-emote-name="${name}" aria-pressed="${isFav ? 'true' : 'false'}" ` +
+                        `aria-label="${starLabel}" title="${starLabel}">${isFav ? '★' : '☆'}</span>` +
+                `</span>` +
+            `</button>`;
+    }
+
     // Live case-insensitive substring filter on emote.name, re-rendered
     // on every search keystroke and on data refresh.
     function renderEmoteGrid(grid, list, searchTerm) {
@@ -373,12 +482,20 @@
             grid.innerHTML = `<div class="sc-emotes-empty">${list.length ? 'No matching emotes' : 'No emotes available'}</div>`;
             return;
         }
-        grid.innerHTML = filtered.map(e => (
-            `<button type="button" class="sc-emotes-tile" data-emote-name="${_emoteEscHtml(e.name)}">` +
-                `<img src="${_emoteEscHtml(e.image)}" alt="${_emoteEscHtml(e.name)}" title="${_emoteEscHtml(e.name)}" loading="lazy">` +
-                `<span class="sc-emotes-tile-actions"></span>` +
-            `</button>`
-        )).join('');
+        grid.innerHTML = filtered.map(e => renderEmoteTile(e, _scEmoteFavorites.has(e.name))).join('');
+    }
+
+    // Pinned row directly under the search input, above the main grid.
+    // Same tile markup/star as the main grid -- favorited emotes still
+    // also render in their normal spot below, they aren't removed from
+    // that list. A favorited name no longer present in `list` (channel
+    // emote removed) is simply skipped -- see LS_EMOTE_FAVORITES above.
+    // Left empty (and hidden via the :empty CSS rule) when there are no
+    // favorites, or none of them currently resolve.
+    function renderFavoritesRow(row, list) {
+        if (!_scEmoteFavorites.size) { row.innerHTML = ''; return; }
+        const favTiles = list.filter(e => _scEmoteFavorites.has(e.name));
+        row.innerHTML = favTiles.map(e => renderEmoteTile(e, true)).join('');
     }
 
     /* ==========================================================
@@ -388,6 +505,9 @@
     function openEmotesPanel() {
         if (document.getElementById('sc-emotes-panel')) return;
         injectEmotesPanelCss();
+        // Read on every open so star states / the pinned row reflect
+        // whatever was last saved (see PERSISTED FAVORITES above).
+        _scEmoteFavorites = loadFavorites();
         // allowForceRender=true: only here, in direct response to the user
         // opening the panel, is the disruptive native-popup click-dance
         // permitted (see computeEmoteList()/scrapeEmotesFallback() above).
@@ -402,21 +522,48 @@
             </div>
             <div id="sc-emotes-body">
                 <input type="text" id="sc-emotes-search" class="sc-emotes-search" placeholder="Search emotes…" autocomplete="off" inputmode="none">
+                <div id="sc-emotes-favorites" class="sc-emotes-favorites"></div>
                 <div id="sc-emotes-grid" class="sc-emotes-grid"></div>
             </div>`;
         document.body.appendChild(panel);
 
+        const body = panel.querySelector('#sc-emotes-body');
         const search = panel.querySelector('#sc-emotes-search');
+        const favRow = panel.querySelector('#sc-emotes-favorites');
         const grid = panel.querySelector('#sc-emotes-grid');
         renderEmoteGrid(grid, _scEmoteData, '');
+        renderFavoritesRow(favRow, _scEmoteData);
 
-        search.addEventListener('input', () => renderEmoteGrid(grid, _scEmoteData, search.value));
+        search.addEventListener('input', () => {
+            renderEmoteGrid(grid, _scEmoteData, search.value);
+            // The pinned row is never search-filtered -- leave it alone.
+        });
 
-        grid.addEventListener('click', (e) => {
+        // Delegated at the body level so one pair of listeners covers
+        // both the pinned favorites row and the main grid. Star clicks
+        // are checked first and stopPropagation()'d so they never also
+        // match .sc-emotes-tile and trigger an insert+close.
+        body.addEventListener('click', (e) => {
+            const star = e.target.closest('.sc-emotes-star');
+            if (star) {
+                e.stopPropagation();
+                toggleFavorite(star.dataset.emoteName);
+                return;
+            }
             const tile = e.target.closest('.sc-emotes-tile');
             if (!tile) return;
             insertEmoteIntoChat(tile.dataset.emoteName);
             closeEmotesPanel();
+        });
+        // Keyboard equivalent for the star (a <span role="button">, not a
+        // real <button>, so Enter/Space activation isn't native).
+        body.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            const star = e.target.closest('.sc-emotes-star');
+            if (!star) return;
+            e.preventDefault();
+            e.stopPropagation();
+            toggleFavorite(star.dataset.emoteName);
         });
 
         panel.querySelector('#sc-emotes-close').addEventListener('click', closeEmotesPanel);
