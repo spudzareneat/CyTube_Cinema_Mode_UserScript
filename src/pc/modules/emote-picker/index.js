@@ -20,15 +20,24 @@
        `name`/`image` are used here; `source`/`regex` are irrelevant to
        clicking a tile (insertion is a literal `emote.name` string, not
        a regex match).
+       readChannelEmotes() returns `null` only when CHANNEL.emotes isn't
+       a real array yet (not loaded / malformed) -- a genuinely-loaded
+       empty array comes back as `[]`, distinct from `null`. This
+       distinction matters: computeEmoteList() must never fall through
+       to the DOM-scrape fallback for a channel that has confirmed zero
+       emotes, only for one whose data truly isn't available.
        Fallback: scrape #emotelist img.channel-emote nodes directly
-       (img.src/img.title, matching CyTube's own emoteToImg() output)
-       when CHANNEL.emotes isn't a usable array. CyTube renders
-       #emotelist's contents once it has emote data, independent of
-       whether the popup has ever been opened, but on the rare chance
-       it hasn't rendered yet, force it open-then-closed via
+       (img.src/img.title, matching CyTube's own emoteToImg() output).
+       CyTube renders #emotelist's contents once it has emote data,
+       independent of whether the popup has ever been opened, but on
+       the rare chance it hasn't rendered yet AND the caller is the
+       user actually opening our panel (`allowForceRender` -- never
+       true for a passive background socket event, see
+       bindEmoteSocketEvents() below), force it open-then-closed via
        #emotelistbtn (the same element relocateEmoteButton() already
        references) so the DOM scrape has something to read -- the
-       native popup is never left visible to the user.
+       native popup is never left visible to the user, and never
+       flashed unprompted while nobody has asked to see emotes at all.
        _uw is core's shared unsafeWindow/window fallback (see
        03-gif-bridge.js / 04-channel-script-autoapprove.js) -- this
        module doesn't redeclare it.
@@ -36,14 +45,14 @@
     function readChannelEmotes() {
         try {
             const arr = _uw.CHANNEL && _uw.CHANNEL.emotes;
-            if (!Array.isArray(arr) || !arr.length) return null;
+            if (!Array.isArray(arr)) return null; // not loaded yet / malformed
             const out = [];
             for (const e of arr) {
                 if (e && typeof e.name === 'string' && e.name && typeof e.image === 'string' && e.image) {
                     out.push({ name: e.name, image: e.image });
                 }
             }
-            return out.length ? out : null;
+            return out; // may legitimately be [] -- a real array means the channel truly has (or filtered down to) zero usable emotes
         } catch (e) { return null; }
     }
 
@@ -58,15 +67,15 @@
     }
 
     // The click-open-then-close dance is real UI disruption (it briefly
-    // shows/hides CyTube's own popup), so it's only ever attempted once
-    // per page load -- a channel with zero emotes would otherwise trigger
-    // it on every single panel open (computeEmoteList() has no other way
-    // to distinguish "genuinely no emotes" from "not rendered yet").
-    // Plain DOM reads (no click) are cheap and still retried every call.
+    // shows/hides CyTube's own popup), so `allowForceRender` gates it to
+    // only ever run when the user actually opened our panel (never from
+    // a background socket refresh), and even then only once per page
+    // load via this flag. Plain DOM reads (no click) are cheap and still
+    // attempted every call regardless of `allowForceRender`.
     let _scEmoteForceRenderAttempted = false;
-    function scrapeEmotesFallback() {
+    function scrapeEmotesFallback(allowForceRender) {
         let out = readEmotesFromDom();
-        if (out.length || _scEmoteForceRenderAttempted) return out;
+        if (out.length || !allowForceRender || _scEmoteForceRenderAttempted) return out;
         _scEmoteForceRenderAttempted = true;
         const btn = document.getElementById('emotelistbtn');
         if (btn) {
@@ -80,22 +89,29 @@
         return out;
     }
 
-    function computeEmoteList() {
+    // `allowForceRender` must only be true when called in direct response
+    // to the user opening the panel (see openEmotesPanel()) -- background
+    // callers (the socket handler below) always pass false/omit it, so an
+    // emote-less or not-yet-loaded channel never flashes CyTube's native
+    // popup on its own.
+    function computeEmoteList(allowForceRender) {
         const fromChannel = readChannelEmotes();
-        if (fromChannel) return fromChannel;
-        return scrapeEmotesFallback();
+        if (fromChannel !== null) return fromChannel; // genuine data, even if empty
+        return scrapeEmotesFallback(!!allowForceRender);
     }
 
     let _scEmoteData = [];
 
     // Re-derives the emote list and, if the panel is currently open,
     // re-renders its grid in place (preserving whatever search filter
-    // is active). Called on first panel open and whenever a live
-    // emote-list socket event fires. Never throws -- worst case the
-    // list just doesn't refresh.
-    function refreshEmoteData() {
+    // is active). Called on first panel open (allowForceRender=true) and
+    // whenever a live emote-list socket event fires (allowForceRender
+    // omitted/false -- a background refresh never triggers the native-
+    // popup force-render dance). Never throws -- worst case the list
+    // just doesn't refresh.
+    function refreshEmoteData(allowForceRender) {
         try {
-            _scEmoteData = computeEmoteList();
+            _scEmoteData = computeEmoteList(allowForceRender);
         } catch (e) {
             console.warn('[SC][emote-picker] failed to refresh emote data:', e);
             return;
@@ -116,7 +132,9 @@
         const tryBind = () => {
             if (bound || typeof socket === 'undefined' || !socket || !socket.on) return;
             bound = true;
-            const onEmoteUpdate = () => refreshEmoteData();
+            // Background refresh only -- never force-renders the native
+            // popup (see computeEmoteList()'s allowForceRender contract).
+            const onEmoteUpdate = () => refreshEmoteData(false);
             // Registered after CyTube's own handlers for these events, so by
             // the time this fires CHANNEL.emotes already reflects the change.
             socket.on('emoteList', onEmoteUpdate);
@@ -356,8 +374,8 @@
             return;
         }
         grid.innerHTML = filtered.map(e => (
-            `<button type="button" class="sc-emotes-tile" data-emote-name="${_emoteEscHtml(e.name)}" title="${_emoteEscHtml(e.name)}">` +
-                `<img src="${_emoteEscHtml(e.image)}" alt="${_emoteEscHtml(e.name)}" loading="lazy">` +
+            `<button type="button" class="sc-emotes-tile" data-emote-name="${_emoteEscHtml(e.name)}">` +
+                `<img src="${_emoteEscHtml(e.image)}" alt="${_emoteEscHtml(e.name)}" title="${_emoteEscHtml(e.name)}" loading="lazy">` +
                 `<span class="sc-emotes-tile-actions"></span>` +
             `</button>`
         )).join('');
@@ -370,7 +388,10 @@
     function openEmotesPanel() {
         if (document.getElementById('sc-emotes-panel')) return;
         injectEmotesPanelCss();
-        if (!_scEmoteData.length) refreshEmoteData();
+        // allowForceRender=true: only here, in direct response to the user
+        // opening the panel, is the disruptive native-popup click-dance
+        // permitted (see computeEmoteList()/scrapeEmotesFallback() above).
+        if (!_scEmoteData.length) refreshEmoteData(true);
 
         const panel = document.createElement('div');
         panel.id = 'sc-emotes-panel';
