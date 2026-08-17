@@ -135,6 +135,17 @@
       ]
     },
     {
+      "id": "emote-picker",
+      "name": "Emote Picker",
+      "category": "Chat & Media",
+      "locked": false,
+      "defaultOn": true,
+      "files": [
+        "src/pc/modules/emote-picker/index.js"
+      ],
+      "dependsOn": ["core"]
+    },
+    {
       "id": "chatimages",
       "name": "Chat Images",
       "category": "Chat & Media",
