@@ -20,6 +20,7 @@
     const LS_GIF_OPTIMIZE = 'sc_gif_optimize'; // shared with cytube.gifmaker.user.js
     const LS_AUTOEMBED   = 'sc_autoembed_images';
     const LS_MOVIE_LEAD  = 'sc_movie_lead_sec'; // seconds to run ahead of sync during movies (not YouTube); 0 = off
+    const LS_EMOTE_PANEL_POS = 'sc_emote_panel_pos'; // JSON {left, top} -- dragged position of the custom emote picker panel
     const getKey   = id => localStorage.getItem(id) || '';
     const setKey   = (id, v) => localStorage.setItem(id, v.trim());
     const hasKey   = id => !!getKey(id);
