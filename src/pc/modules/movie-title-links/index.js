@@ -98,13 +98,26 @@
     // unrelated-but-plausible titles instead of zero results (confirmed
     // against "Whiplash", which has both a 2013 short and the 2014 feature
     // under the identical name) — worse than TMDB's zero-results failure
-    // mode at movie-title-links/index.js:85-90. So: search title-only, then
-    // prefer an edge whose releaseYear matches AND titleType.id === 'movie'
-    // (the movie-type filter matters — a plain year match could otherwise
-    // land on a same-named short/video instead of the real feature), falling
-    // back to the first movie-typed edge (relevance order) if nothing
-    // matches the year.
-    const IMDB_MAIN_SEARCH_QUERY = 'query MainSearch($term: String!) { mainSearch(first: 5, options: { searchTerm: $term, type: TITLE }) { edges { node { entity { ... on Title { id titleText { text } releaseYear { year } titleType { text id isSeries isEpisode } } } } } } }';
+    // mode at movie-title-links/index.js:85-90. So: search title-only
+    // (first: 20 — franchises with heavy fan-video/short/podcast coverage
+    // can bury the real film past the first handful of IMDb's relevance-
+    // ordered results; confirmed live for "Friday the 13th Part 3", where
+    // the 1982 film only appears at position 7), then narrow to
+    // titleType.id === 'movie' (matters — a plain year match could
+    // otherwise land on a same-named short/video instead of the real
+    // feature; NOTE this alone isn't sufficient either, since IMDb tags
+    // some fan-made shorts/compilations as titleType "movie" too), then
+    // among the movie-typed pool prefer an edge whose releaseYear matches,
+    // breaking ties (or falling back, if no edge or no year matches) by
+    // highest ratingsSummary.voteCount rather than raw relevance order —
+    // real theatrical releases outvote fan content by orders of magnitude,
+    // which also resolves the "Whiplash" short-vs-feature case above without
+    // needing the year filter to be exact.
+    const IMDB_MAIN_SEARCH_QUERY = 'query MainSearch($term: String!) { mainSearch(first: 20, options: { searchTerm: $term, type: TITLE }) { edges { node { entity { ... on Title { id titleText { text } releaseYear { year } titleType { text id isSeries isEpisode } ratingsSummary { voteCount } } } } } } }';
+
+    function byVoteCountDesc(a, b) {
+        return (b.ratingsSummary?.voteCount ?? 0) - (a.ratingsSummary?.voteCount ?? 0);
+    }
 
     async function imdbSearchTitle(title, year) {
         if (!title) return null;
@@ -114,9 +127,9 @@
             const results = edges.map(e => e?.node?.entity).filter(Boolean);
             const movies = results.filter(r => r.titleType?.id === 'movie');
             const pool = movies.length ? movies : results;
-            let best = null;
-            if (year) best = pool.find(r => String(r.releaseYear?.year) === String(year)) || null;
-            if (!best) best = pool[0] || null;
+            const yearMatches = year ? pool.filter(r => String(r.releaseYear?.year) === String(year)) : [];
+            const candidates = yearMatches.length ? yearMatches : pool;
+            const best = candidates.slice().sort(byVoteCountDesc)[0] || null;
             if (!best) return null;
             return {
                 tconst: best.id,
