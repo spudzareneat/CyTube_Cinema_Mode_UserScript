@@ -289,19 +289,28 @@
                00-layout-core.css already uses for other panels/buttons
                (e.g. #sc-poll-panel, #sc-emote-proxy). Default spawn point
                anchors near #sc-emote-proxy's own corner per layout, not
-               screen-center like the GIF/caption panels. Only applies
-               while no saved position exists -- openEmotesPanel() sets
-               explicit left/top inline (clearing right/bottom) once a
-               drag has been saved. */
+               screen-center like the GIF/caption panels -- but offset
+               *past* the button's own footprint (00-layout-core.css:
+               #fs-toggle-btn, #sc-emote-proxy is a 28px circle, 1px
+               border) rather than directly on top of it, so the trigger
+               stays clickable (and therefore closeable) once the panel
+               is open instead of being buried under it (z-index 30002
+               vs. the proxy's 20002). Only applies while no saved
+               position exists -- openEmotesPanel() sets explicit
+               left/top inline (clearing right/bottom) once a drag has
+               been saved. */
             body.sc-horizontal #sc-emotes-panel {
-                bottom: 6px !important; right: 8px !important;
+                /* proxy: bottom 6px, 28px + 1px border tall -> top edge
+                   sits ~36px up; clear it with a bit of breathing room */
+                bottom: 44px !important; right: 8px !important;
                 width: 420px !important; max-height: 46vh !important;
             }
             body.sc-horizontal .sc-emotes-grid {
                 grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)) !important;
             }
             body.sc-vertical #sc-emotes-panel {
-                bottom: 18px !important; right: 8px !important;
+                /* proxy: bottom 18px, ~30px tall -> top edge ~48px up */
+                bottom: 56px !important; right: 8px !important;
                 width: 280px !important; max-height: 66vh !important;
             }
             body.sc-vertical .sc-emotes-grid {
@@ -410,22 +419,29 @@
     }
     function toggleFavorite(name) {
         if (!name) return;
-        if (_scEmoteFavorites.has(name)) _scEmoteFavorites.delete(name);
-        else _scEmoteFavorites.add(name);
+        const isFav = !_scEmoteFavorites.has(name);
+        if (isFav) _scEmoteFavorites.add(name);
+        else _scEmoteFavorites.delete(name);
         saveFavorites();
-        refreshFavoritesUI();
+        refreshFavoritesUI(name, isFav);
     }
-    // Re-renders both the main grid's star states and the pinned row
-    // after a toggle, without disturbing the active search filter.
-    // No-op if the panel isn't open (toggling only ever happens from
-    // a click/keypress on an already-rendered star, so this is mostly
-    // defensive).
-    function refreshFavoritesUI() {
-        const grid = document.getElementById('sc-emotes-grid');
+    // Updates the UI after a toggle WITHOUT rebuilding the main grid --
+    // rebuilding it (grid.innerHTML = ...) used to reset its scrollTop
+    // to 0 and destroy/recreate whatever tile currently held keyboard
+    // focus, so starring an emote after scrolling down (or starring
+    // several in a row via keyboard/D-pad) threw the user back to the
+    // top and dropped focus to <body> every time. A tile's presence in
+    // the main grid never depends on favorite status, so its star is
+    // just mutated in place (there may be a second matching star in the
+    // pinned favorites row too -- both get updated, neither destroyed).
+    // The pinned row's *tile membership* does change on every toggle
+    // (the emote needs to appear/disappear there), so that row alone is
+    // still fully re-rendered here.
+    function refreshFavoritesUI(name, isFav) {
+        document.querySelectorAll('#sc-emotes-panel .sc-emotes-star').forEach(star => {
+            if (star.dataset.emoteName === name) setEmoteStarState(star, isFav);
+        });
         const favRow = document.getElementById('sc-emotes-favorites');
-        if (!grid && !favRow) return;
-        const search = document.getElementById('sc-emotes-search');
-        if (grid) renderEmoteGrid(grid, _scEmoteData, search ? search.value : '');
         if (favRow) renderFavoritesRow(favRow, _scEmoteData);
     }
 
@@ -451,6 +467,26 @@
         return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
     }
 
+    // Shared between renderEmoteTile() (initial markup) and
+    // setEmoteStarState() (in-place toggle update, see refreshFavoritesUI()
+    // above) so the two never drift on wording.
+    function _emoteStarLabel(isFav) {
+        return isFav ? 'Remove from favorites' : 'Add to favorites';
+    }
+
+    // Mutates an already-rendered star in place -- glyph, active class,
+    // aria-pressed/aria-label/title -- without touching the tile/button
+    // it lives in. Used by refreshFavoritesUI() so toggling a favorite
+    // never has to destroy and recreate the grid (or favorites row) DOM.
+    function setEmoteStarState(star, isFav) {
+        star.classList.toggle('sc-emotes-star-active', isFav);
+        star.setAttribute('aria-pressed', isFav ? 'true' : 'false');
+        const label = _emoteStarLabel(isFav);
+        star.setAttribute('aria-label', label);
+        star.title = label;
+        star.textContent = isFav ? '★' : '☆';
+    }
+
     // Shared tile markup for both the main grid and the pinned favorites
     // row -- keeps the two renderers from carrying near-duplicate copies
     // of this template. The tile itself is a <button> (click = insert),
@@ -462,7 +498,7 @@
     // injectEmotesPanelCss()) so it actually receives clicks.
     function renderEmoteTile(e, isFav) {
         const name = _emoteEscHtml(e.name);
-        const starLabel = isFav ? 'Remove from favorites' : 'Add to favorites';
+        const starLabel = _emoteStarLabel(isFav);
         return `<button type="button" class="sc-emotes-tile" data-emote-name="${name}">` +
                 `<img src="${_emoteEscHtml(e.image)}" alt="${name}" title="${name}" loading="lazy">` +
                 `<span class="sc-emotes-tile-actions">` +
@@ -567,6 +603,28 @@
         });
 
         panel.querySelector('#sc-emotes-close').addEventListener('click', closeEmotesPanel);
+
+        // Core's document-level keydown listener (12-playback-sync-and-
+        // seek.js, ~line 229) only bails out for TEXTAREA/INPUT/
+        // contenteditable targets -- a focused emote tile or star
+        // (<button>/<span role="button">) isn't excluded, so without this
+        // it preventDefault()'s Space before the tile's own click/
+        // activation happens (no insert, plus a desync-catchup seek) and
+        // preventDefault()'s ArrowLeft/ArrowRight anywhere in the panel
+        // for its YouTube-style seek, which also kills the browser's
+        // native arrow-key focus movement between grid tiles. Capturing
+        // at the panel level (not just #sc-emotes-body) covers the
+        // header/close button too. stopPropagation() only -- never
+        // preventDefault() -- so native behavior (button activation,
+        // focus movement, typing/spacebar in #sc-emotes-search) is left
+        // completely alone; this only keeps the event from bubbling up
+        // to core's document listener. Same pattern as gifmaker's
+        // overviewTrack keydown guard (src/pc/modules/gifmaker/index.js
+        // ~line 1748).
+        const CORE_SEEK_KEYS = new Set(['Escape', 'ArrowLeft', 'ArrowRight', ' ', 'Spacebar']);
+        panel.addEventListener('keydown', (e) => {
+            if (CORE_SEEK_KEYS.has(e.key)) e.stopPropagation();
+        });
 
         // Apply a saved drag position (clamped against the panel's actual
         // rendered size, in case the viewport shrank since it was saved).
