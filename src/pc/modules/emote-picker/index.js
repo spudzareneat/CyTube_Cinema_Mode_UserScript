@@ -621,7 +621,12 @@
         // to core's document listener. Same pattern as gifmaker's
         // overviewTrack keydown guard (src/pc/modules/gifmaker/index.js
         // ~line 1748).
-        const CORE_SEEK_KEYS = new Set(['Escape', 'ArrowLeft', 'ArrowRight', ' ', 'Spacebar']);
+        // Deliberately excludes 'Escape': core's handler never preventDefault()s
+        // or seeks on it, so suppressing it here isn't needed -- and doing so
+        // would silently break other modules' own document-level Escape-to-close
+        // handlers (movie-title-links' Now Playing card, imdb-trivia's Trivia
+        // card) whenever their overlay is open while this panel is too.
+        const CORE_SEEK_KEYS = new Set(['ArrowLeft', 'ArrowRight', ' ', 'Spacebar']);
         panel.addEventListener('keydown', (e) => {
             if (CORE_SEEK_KEYS.has(e.key)) e.stopPropagation();
         });
