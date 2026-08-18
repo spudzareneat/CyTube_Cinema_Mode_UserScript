@@ -13,6 +13,17 @@
        the layout cost of CyTube's own always-expanded queue UI.
     ========================================================== */
 
+    // Playlist titles are free-form text any user at/above the channel's
+    // playlist-add rank can set arbitrarily (e.g. via "add custom/raw file"),
+    // unlike usernames (server-constrained to [\w-]) -- must be escaped before
+    // going into panel.innerHTML in renderPanel() below, or a title like
+    // "<img src=x onerror=...>" would execute. Same small-helper shape used
+    // elsewhere in this repo for the same purpose (imdb-trivia/index.js,
+    // grammar-check/index.js, etc.).
+    function _upnextEscHtml(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
     function canSeeQueue() {
         try {
             const rank = _uw.CLIENT && typeof _uw.CLIENT.rank === 'number' ? _uw.CLIENT.rank : -Infinity;
@@ -67,8 +78,8 @@
                 return;
             }
             panel.innerHTML = entries.map(entry => {
-                const title = entry.querySelector('.qe_title')?.textContent?.trim() || '';
-                const time = entry.querySelector('.qe_time')?.textContent?.trim() || '';
+                const title = _upnextEscHtml(entry.querySelector('.qe_title')?.textContent?.trim() || '');
+                const time = _upnextEscHtml(entry.querySelector('.qe_time')?.textContent?.trim() || '');
                 const isNowPlaying = entry.classList.contains('queue_active');
                 const row = `<div class="sc-upnext-row"><span class="sc-upnext-title">${title}</span><span class="sc-upnext-time">${time}</span></div>`;
                 return isNowPlaying
@@ -93,6 +104,13 @@
                 renderPanel();
                 panel.style.display = 'block';
                 btn.classList.add('sc-upnext-btn-active');
+                // #queue holds the WHOLE playlist, including already-played
+                // entries above .queue_active -- jump straight to Now Playing
+                // on open so a long-running playlist doesn't open scrolled to
+                // stale history. Only on open (not on background refreshes
+                // from the MutationObserver below), and after display:block
+                // so the row has layout to scroll to.
+                panel.querySelector('.sc-upnext-nowplaying')?.scrollIntoView({ block: 'start' });
             } else {
                 panel.style.display = 'none';
                 btn.classList.remove('sc-upnext-btn-active');
