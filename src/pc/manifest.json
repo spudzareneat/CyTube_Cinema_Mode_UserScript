@@ -179,6 +179,24 @@
       "dependsOn": ["core"]
     },
     {
+      "id": "up-next",
+      "name": "Up Next",
+      "category": "Playback",
+      "locked": false,
+      "defaultOn": true,
+      "files": [
+        "src/pc/modules/up-next/index.js"
+      ],
+      "cssFiles": [
+        "src/pc/modules/up-next/style.css"
+      ],
+      "dependsOn": ["core"],
+      "features": [
+        "Shows CyTube's native upcoming-queue list from a header button",
+        "Automatically hides itself if the channel doesn't allow you to see the queue"
+      ]
+    },
+    {
       "id": "gifmaker",
       "name": "GIF Maker",
       "category": "Chat & Media",
