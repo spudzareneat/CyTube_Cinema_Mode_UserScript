@@ -1,0 +1,101 @@
+            /* ===== UP NEXT (QUEUE) BUTTON + PANEL =====
+               Scoped to #sc-upnext-btn/#sc-upnext-panel (and this module's own
+               content classes) so the module stays self-contained and
+               removable without touching core CSS. Button styling mirrors
+               #sc-usercount-btn/#sc-poll-btn; panel styling mirrors
+               #sc-users-panel -- both in core/css/00-layout-core.css
+               (#sc-poll-panel has no dedicated CSS in this codebase to copy
+               from instead). */
+            #sc-upnext-btn {
+                background: transparent !important;
+                border: none !important;
+                font-size: 10px !important;
+                font-weight: 700 !important;
+                letter-spacing: 0.06em !important;
+                text-transform: uppercase !important;
+                color: rgba(255,255,255,0.5) !important;
+                cursor: pointer !important;
+                padding: 0 4px !important;
+                font-family: inherit !important;
+                transition: color 0.2s !important;
+                line-height: 28px !important;
+            }
+            #sc-upnext-btn:hover { color: rgba(255,255,255,0.9) !important; }
+            #sc-upnext-btn.sc-upnext-btn-active { color: white !important; }
+
+            /* Queue panel — drops down from the button, same footprint/style
+               as #sc-users-panel. */
+            #sc-upnext-panel {
+                position: fixed !important;
+                top: 28px !important;
+                right: 5px !important;
+                width: calc(var(--sc-chat-w) - 5px) !important;
+                z-index: 19000 !important;
+                background: rgba(10,10,20,0.95) !important;
+                border: 1px solid #aaaaaa !important;
+                border-top: none !important;
+                border-radius: 0 0 0 8px !important;
+                padding: 10px 12px !important;
+                color: rgba(255,255,255,0.88) !important;
+                font-size: 12px !important;
+                line-height: 1.6 !important;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.7) !important;
+                max-height: 60vh !important;
+                overflow-y: auto !important;
+                scrollbar-width: thin !important;
+                scrollbar-color: rgba(255,255,255,0.15) transparent !important;
+                display: none;
+            }
+            body.sc-vertical #sc-upnext-panel {
+                top: auto !important;
+                bottom: var(--sc-chat-h) !important;
+                right: 5px !important;
+                width: calc(100vw - 5px) !important;
+                max-height: 40vh !important;
+            }
+
+            .sc-upnext-empty {
+                color: rgba(255,255,255,0.4) !important;
+                font-style: italic !important;
+                padding: 2px 0 !important;
+            }
+
+            .sc-upnext-entry {
+                padding: 4px 0 !important;
+                border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+            }
+            .sc-upnext-entry:last-child { border-bottom: none !important; }
+
+            .sc-upnext-row {
+                display: flex !important;
+                align-items: baseline !important;
+                justify-content: space-between !important;
+                gap: 8px !important;
+            }
+            .sc-upnext-title {
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                white-space: nowrap !important;
+            }
+            .sc-upnext-time {
+                color: rgba(255,255,255,0.4) !important;
+                font-size: 11px !important;
+                flex-shrink: 0 !important;
+            }
+
+            /* Now-playing entry gets its own labeled, lightly-highlighted row
+               so it visually reads as distinct from the upcoming queue. */
+            .sc-upnext-nowplaying {
+                background: rgba(255,255,255,0.06) !important;
+                border-radius: 4px !important;
+                padding: 6px 8px !important;
+                margin-bottom: 6px !important;
+            }
+            .sc-upnext-nowplaying-label {
+                font-size: 10px !important;
+                font-weight: 700 !important;
+                letter-spacing: 0.06em !important;
+                text-transform: uppercase !important;
+                color: rgba(255,255,255,0.45) !important;
+                margin-bottom: 3px !important;
+            }
