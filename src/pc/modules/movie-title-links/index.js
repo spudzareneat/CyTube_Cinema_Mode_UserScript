@@ -113,6 +113,18 @@
     // real theatrical releases outvote fan content by orders of magnitude,
     // which also resolves the "Whiplash" short-vs-feature case above without
     // needing the year filter to be exact.
+    //
+    // Edge case: when a channel plays a TV episode (rare here, but it
+    // happens), there's no 'movie'-typed result to fall back on, so the
+    // old code fell straight through to the raw `results` pool and could
+    // land on a podcastEpisode *about* that episode (rewatch/recap shows
+    // often reuse the episode's exact title and can out-vote the real
+    // tvEpisode entry). Give titleType.id === 'tvEpisode' its own
+    // second-priority pool -- ahead of anything else -- so a genuine
+    // episode match always wins over commentary/podcast content with the
+    // same title. Only once neither a movie nor a tvEpisode is found do we
+    // fall back to the full pool, and even then podcastEpisode entries are
+    // deprioritized rather than allowed to win by vote count.
     const IMDB_MAIN_SEARCH_QUERY = 'query MainSearch($term: String!) { mainSearch(first: 20, options: { searchTerm: $term, type: TITLE }) { edges { node { entity { ... on Title { id titleText { text } releaseYear { year } titleType { text id isSeries isEpisode } ratingsSummary { voteCount } } } } } } }';
 
     function byVoteCountDesc(a, b) {
@@ -126,7 +138,12 @@
             const edges = data?.data?.mainSearch?.edges || [];
             const results = edges.map(e => e?.node?.entity).filter(Boolean);
             const movies = results.filter(r => r.titleType?.id === 'movie');
-            const pool = movies.length ? movies : results;
+            const tvEpisodes = results.filter(r => r.titleType?.id === 'tvEpisode');
+            const nonPodcast = results.filter(r => r.titleType?.id !== 'podcastEpisode');
+            const pool = movies.length ? movies
+                : tvEpisodes.length ? tvEpisodes
+                : nonPodcast.length ? nonPodcast
+                : results;
             const yearMatches = year ? pool.filter(r => String(r.releaseYear?.year) === String(year)) : [];
             const candidates = yearMatches.length ? yearMatches : pool;
             const best = candidates.slice().sort(byVoteCountDesc)[0] || null;
