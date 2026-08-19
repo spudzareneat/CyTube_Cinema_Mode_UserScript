@@ -165,6 +165,8 @@
                 white-space: nowrap !important;
                 overflow: hidden !important;
                 text-overflow: ellipsis !important;
+            }
+            .sc-users-panel-name.sc-users-panel-actionable {
                 cursor: pointer !important;
             }
             /* Same fixed-width emoji slot as #messagebuffer .username[data-emoji]::before */

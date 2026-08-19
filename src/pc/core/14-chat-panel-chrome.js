@@ -312,16 +312,18 @@
 
         let open = false;
 
+        // CyTube structure: <span>(rank icon)</span><span (optional class)>Name</span>
+        // The second span always contains the username.
+        const readItemUsername = (item) => {
+            const spans = item.querySelectorAll('span');
+            const nameSpan = spans.length >= 2 ? spans[1] : spans[0];
+            return nameSpan?.textContent?.trim() || '';
+        };
+
         const getUsers = () => {
             const items = [...document.querySelectorAll('#userlist .userlist_item')];
             return items
-                .map(item => {
-                    // CyTube structure: <span>(rank icon)</span><span (optional class)>Name</span>
-                    // Get the second span which always contains the username
-                    const spans = item.querySelectorAll('span');
-                    const nameSpan = spans.length >= 2 ? spans[1] : spans[0];
-                    return nameSpan?.textContent?.trim() || '';
-                })
+                .map(readItemUsername)
                 .filter(Boolean)
                 .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
         };
@@ -342,11 +344,7 @@
         // native item by re-reading the same visible span getUsers() reads.
         const findUserItem = (name) => {
             const items = [...document.querySelectorAll('#userlist .userlist_item')];
-            return items.find(item => {
-                const spans = item.querySelectorAll('span');
-                const nameSpan = spans.length >= 2 ? spans[1] : spans[0];
-                return (nameSpan?.textContent?.trim() || '') === name;
-            }) || null;
+            return items.find(item => readItemUsername(item) === name) || null;
         };
 
         // CyTube never adds these buttons for the local user's own item, so their
@@ -379,7 +377,10 @@
                     const color = resolveUserColor(u);
                     const emoji = getExternalUserEmoji(u);
                     const emojiHtml = emoji ? `<span class="sc-users-panel-emoji">${emoji}</span>` : '';
-                    return `<div class="sc-users-panel-name" style="color:${color}">${emojiHtml}${u}</div>`;
+                    const item = findUserItem(u);
+                    const { ignoreBtn, pmBtn } = item ? getUserActionButtons(item) : { ignoreBtn: null, pmBtn: null };
+                    const actionableClass = (ignoreBtn || pmBtn) ? ' sc-users-panel-actionable' : '';
+                    return `<div class="sc-users-panel-name${actionableClass}" style="color:${color}">${emojiHtml}${u}</div>`;
                 }).join('')}
             `;
 
@@ -449,9 +450,17 @@
         // Update count and panel when userlist changes
         const ul = document.getElementById('userlist');
         if (ul) {
-            new MutationObserver(() => {
+            new MutationObserver(muts => {
                 updateCount();
-                if (open) renderPanel();
+                if (!open) return;
+                // Clicking Ignore in our panel calls the native button's own click
+                // handler, which mutates that button's text node inside its
+                // .user-dropdown -- a childList change under #userlist that isn't a
+                // join/leave. Re-rendering on it would wipe the actions row (and its
+                // just-flipped label) we're mid-update on, so only real userlist
+                // changes outside any .user-dropdown should trigger a re-render.
+                const relevant = muts.some(m => !m.target.closest || !m.target.closest('.user-dropdown'));
+                if (relevant) renderPanel();
             }).observe(ul, { childList: true, subtree: true });
         }
 
