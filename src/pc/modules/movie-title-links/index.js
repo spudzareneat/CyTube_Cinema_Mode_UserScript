@@ -125,10 +125,74 @@
     // same title. Only once neither a movie nor a tvEpisode is found do we
     // fall back to the full pool, and even then podcastEpisode entries are
     // deprioritized rather than allowed to win by vote count.
+    //
+    // Follow-up fix: the above tiebreak-by-votes logic had no title check at
+    // all, so an obscure title with no same-year candidate in the top-20
+    // would fall back to picking the whole pool's most-voted entry regardless
+    // of title -- confirmed live for "Island of the Living Dead (2007)"
+    // resolving to "Pirates of the Caribbean: Dead Man's Chest (2006)" and
+    // "Star Crystal (1984)" resolving to "Indiana Jones and the Kingdom of
+    // the Crystal Skull (2008)". imdbSearchTitle now requires titlesMatch()
+    // (normalized word-set similarity, roman/arabic tolerant) before a
+    // candidate is eligible at all; year is still only a tiebreaker among
+    // title matches, never a filter dropped in favor of an unrelated title.
+    // Also confirmed live: IMDb tags some direct-to-video genre titles (e.g.
+    // "Island of the Living Dead" itself) as titleType 'video', not 'movie'
+    // -- so tier fallthrough (movie -> tvEpisode -> nonPodcast -> results) now
+    // advances based on whether a tier has a title-matching candidate, not
+    // merely whether the tier is non-empty; otherwise an unrelated same-tier
+    // 'movie' result (e.g. "Night of the Living Dead", which shares enough
+    // generic words to no longer be a risk post-titlesMatch, but was before
+    // stopword-stripping was added) could still block the loop from ever
+    // reaching the tier holding the real title.
     const IMDB_MAIN_SEARCH_QUERY = 'query MainSearch($term: String!) { mainSearch(first: 20, options: { searchTerm: $term, type: TITLE }) { edges { node { entity { ... on Title { id titleText { text } releaseYear { year } titleType { text id isSeries isEpisode } ratingsSummary { voteCount } } } } } } }';
 
     function byVoteCountDesc(a, b) {
         return (b.ratingsSummary?.voteCount ?? 0) - (a.ratingsSummary?.voteCount ?? 0);
+    }
+
+    // Sequel numbering swaps freely between roman and arabic ("Part III" vs
+    // "Part 3") between how the stream/schedule names a title and how IMDb's
+    // own titleText spells it -- normalize both to arabic so they compare
+    // equal. Deliberately excludes bare I/V/X: those collide with the pronoun
+    // "I", rating-board "V"/"X", etc. far too often in real titles to treat
+    // as numerals.
+    const ROMAN_NUMERALS = {
+        ii: 2, iii: 3, iv: 4, vi: 6, vii: 7, viii: 8, ix: 9,
+        xi: 11, xii: 12, xiii: 13, xiv: 14, xv: 15,
+        xvi: 16, xvii: 17, xviii: 18, xix: 19, xx: 20,
+    };
+
+    function normalizeTitle(s) {
+        return (s || '')
+            .toLowerCase()
+            .replace(/^(the|a|an)\s+/, '')
+            .split(/[^a-z0-9]+/)
+            .filter(Boolean)
+            .map(w => ROMAN_NUMERALS[w] !== undefined ? String(ROMAN_NUMERALS[w]) : w)
+            .join(' ');
+    }
+
+    // Excluded from the token sets before comparing -- otherwise formulaic
+    // genre titles that share only connector words (e.g. "Island of the
+    // Living Dead" vs "Night of the Living Dead") clear the similarity bar on
+    // "of"/"the"/"living"/"dead" alone despite being unrelated films.
+    const TITLE_STOPWORDS = new Set(['a', 'an', 'the', 'of', 'and']);
+
+    function titleTokens(s) {
+        return new Set(normalizeTitle(s).split(' ').filter(w => w && !TITLE_STOPWORDS.has(w)));
+    }
+
+    // Dice coefficient over normalized, stopword-stripped word sets --
+    // tolerant of punctuation, subtitle, and roman/arabic differences, but
+    // still confidently rejects an unrelated title (near-zero token overlap).
+    function titlesMatch(a, b) {
+        const setA = titleTokens(a);
+        const setB = titleTokens(b);
+        if (!setA.size || !setB.size) return false;
+        let intersection = 0;
+        for (const w of setA) if (setB.has(w)) intersection++;
+        return (2 * intersection) / (setA.size + setB.size) >= 0.7;
     }
 
     async function imdbSearchTitle(title, year) {
@@ -140,12 +204,29 @@
             const movies = results.filter(r => r.titleType?.id === 'movie');
             const tvEpisodes = results.filter(r => r.titleType?.id === 'tvEpisode');
             const nonPodcast = results.filter(r => r.titleType?.id !== 'podcastEpisode');
-            const pool = movies.length ? movies
-                : tvEpisodes.length ? tvEpisodes
-                : nonPodcast.length ? nonPodcast
-                : results;
-            const yearMatches = year ? pool.filter(r => String(r.releaseYear?.year) === String(year)) : [];
-            const candidates = yearMatches.length ? yearMatches : pool;
+            // A candidate must actually resemble the query title before it's
+            // eligible at all -- year is only a tiebreaker among title
+            // matches, never a filter we fall back off of onto an unrelated
+            // popular title (that was the bug: an obscure title with no
+            // same-year candidate in the fuzzy top-20 would silently fall
+            // back to picking the whole pool's most-voted entry, regardless
+            // of title).
+            //
+            // Advance to the next tier only when the current one has no
+            // title-matching candidate at all (not merely when it's empty) --
+            // some genre titles (e.g. direct-to-video releases) are tagged a
+            // titleType other than 'movie' on IMDb, so a same-named-but-wrong
+            // 'movie' entry must not block the loop from ever reaching the
+            // tier that actually holds the real title.
+            const tiers = [movies, tvEpisodes, nonPodcast, results];
+            let titleMatches = [];
+            for (const tier of tiers) {
+                titleMatches = tier.filter(r => titlesMatch(r.titleText?.text, title));
+                if (titleMatches.length) break;
+            }
+            if (!titleMatches.length) return null;
+            const yearMatches = year ? titleMatches.filter(r => String(r.releaseYear?.year) === String(year)) : [];
+            const candidates = yearMatches.length ? yearMatches : titleMatches;
             const best = candidates.slice().sort(byVoteCountDesc)[0] || null;
             if (!best) return null;
             return {
