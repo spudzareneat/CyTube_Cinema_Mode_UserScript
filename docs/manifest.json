@@ -58,7 +58,14 @@
       "connects": [
         "caching.graphql.imdb.com",
         "en.wikipedia.org"
-      ]
+      ],
+      "features": [
+        "Full-screen Now Playing info card auto-triggered on title change — backdrop, poster, title/year, rating, runtime, genres, synopsis",
+        "IMDb / Letterboxd / Wikipedia badge links",
+        "Color-coded parental-guide content-warning chips",
+        "Floating stats strip + I hotkey to reopen the card"
+      ],
+      "screenshot": "screenshots/movie-title-links.png"
     },
     {
       "id": "imdb-trivia",
@@ -73,11 +80,17 @@
       "cssFiles": [
         "src/pc/modules/imdb-trivia/style.css"
       ],
-      "dependsOn": ["core", "movie-title-links"]
+      "dependsOn": ["core", "movie-title-links"],
+      "features": [
+        "\"Trivia\" button appears once a movie is identified",
+        "Opens a floating panel of real IMDb trivia facts (T hotkey too)",
+        "Cached per-title"
+      ],
+      "screenshot": "screenshots/imdb-trivia.png"
     },
     {
       "id": "tonights-lineup",
-      "name": "Tonight's Lineup",
+      "name": "Weekend Grindhouse Schedule",
       "category": "Movie Info",
       "locked": false,
       "defaultOn": true,
@@ -94,7 +107,14 @@
       ],
       "connects": [
         "www.reddit.com"
-      ]
+      ],
+      "features": [
+        "Full-screen \"Coming Attractions\" overlay with Friday/Saturday/Sunday tabs",
+        "Each night's themed blocks get distinct color/font, with poster art for every film",
+        "Glowing NOW PLAYING badge + dims already-shown films; click a poster to open its Now Playing card",
+        "Optional experimental ETA timing toggle"
+      ],
+      "screenshot": "screenshots/tonights-lineup.png"
     },
     {
       "id": "tmdb",
@@ -113,6 +133,11 @@
       "connects": [
         "api.themoviedb.org",
         "raw.githubusercontent.com"
+      ],
+      "features": [
+        "Optional free API key upgrades poster/backdrop art quality (IMDb art is the fallback either way)",
+        "Adds a kill-count chip from a community horror database",
+        "Live key-validation Test button"
       ]
     },
     {
@@ -132,51 +157,83 @@
       "grants": [],
       "connects": [
         "api.languagetool.org"
+      ],
+      "features": [
+        "Checks chat messages for grammar/spelling/mixed-up words via LanguageTool before sending (3s timeout, never blocks send)",
+        "Flags ALL-CAPS, keyyysmash, excessive punctuation",
+        "Inline review popup with click-to-fix suggestions",
+        "Skips @mentions, #hashtags, and URLs"
       ]
     },
     {
       "id": "emote-picker",
       "name": "Emote Picker",
-      "category": "Chat & Media",
+      "category": "Chat",
       "locked": false,
       "defaultOn": true,
       "files": [
         "src/pc/modules/emote-picker/index.js"
       ],
-      "dependsOn": ["core"]
+      "dependsOn": ["core"],
+      "features": [
+        "Redesigned draggable emote panel — position remembered",
+        "Live search/filter, star-to-favorite with a pinned favorites row",
+        "Larger tiles with per-tile loading spinners, click-to-insert",
+        "Adapts to vertical/horizontal layout"
+      ],
+      "screenshot": "screenshots/emote-picker.png"
     },
     {
       "id": "chatimages",
-      "name": "Chat Images",
-      "category": "Chat & Media",
+      "name": "Embedded Chat Images",
+      "category": "Chat",
       "locked": false,
       "defaultOn": true,
       "files": [
         "src/pc/modules/chatimages/index.js"
       ],
-      "dependsOn": ["core"]
+      "dependsOn": ["core"],
+      "features": [
+        "Auto-embeds inline image previews under chat messages linking directly to images",
+        "Per-image toggle between thumbnail/link view",
+        "Per-user \"hide\"/\"unban\" mute for specific image URLs",
+        "Keeps chat scrolled to bottom as embeds load"
+      ],
+      "screenshot": "screenshots/chatimages.png"
     },
     {
       "id": "movie-lead-time",
-      "name": "Movie Lead Time",
+      "name": "Movie Sync Adjustment",
       "category": "Playback",
       "locked": false,
       "defaultOn": true,
       "files": [
         "src/pc/modules/movie-lead-time/index.js"
       ],
-      "dependsOn": ["core"]
+      "dependsOn": ["core"],
+      "features": [
+        "Keeps local playback a few seconds ahead of the group's synced position during movies (not YouTube)",
+        "So your own buffering doesn't drop you out of sync",
+        "Adjustable 0-10s lead time via settings-modal field, 0 = off"
+      ]
     },
     {
       "id": "subtitles",
-      "name": "Subtitle Sync",
+      "name": "Subtitle Support",
       "category": "Playback",
       "locked": false,
       "defaultOn": true,
       "files": [
         "src/pc/modules/subtitles/index.js"
       ],
-      "dependsOn": ["core"]
+      "dependsOn": ["core"],
+      "features": [
+        "Load a local .srt/.vtt file, synced via native browser captions",
+        "Fine-tune offset with quick buttons/keyboard shortcuts",
+        "Adjustable caption size + drag-to-position on screen (both persisted)",
+        "One-click OpenSubtitles search; auto-restores your subtitles for ~6h per movie"
+      ],
+      "screenshot": "screenshots/subtitles.png"
     },
     {
       "id": "up-next",
@@ -205,7 +262,7 @@
     {
       "id": "gifmaker",
       "name": "GIF Maker",
-      "category": "Chat & Media",
+      "category": "Media",
       "locked": false,
       "defaultOn": true,
       "files": [
@@ -222,7 +279,14 @@
       ],
       "requires": [
         "https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"
-      ]
+      ],
+      "features": [
+        "Capture any scene from the playing video as an animated GIF via a floating button",
+        "Scrubbable filmstrip with start/end handles",
+        "Meme-style top/bottom captions (color/shadow/wiggle) + effects (reverse, boomerang, speed, deep-fry, VHS, zoom-shake)",
+        "Adjustable FPS/width/aspect; download or one-click upload to ImgBB for a shareable link"
+      ],
+      "screenshot": "screenshots/gifmaker.png"
     }
   ]
 }

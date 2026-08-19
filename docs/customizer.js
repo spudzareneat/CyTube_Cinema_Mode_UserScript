@@ -204,6 +204,9 @@ function render() {
 
         for (const mod of modules) {
             const disabled = mod.locked || isRequiredByOthers(mod.id);
+            const card = document.createElement('div');
+            card.className = 'module-card' + (disabled ? ' module-card-disabled' : '');
+
             const row = document.createElement('label');
             row.className = 'module-row' + (disabled ? ' module-row-disabled' : '');
 
@@ -226,7 +229,29 @@ function render() {
 
             row.appendChild(checkbox);
             row.appendChild(label);
-            section.appendChild(row);
+            card.appendChild(row);
+
+            if (mod.screenshot) {
+                const img = document.createElement('img');
+                img.className = 'module-screenshot';
+                img.src = mod.screenshot;
+                img.alt = `${mod.name} screenshot`;
+                img.loading = 'lazy';
+                card.appendChild(img);
+            }
+
+            if (mod.features && mod.features.length) {
+                const list = document.createElement('ul');
+                list.className = 'module-features';
+                for (const feature of mod.features) {
+                    const item = document.createElement('li');
+                    item.textContent = feature;
+                    list.appendChild(item);
+                }
+                card.appendChild(list);
+            }
+
+            section.appendChild(card);
         }
 
         list.appendChild(section);
