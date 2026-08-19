@@ -191,9 +191,15 @@
         "src/pc/modules/up-next/style.css"
       ],
       "dependsOn": ["core"],
+      "grants": [
+        "GM_xmlhttpRequest"
+      ],
+      "connects": [
+        "bot.420grindhouseserver.com"
+      ],
       "features": [
-        "Shows CyTube's native upcoming-queue list from a header button",
-        "Automatically hides itself if the channel doesn't allow you to see the queue"
+        "Shows the channel's schedule/queue dashboard from a header button",
+        "Automatically hides itself if that dashboard isn't reachable"
       ]
     },
     {

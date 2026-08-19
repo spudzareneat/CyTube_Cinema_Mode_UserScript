@@ -31,6 +31,7 @@
             document.getElementById('sc-poster-toggle'),
             document.getElementById('sc-movie-links'),
             document.getElementById('sc-trivia-btn'),
+            document.getElementById('sc-upnext-btn'),
         ].filter(Boolean);
 
         const dim = () => {

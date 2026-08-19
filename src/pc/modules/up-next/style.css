@@ -1,101 +1,128 @@
             /* ===== UP NEXT (QUEUE) BUTTON + PANEL =====
-               Scoped to #sc-upnext-btn/#sc-upnext-panel (and this module's own
-               content classes) so the module stays self-contained and
-               removable without touching core CSS. Button styling mirrors
-               #sc-usercount-btn/#sc-poll-btn; panel styling mirrors
-               #sc-users-panel -- both in core/css/00-layout-core.css
-               (#sc-poll-panel has no dedicated CSS in this codebase to copy
-               from instead). */
+               Lives in the same floating top-bar row as #sc-trivia-btn
+               (imdb-trivia/style.css) rather than #sc-chat-header --
+               styling is a deliberate near-duplicate of #sc-trivia-btn's
+               own rule, not a copy of #sc-usercount-btn/#sc-poll-btn like
+               this module used before. The base `right` value here is
+               also a deliberate duplicate of #sc-trivia-btn's own slot
+               (both the horizontal calc() and the vertical 150px) -- see
+               index.js's POSITIONING comment for why: when trivia isn't
+               present, up-next should sit exactly where trivia would
+               have, not leave a gap. When trivia IS present, index.js
+               overrides `right` inline with a live-measured position, so
+               these values only matter for the "no trivia" case.
+               `right` is deliberately NOT !important (everything else
+               here is, matching this codebase's convention) -- a plain
+               inline style.right set from JS cannot beat an !important
+               stylesheet rule, so this property has to stay overridable
+               or index.js's live positioning would always lose to this
+               default and the button would never actually move. */
             #sc-upnext-btn {
+                position: fixed !important;
+                z-index: 10003 !important;
+                top: 0 !important;
+                right: calc(var(--sc-chat-w) + 1vw + 150px);
                 background: transparent !important;
                 border: none !important;
+                border-radius: 0 !important;
+                color: rgba(255,255,255,0.55) !important;
                 font-size: 10px !important;
-                font-weight: 700 !important;
                 letter-spacing: 0.06em !important;
                 text-transform: uppercase !important;
-                color: rgba(255,255,255,0.5) !important;
+                white-space: nowrap !important;
+                line-height: 1 !important;
                 cursor: pointer !important;
-                padding: 0 4px !important;
-                font-family: inherit !important;
-                transition: color 0.2s !important;
-                line-height: 28px !important;
+                padding: 2px 8px !important;
+                height: 20px !important;
+                display: flex !important;
+                align-items: center !important;
+                transition: opacity 1.5s ease, color 0.2s ease !important;
+                opacity: 1 !important;
+                pointer-events: auto !important;
             }
+            #sc-upnext-btn.sc-bar-dim { opacity: 0 !important; pointer-events: none !important; }
             #sc-upnext-btn:hover { color: rgba(255,255,255,0.9) !important; }
             #sc-upnext-btn.sc-upnext-btn-active { color: white !important; }
+            body.sc-vertical #sc-upnext-btn { right: 150px; top: 0 !important; }
 
-            /* Queue panel — drops down from the button, same footprint/style
-               as #sc-users-panel. */
+            /* Queue panel — drops from the button (top:22px, matching
+               #sc-trivia-panel's own offset for a 20px-tall button plus a
+               couple px of clearance). Fixed width (not tied to
+               --sc-chat-w) since the embedded page has its own
+               multi-column table that a narrow chat panel would crush;
+               capped to the viewport so it never overflows on small
+               screens. index.js sets `right` inline to track the button's
+               own live position (see POSITIONING in index.js); this rule
+               is only the fallback default. */
             #sc-upnext-panel {
                 position: fixed !important;
-                top: 28px !important;
-                right: 5px !important;
-                width: calc(var(--sc-chat-w) - 5px) !important;
+                top: 22px !important;
+                right: calc(var(--sc-chat-w) + 1vw + 150px); /* not !important -- see #sc-upnext-btn's comment above */
+                width: min(760px, calc(100vw - 10px)) !important;
+                height: 70vh !important;
                 z-index: 19000 !important;
                 background: rgba(10,10,20,0.95) !important;
                 border: 1px solid #aaaaaa !important;
-                border-top: none !important;
-                border-radius: 0 0 0 8px !important;
-                padding: 10px 12px !important;
-                color: rgba(255,255,255,0.88) !important;
-                font-size: 12px !important;
-                line-height: 1.6 !important;
+                border-radius: 8px !important;
                 box-shadow: 0 8px 32px rgba(0,0,0,0.7) !important;
-                max-height: 60vh !important;
-                overflow-y: auto !important;
-                scrollbar-width: thin !important;
-                scrollbar-color: rgba(255,255,255,0.15) transparent !important;
-                display: none;
+                overflow: hidden !important;
+                padding: 0 !important;
+                display: none; /* JS sets 'flex' on open -- see flex-direction below */
+                flex-direction: column !important;
             }
             body.sc-vertical #sc-upnext-panel {
-                top: auto !important;
-                bottom: var(--sc-chat-h) !important;
                 right: 5px !important;
-                width: calc(100vw - 5px) !important;
-                max-height: 40vh !important;
+                left: 5px !important;
+                width: auto !important;
+                height: 50vh !important;
             }
 
-            .sc-upnext-empty {
-                color: rgba(255,255,255,0.4) !important;
-                font-style: italic !important;
-                padding: 2px 0 !important;
-            }
-
-            .sc-upnext-entry {
-                padding: 4px 0 !important;
-                border-bottom: 1px solid rgba(255,255,255,0.08) !important;
-            }
-            .sc-upnext-entry:last-child { border-bottom: none !important; }
-
-            .sc-upnext-row {
+            /* Head bar (title + close) — same shape as #sc-trivia-head/
+               #sc-trivia-close (imdb-trivia/style.css), so the panel has a
+               real close affordance instead of being a bare edge-to-edge
+               iframe like it was before. */
+            #sc-upnext-head {
                 display: flex !important;
-                align-items: baseline !important;
+                align-items: center !important;
                 justify-content: space-between !important;
-                gap: 8px !important;
-            }
-            .sc-upnext-title {
-                overflow: hidden !important;
-                text-overflow: ellipsis !important;
-                white-space: nowrap !important;
-            }
-            .sc-upnext-time {
-                color: rgba(255,255,255,0.4) !important;
-                font-size: 11px !important;
+                padding: 8px 12px !important;
+                border-bottom: 1px solid rgba(255,255,255,0.1) !important;
                 flex-shrink: 0 !important;
             }
-
-            /* Now-playing entry gets its own labeled, lightly-highlighted row
-               so it visually reads as distinct from the upcoming queue. */
-            .sc-upnext-nowplaying {
-                background: rgba(255,255,255,0.06) !important;
-                border-radius: 4px !important;
-                padding: 6px 8px !important;
-                margin-bottom: 6px !important;
-            }
-            .sc-upnext-nowplaying-label {
-                font-size: 10px !important;
+            #sc-upnext-title {
+                font-size: 12px !important;
                 font-weight: 700 !important;
-                letter-spacing: 0.06em !important;
+                letter-spacing: 0.04em !important;
                 text-transform: uppercase !important;
-                color: rgba(255,255,255,0.45) !important;
-                margin-bottom: 3px !important;
+                color: rgba(255,255,255,0.7) !important;
+            }
+            #sc-upnext-close {
+                background: rgba(255,255,255,0.1) !important;
+                border: none !important;
+                color: #fff !important;
+                width: 24px !important;
+                height: 24px !important;
+                border-radius: 50% !important;
+                cursor: pointer !important;
+                font-size: 11px !important;
+                flex-shrink: 0 !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+            }
+            #sc-upnext-close:hover { background: rgba(255,255,255,0.2) !important; }
+
+            /* Iframe host — the remaining panel space below the head bar.
+               min-height:0 is required for a flex child to actually shrink
+               to fit instead of overflowing its column (a plain flex:1
+               alone doesn't override the iframe's intrinsic sizing). */
+            #sc-upnext-body {
+                flex: 1 !important;
+                min-height: 0 !important;
+            }
+            #sc-upnext-frame {
+                display: block !important;
+                width: 100% !important;
+                height: 100% !important;
+                border: none !important;
             }
