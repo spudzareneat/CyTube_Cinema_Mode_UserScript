@@ -337,8 +337,42 @@
                 `<span class="sc-usercount-part" title="Total users">👁 ${total}</span>`;
         };
 
+        // data-name only lives in jQuery's internal .data() cache, not as a real
+        // HTML attribute, so a rendered username has to be matched back to its
+        // native item by re-reading the same visible span getUsers() reads.
+        const findUserItem = (name) => {
+            const items = [...document.querySelectorAll('#userlist .userlist_item')];
+            return items.find(item => {
+                const spans = item.querySelectorAll('span');
+                const nameSpan = spans.length >= 2 ? spans[1] : spans[0];
+                return (nameSpan?.textContent?.trim() || '') === name;
+            }) || null;
+        };
+
+        // CyTube never adds these buttons for the local user's own item, so their
+        // absence (both null) is the source of truth for "is this me" — no separate
+        // CLIENT.name check needed.
+        const getUserActionButtons = (item) => {
+            const dropdown = item.querySelector('.user-dropdown');
+            if (!dropdown) return { ignoreBtn: null, pmBtn: null };
+            const buttons = [...dropdown.querySelectorAll('button')];
+            const ignoreBtn = buttons.find(b => /^(Ignore|Unignore) User$/.test(b.textContent.trim())) || null;
+            const pmBtn = buttons.find(b => b.textContent.trim() === 'Private Message') || null;
+            return { ignoreBtn, pmBtn };
+        };
+
+        let expandedRow = null;
+
+        const collapseActions = () => {
+            if (!expandedRow) return;
+            const actions = expandedRow.nextElementSibling;
+            if (actions && actions.classList.contains('sc-users-panel-actions')) actions.remove();
+            expandedRow = null;
+        };
+
         const renderPanel = () => {
             const users = getUsers();
+            expandedRow = null;
             panel.innerHTML = `
                 <div class="sc-users-panel-header">${users.length} connected</div>
                 ${users.map(u => {
@@ -348,6 +382,46 @@
                     return `<div class="sc-users-panel-name" style="color:${color}">${emojiHtml}${u}</div>`;
                 }).join('')}
             `;
+
+            [...panel.querySelectorAll('.sc-users-panel-name')].forEach((row, i) => {
+                const username = users[i];
+                row.addEventListener('click', () => {
+                    const item = findUserItem(username);
+                    if (!item) return;
+                    const { ignoreBtn, pmBtn } = getUserActionButtons(item);
+                    if (!ignoreBtn && !pmBtn) return;
+
+                    const wasExpanded = expandedRow === row;
+                    collapseActions();
+                    if (wasExpanded) return;
+
+                    const actions = document.createElement('div');
+                    actions.className = 'sc-users-panel-actions';
+
+                    if (ignoreBtn) {
+                        const ignoreToggle = document.createElement('button');
+                        ignoreToggle.textContent = ignoreBtn.textContent.trim();
+                        ignoreToggle.addEventListener('click', () => {
+                            ignoreBtn.click();
+                            ignoreToggle.textContent = ignoreBtn.textContent.trim();
+                        });
+                        actions.appendChild(ignoreToggle);
+                    }
+
+                    if (pmBtn) {
+                        const pmToggle = document.createElement('button');
+                        pmToggle.textContent = 'Private Message';
+                        pmToggle.addEventListener('click', () => {
+                            pmBtn.click();
+                            closePanel();
+                        });
+                        actions.appendChild(pmToggle);
+                    }
+
+                    row.after(actions);
+                    expandedRow = row;
+                });
+            });
         };
 
         const closePanel = () => {
