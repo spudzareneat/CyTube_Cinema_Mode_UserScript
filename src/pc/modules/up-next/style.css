@@ -16,7 +16,18 @@
                inline style.right set from JS cannot beat an !important
                stylesheet rule, so this property has to stay overridable
                or index.js's live positioning would always lose to this
-               default and the button would never actually move. */
+               default and the button would never actually move.
+
+               IS in core's getDimEls() idle-fade group, like
+               #sc-trivia-btn/#sc-poster-toggle -- but unlike either of
+               those, index.js actively drives _topBarIsOpen/_topBarWake
+               (the guard tonights-lineup's full-screen overlay uses, that
+               imdb-trivia never bothered with) so the button can't fade
+               out from under a user who's hovering it deciding whether to
+               click, or vanish while the panel is open. See index.js's
+               WAKE/WAKE-ON-HOVER comment for the mechanics -- confirmed
+               live that a plain hover-then-pause-then-click reliably
+               missed an already-dimmed button before this was added. */
             #sc-upnext-btn {
                 position: fixed !important;
                 z-index: 10003 !important;
@@ -120,9 +131,26 @@
                 flex: 1 !important;
                 min-height: 0 !important;
             }
+            /* Not !important -- index.js toggles the iframe's own
+               style.display between 'none' (while waiting on load/timeout)
+               and 'block' (once it actually loads); an !important rule
+               here would always beat that plain inline style the same way
+               it broke #sc-upnext-btn's positioning earlier (see that
+               comment above), permanently showing a blank frame instead of
+               the loading/error state underneath it. */
             #sc-upnext-frame {
-                display: block !important;
                 width: 100% !important;
                 height: 100% !important;
                 border: none !important;
+            }
+            .sc-upnext-loading,
+            .sc-upnext-error {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                height: 100% !important;
+                padding: 20px !important;
+                color: rgba(255,255,255,0.5) !important;
+                font-size: 13px !important;
+                text-align: center !important;
             }

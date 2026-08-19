@@ -248,15 +248,9 @@
         "src/pc/modules/up-next/style.css"
       ],
       "dependsOn": ["core"],
-      "grants": [
-        "GM_xmlhttpRequest"
-      ],
-      "connects": [
-        "bot.420grindhouseserver.com"
-      ],
       "features": [
         "Shows the channel's schedule/queue dashboard from a header button",
-        "Automatically hides itself if that dashboard isn't reachable"
+        "Shows a friendly message in the panel if that dashboard can't load"
       ]
     },
     {
