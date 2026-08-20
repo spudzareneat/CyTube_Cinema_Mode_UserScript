@@ -89,4 +89,19 @@
         _decorationObserverStarted = true;
         new MutationObserver(applyUserDecorations).observe(buf, { childList: true, subtree: true });
         applyUserDecorations();
+
+        // applyUserDecorations() above only re-runs on new #messagebuffer DOM
+        // nodes, but the emoji/color data comes from CHANNEL.js's raw source
+        // text, which CyTube populates asynchronously with no readiness event
+        // of its own. If the first pass lands before that text reflects the
+        // full userStyles map, messages already in the buffer stay wrong
+        // until an unrelated new message happens to arrive. Retry on a
+        // bounded interval (same shape as initChannelScriptAutoApprove in
+        // 04-channel-script-autoapprove.js) so backlog messages self-correct
+        // without needing new chat activity.
+        let tick = 0;
+        const retryTimer = setInterval(() => {
+            applyUserDecorations();
+            if (++tick > 40) clearInterval(retryTimer); // ~20s
+        }, 500);
     }
