@@ -294,12 +294,31 @@
                 flex: none !important; max-height: 100px !important; overflow-y: auto !important;
                 padding-bottom: 8px !important; margin-bottom: 2px !important;
                 border-bottom: 1px solid rgba(244,244,242,0.1) !important;
+                scrollbar-width: thin !important; scrollbar-color: rgba(244,244,242,0.2) #000 !important;
             }
+            .sc-emotes-favorites::-webkit-scrollbar { width: 10px !important; }
+            .sc-emotes-favorites::-webkit-scrollbar-track { background: #000 !important; }
+            .sc-emotes-favorites::-webkit-scrollbar-thumb {
+                background: rgba(244,244,242,0.2) !important; border-radius: 6px !important; border: 2px solid #000 !important;
+            }
+            .sc-emotes-favorites::-webkit-scrollbar-thumb:hover { background: #3ecbff !important; }
             .sc-emotes-favorites:empty {
                 display: none !important; padding: 0 !important; margin: 0 !important; border: none !important;
             }
             .sc-emotes-favorites .sc-emotes-tile {
                 flex: 0 0 60px !important; width: 60px !important;
+            }
+            /* Horizontal panel is wide enough (420px, see body.sc-horizontal
+               #sc-emotes-panel below) that 6 fixed 60px tiles + gaps fit
+               exactly -- but a *fixed* px basis doesn't shrink when the
+               scrollbar appears (once favorites overflow to a 2nd row),
+               so the scrollbar's own width used to steal enough room to
+               knock row 1 down to 5-per-line. Sizing each tile as a live
+               1/6 fraction of the row's current content width instead
+               makes it self-adjust to whatever room is actually left
+               (scrollbar or not), always landing on exactly 6 per line. */
+            body.sc-horizontal .sc-emotes-favorites .sc-emotes-tile {
+                flex: 0 0 calc((100% - 30px) / 6) !important; width: auto !important;
             }
 
             /* Orientation-aware sizing/placement -- mirrors the pattern
@@ -332,6 +351,44 @@
             }
             body.sc-vertical .sc-emotes-grid {
                 grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)) !important;
+            }
+
+            /* Floating GIF hover-preview -- see GIF HOVER PREVIEW below.
+               Appended to <body>, not the grid, so it's never clipped by
+               .sc-emotes-grid's own overflow:auto. */
+            #sc-emotes-preview {
+                position: fixed !important;
+                z-index: 30003 !important;
+                display: none !important;
+                pointer-events: none !important;
+                background: #0c0c0e !important;
+                border: 1px solid rgba(244,244,242,0.14) !important;
+                border-radius: 10px !important;
+                box-shadow: 0 12px 40px rgba(0,0,0,0.6) !important;
+                padding: 6px !important;
+                box-sizing: border-box !important;
+            }
+            /* Image starts hidden (opacity:0) and only fades in once ITS
+               OWN load/error fires (see ensureEmotePreviewEl()) -- without
+               this, swapping a persistent <img>'s src keeps rendering the
+               previously-loaded gif until the new one finishes decoding,
+               so a still-loading gif would flash the last-hovered one. */
+            #sc-emotes-preview img {
+                display: block !important;
+                width: 176px !important; height: 176px !important;
+                object-fit: contain !important;
+                opacity: 0 !important;
+                transition: opacity 100ms ease !important;
+            }
+            #sc-emotes-preview.sc-emotes-preview-loaded img { opacity: 1 !important; }
+            #sc-emotes-preview.sc-emotes-preview-loaded .sc-emotes-spinner { display: none !important; }
+            #sc-emotes-preview-name {
+                display: block !important;
+                width: 176px !important; max-width: 176px !important;
+                margin-top: 6px !important;
+                color: #f4f4f2 !important; font-size: 12px !important; text-align: center !important;
+                white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important;
+                box-sizing: border-box !important;
             }
         `;
         document.head.appendChild(style);
@@ -573,6 +630,115 @@
     }
 
     /* ==========================================================
+       GIF HOVER PREVIEW — hovering a tile whose image is an actual
+       .gif shows it enlarged in a floating box beside the panel (see
+       #sc-emotes-preview in injectEmotesPanelCss()). Non-gif tiles
+       (most channel emotes are static PNGs) get no hover behavior.
+       The preview element is lazily created/appended to <body> --
+       same convention as the panel itself -- and torn down whenever
+       the panel closes so it never lingers.
+    ========================================================== */
+    function isGifImageUrl(url) {
+        if (!url) return false;
+        try {
+            return /\.gif$/i.test(new URL(url, location.href).pathname);
+        } catch (e) {
+            return /\.gif(?:[?#]|$)/i.test(url);
+        }
+    }
+
+    function ensureEmotePreviewEl() {
+        let preview = document.getElementById('sc-emotes-preview');
+        if (preview) return preview;
+        preview = document.createElement('div');
+        preview.id = 'sc-emotes-preview';
+        preview.innerHTML = '<span class="sc-emotes-spinner" aria-hidden="true"></span><img alt="" aria-hidden="true">' +
+            '<span id="sc-emotes-preview-name"></span>';
+        // The <img> is reused across every hover (never recreated), so its
+        // load/error listeners are wired once here rather than per-show --
+        // each src change re-fires 'load'/'error' on its own.
+        const img = preview.querySelector('img');
+        const onDone = () => preview.classList.add('sc-emotes-preview-loaded');
+        img.addEventListener('load', onDone);
+        img.addEventListener('error', onDone);
+        document.body.appendChild(preview);
+        return preview;
+    }
+
+    // Anchored beside #sc-emotes-panel (right edge if there's room,
+    // otherwise the left edge) rather than beside the tile itself, so it
+    // never covers other tiles while browsing -- vertically it's centered
+    // on the hovered tile, clamped to stay fully on-screen. The preview
+    // box's img is a fixed 176x176 (see CSS), so its size is stable even
+    // before the (already-loaded, same-URL) image reflows.
+    function positionEmotePreview(preview, tile) {
+        const panel = document.getElementById('sc-emotes-panel');
+        if (!panel) return;
+        const panelRect = panel.getBoundingClientRect();
+        const tileRect = tile.getBoundingClientRect();
+        const pw = preview.offsetWidth, ph = preview.offsetHeight;
+        const gap = 8;
+        let left = panelRect.right + gap;
+        if (left + pw > window.innerWidth) left = panelRect.left - gap - pw;
+        left = Math.max(4, Math.min(left, window.innerWidth - pw - 4));
+        let top = tileRect.top + tileRect.height / 2 - ph / 2;
+        top = Math.max(4, Math.min(top, window.innerHeight - ph - 4));
+        preview.style.setProperty('left', left + 'px', 'important');
+        preview.style.setProperty('top', top + 'px', 'important');
+    }
+
+    function showEmotePreview(tile) {
+        const img = tile.querySelector('img');
+        if (!img || !isGifImageUrl(img.src)) return;
+        const preview = ensureEmotePreviewEl();
+        const previewImg = preview.querySelector('img');
+        // Only reset the loaded/fade state when the src is actually
+        // changing -- re-entering the same still-cached tile shouldn't
+        // re-hide an already-loaded preview.
+        if (previewImg.src !== img.src) {
+            preview.classList.remove('sc-emotes-preview-loaded');
+            previewImg.src = img.src;
+        }
+        const nameEl = preview.querySelector('#sc-emotes-preview-name');
+        if (nameEl) nameEl.textContent = tile.dataset.emoteName || ''; // textContent -- never innerHTML, name is untrusted
+        preview.style.setProperty('display', 'block', 'important');
+        positionEmotePreview(preview, tile);
+    }
+
+    function hideEmotePreview() {
+        const preview = document.getElementById('sc-emotes-preview');
+        if (preview) preview.style.setProperty('display', 'none', 'important');
+    }
+
+    function teardownEmotePreview() {
+        _scEmotePreviewTile = null;
+        const preview = document.getElementById('sc-emotes-preview');
+        if (preview) preview.remove();
+    }
+
+    // Tracks the currently-previewed tile so delegated mouseover/mouseout
+    // (mouseenter/mouseleave don't bubble, so can't be delegated the way
+    // the click/keydown listeners above are) don't redundantly reshow/
+    // reposition on every bubble from a tile's own descendants (img, star,
+    // spinner).
+    let _scEmotePreviewTile = null;
+    function wireEmotePreviewDelegation(body) {
+        body.addEventListener('mouseover', (e) => {
+            const tile = e.target.closest('.sc-emotes-tile');
+            if (!tile || tile === _scEmotePreviewTile) return;
+            _scEmotePreviewTile = tile;
+            showEmotePreview(tile);
+        });
+        body.addEventListener('mouseout', (e) => {
+            const tile = e.target.closest('.sc-emotes-tile');
+            if (!tile || tile !== _scEmotePreviewTile) return;
+            if (tile.contains(e.relatedTarget)) return; // still inside the same tile
+            _scEmotePreviewTile = null;
+            hideEmotePreview();
+        });
+    }
+
+    /* ==========================================================
        OPEN / CLOSE / TOGGLE — toggleEmotesPanel is what core's
        relocateEmoteButton() (11-chat-input-and-emotes.js) calls.
     ========================================================== */
@@ -640,6 +806,8 @@
             toggleFavorite(star.dataset.emoteName);
         });
 
+        wireEmotePreviewDelegation(body);
+
         panel.querySelector('#sc-emotes-close').addEventListener('click', closeEmotesPanel);
 
         // Core's document-level keydown listener (12-playback-sync-and-
@@ -689,6 +857,7 @@
     }
 
     function closeEmotesPanel() {
+        teardownEmotePreview();
         const panel = document.getElementById('sc-emotes-panel');
         if (panel) panel.remove();
     }
