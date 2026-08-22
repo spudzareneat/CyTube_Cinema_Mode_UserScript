@@ -102,7 +102,11 @@
                 bottom: calc(var(--sc-chat-h) - 20px) !important;
                 top: auto !important;
             }
-            #sc-usercount-btn, #sc-poll-btn {
+            #sc-usercount-btn {
+                display: flex !important;
+                align-items: center !important;
+            }
+            .sc-usercount-part, #sc-poll-btn {
                 background: transparent !important;
                 border: none !important;
                 font-size: 10px !important;
@@ -116,8 +120,8 @@
                 transition: color 0.2s !important;
                 line-height: 28px !important;
             }
-            #sc-usercount-btn:hover, #sc-poll-btn:hover { color: rgba(255,255,255,0.9) !important; }
-            #sc-usercount-btn.sc-users-active,
+            .sc-usercount-part:hover, #sc-poll-btn:hover { color: rgba(255,255,255,0.9) !important; }
+            .sc-usercount-part.sc-users-active,
             #sc-poll-btn.sc-poll-btn-active { color: white !important; }
             .sc-usercount-part { margin: 0 3px !important; }
 
@@ -168,6 +172,10 @@
             }
             .sc-users-panel-name.sc-users-panel-actionable {
                 cursor: pointer !important;
+            }
+            .sc-users-panel-name.sc-users-panel-afk {
+                opacity: 0.55 !important;
+                font-style: italic !important;
             }
             /* Same fixed-width emoji slot as #messagebuffer .username[data-emoji]::before */
             .sc-users-panel-emoji {

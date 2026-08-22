@@ -5,9 +5,10 @@
     function getChatUsernames() {
         const names = new Set();
         document.querySelectorAll('#userlist .userlist_item').forEach(item => {
+            // Idle/AFK users (.userlist_afk) get an extra icon span before the
+            // name, so the username is always the LAST span, not a fixed index.
             const spans = item.querySelectorAll('span');
-            const nameSpan = spans.length >= 2 ? spans[1] : spans[0];
-            const n = nameSpan?.textContent?.trim();
+            const n = spans[spans.length - 1]?.textContent?.trim();
             if (n) names.add(n);
         });
         document.querySelectorAll('#messagebuffer .username').forEach(el => {

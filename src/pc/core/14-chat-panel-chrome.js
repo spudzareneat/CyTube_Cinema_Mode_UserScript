@@ -301,47 +301,74 @@
     function initUserCount() {
         const header = document.getElementById('sc-chat-header');
         if (!header) return;
-        const btn = document.createElement('button');
+        const btn = document.createElement('div');
         btn.id = 'sc-usercount-btn';
         header.appendChild(btn);
+
+        const connectedBtn = document.createElement('button');
+        connectedBtn.id = 'sc-usercount-connected';
+        connectedBtn.className = 'sc-usercount-part';
+        connectedBtn.title = 'Connected';
+        btn.appendChild(connectedBtn);
+
+        const onlineBtn = document.createElement('button');
+        onlineBtn.id = 'sc-usercount-online';
+        onlineBtn.className = 'sc-usercount-part';
+        onlineBtn.title = 'Online';
+        btn.appendChild(onlineBtn);
 
         // Create users panel
         const panel = document.createElement('div');
         panel.id = 'sc-users-panel';
         document.body.appendChild(panel);
 
-        let open = false;
+        let activeMode = null; // 'connected' | 'online' | null
+        let lastTotal = 0;
 
-        // CyTube structure: <span>(rank icon)</span><span (optional class)>Name</span>
-        // The second span always contains the username.
+        // CyTube structure: <span>(rank icon)</span>[<span>(afk icon)</span>]<span>Name</span>
+        // Idle/AFK users (.userlist_afk) get an extra icon span before the name,
+        // so the username is always the LAST span, not a fixed index.
         const readItemUsername = (item) => {
             const spans = item.querySelectorAll('span');
-            const nameSpan = spans.length >= 2 ? spans[1] : spans[0];
-            return nameSpan?.textContent?.trim() || '';
+            return spans[spans.length - 1]?.textContent?.trim() || '';
         };
 
-        const getUsers = () => {
-            const items = [...document.querySelectorAll('#userlist .userlist_item')];
-            return items
-                .map(readItemUsername)
-                .filter(Boolean)
-                .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+        const getUserItems = () => [...document.querySelectorAll('#userlist .userlist_item')];
+
+        const sortByName = (a, b) => a.toLowerCase().localeCompare(b.toLowerCase());
+
+        // "Connected" (🗨) = actively chatting -- excludes idle/AFK users.
+        const getConnectedUsers = () => getUserItems()
+            .filter(item => !item.classList.contains('userlist_afk'))
+            .map(readItemUsername)
+            .filter(Boolean)
+            .sort(sortByName);
+
+        // "Online" (👁) = everyone in the userlist, idle or not. Active users
+        // are grouped first, idle users after, each sorted alphabetically.
+        const getOnlineUsers = () => {
+            const all = getUserItems()
+                .map(item => ({ name: readItemUsername(item), afk: item.classList.contains('userlist_afk') }))
+                .filter(u => u.name);
+            const active = all.filter(u => !u.afk).sort((a, b) => sortByName(a.name, b.name));
+            const idle = all.filter(u => u.afk).sort((a, b) => sortByName(a.name, b.name));
+            return [...active, ...idle];
         };
 
         const updateCount = () => {
-            const connected = getUsers().length;
+            const connected = getConnectedUsers().length;
             // Prefer CyTube's own count (accurate, socket-driven)
             const cytubCount = document.getElementById('usercount');
             const raw = cytubCount?.textContent?.match(/\d+/)?.[0];
             const total = raw ? parseInt(raw) : connected;
-            btn.innerHTML =
-                `<span class="sc-usercount-part" title="Connected">🗨 ${connected}</span>` +
-                `<span class="sc-usercount-part" title="Total users">👁 ${total}</span>`;
+            lastTotal = total;
+            connectedBtn.textContent = `🗨 ${connected}`;
+            onlineBtn.textContent = `👁 ${total}`;
         };
 
         // data-name only lives in jQuery's internal .data() cache, not as a real
         // HTML attribute, so a rendered username has to be matched back to its
-        // native item by re-reading the same visible span getUsers() reads.
+        // native item by re-reading the same visible span readItemUsername reads.
         const findUserItem = (name) => {
             const items = [...document.querySelectorAll('#userlist .userlist_item')];
             return items.find(item => readItemUsername(item) === name) || null;
@@ -369,23 +396,27 @@
         };
 
         const renderPanel = () => {
-            const users = getUsers();
+            const users = activeMode === 'online'
+                ? getOnlineUsers()
+                : getConnectedUsers().map(name => ({ name, afk: false }));
             expandedRow = null;
+            const headerText = activeMode === 'online' ? `${users.length} of ${lastTotal} online` : `${users.length} connected`;
             panel.innerHTML = `
-                <div class="sc-users-panel-header">${users.length} connected</div>
+                <div class="sc-users-panel-header">${headerText}</div>
                 ${users.map(u => {
-                    const color = resolveUserColor(u);
-                    const emoji = getExternalUserEmoji(u);
+                    const color = resolveUserColor(u.name);
+                    const emoji = getExternalUserEmoji(u.name);
                     const emojiHtml = emoji ? `<span class="sc-users-panel-emoji">${emoji}</span>` : '';
-                    const item = findUserItem(u);
+                    const item = findUserItem(u.name);
                     const { ignoreBtn, pmBtn } = item ? getUserActionButtons(item) : { ignoreBtn: null, pmBtn: null };
                     const actionableClass = (ignoreBtn || pmBtn) ? ' sc-users-panel-actionable' : '';
-                    return `<div class="sc-users-panel-name${actionableClass}" style="color:${color}">${emojiHtml}${u}</div>`;
+                    const afkClass = u.afk ? ' sc-users-panel-afk' : '';
+                    return `<div class="sc-users-panel-name${actionableClass}${afkClass}" style="color:${color}">${emojiHtml}${u.name}</div>`;
                 }).join('')}
             `;
 
             [...panel.querySelectorAll('.sc-users-panel-name')].forEach((row, i) => {
-                const username = users[i];
+                const username = users[i].name;
                 row.addEventListener('click', () => {
                     const item = findUserItem(username);
                     if (!item) return;
@@ -427,24 +458,35 @@
 
         const closePanel = () => {
             panel.style.display = 'none';
-            btn.classList.remove('sc-users-active');
-            open = false;
+            connectedBtn.classList.remove('sc-users-active');
+            onlineBtn.classList.remove('sc-users-active');
+            activeMode = null;
         };
 
-        btn.addEventListener('click', e => {
+        const openPanel = (mode, modeBtn) => {
+            activeMode = mode;
+            renderPanel();
+            panel.style.display = 'block';
+            connectedBtn.classList.toggle('sc-users-active', modeBtn === connectedBtn);
+            onlineBtn.classList.toggle('sc-users-active', modeBtn === onlineBtn);
+        };
+
+        const handleModeClick = (mode, modeBtn) => e => {
             e.stopPropagation();
-            open = !open;
-            if (open) {
-                renderPanel();
-                panel.style.display = 'block';
-                btn.classList.add('sc-users-active');
-            } else {
+            if (activeMode === mode) {
                 closePanel();
+            } else {
+                openPanel(mode, modeBtn);
             }
-        });
+        };
+
+        connectedBtn.addEventListener('click', handleModeClick('connected', connectedBtn));
+        onlineBtn.addEventListener('click', handleModeClick('online', onlineBtn));
 
         document.addEventListener('click', e => {
-            if (open && !panel.contains(e.target) && e.target !== btn) closePanel();
+            if (activeMode && !panel.contains(e.target) && !connectedBtn.contains(e.target) && !onlineBtn.contains(e.target)) {
+                closePanel();
+            }
         });
 
         // Update count and panel when userlist changes
@@ -452,7 +494,7 @@
         if (ul) {
             new MutationObserver(muts => {
                 updateCount();
-                if (!open) return;
+                if (!activeMode) return;
                 // Clicking Ignore in our panel calls the native button's own click
                 // handler, which mutates that button's text node inside its
                 // .user-dropdown -- a childList change under #userlist that isn't a
@@ -467,8 +509,10 @@
         // Also watch CyTube's usercount element for socket-driven updates
         const uc = document.getElementById('usercount');
         if (uc) {
-            new MutationObserver(updateCount)
-                .observe(uc, { childList: true, subtree: true, characterData: true });
+            new MutationObserver(() => {
+                updateCount();
+                if (activeMode === 'online') renderPanel();
+            }).observe(uc, { childList: true, subtree: true, characterData: true });
         }
 
         updateCount();
