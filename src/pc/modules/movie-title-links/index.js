@@ -63,6 +63,43 @@
         });
     }
 
+    // Fallback when changeMedia hasn't fired yet this session (e.g. a
+    // fresh/refreshed page load) -- reads the video id straight from the
+    // YouTube iframe's src, the same element isYouTubeMedia() (core) checks.
+    function _domYtVideoId() {
+        const el = document.querySelector('#ytapiplayer iframe[src*="youtube.com"]');
+        if (!el) return '';
+        const src = el.getAttribute('src') || '';
+        const m = src.match(/[?&]v=([\w-]{11})/) || src.match(/\/embed\/([\w-]{11})/);
+        return m ? m[1] : '';
+    }
+
+    // Free, no-key YouTube oEmbed lookup -- title/channel/thumbnail only, no
+    // year/plot/rating/imdbId. Used only as a fallback for short clips that
+    // injectMovieLinks() otherwise skips entirely (trailers/bumpers/ads).
+    // Resolves null on any failure instead of rejecting, so the call site
+    // needs no .catch().
+    function fetchYtOembed(videoId) {
+        if (!videoId) return Promise.resolve(null);
+        const watchUrl = 'https://www.youtube.com/watch?v=' + encodeURIComponent(videoId);
+        const url = 'https://www.youtube.com/oembed?url=' + encodeURIComponent(watchUrl) + '&format=json';
+        return new Promise((resolve) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url,
+                onload: r => {
+                    if (r.status >= 200 && r.status < 300) {
+                        try { resolve(JSON.parse(r.responseText)); }
+                        catch (e) { resolve(null); }
+                    } else {
+                        resolve(null);
+                    }
+                },
+                onerror: () => resolve(null),
+            });
+        });
+    }
+
     async function imdbQuery(operationName, query, variables) {
         const url = IMDB_GQL +
             '?operationName=' + encodeURIComponent(operationName) +
@@ -294,8 +331,14 @@
         } catch (e) { return {}; }
     })();
 
-    async function lookupMovie(title, year) {
-        const cacheKey = title + (year || '');
+    async function lookupMovie(title, year, season, episode) {
+        // Extend the key with season/episode so two episodes sharing an
+        // identical cleaned title (e.g. two differently-numbered episodes
+        // that both parsed down to "The Tomorrow People") don't collide in
+        // the cache. Additive-only: when episode is null (the movie case),
+        // the key is byte-identical to before, so existing cached movie
+        // entries stay valid with no migration needed.
+        const cacheKey = title + (year || '') + (episode != null ? `S${season ?? ''}E${episode}` : '');
         if (movieLinkCache[cacheKey] !== undefined) return movieLinkCache[cacheKey];
 
         // ── IMDb (primary) + Wikipedia in parallel ───────────────────────────────
@@ -340,6 +383,8 @@
         const parentalGuide = await fetchImdbParentalGuide(imdbId);
 
         const result = {
+            season:  season ?? null,
+            episode: episode ?? null,
             links: {
                 imdb:       imdbId ? `https://www.imdb.com/title/${imdbId}/` : null,
                 // Letterboxd supports an /imdb/<id> redirect (same as its /tmdb/<id>
@@ -525,14 +570,35 @@
         let ytSeconds = 0;
         if (isYt) {
             ytSeconds = getCurrentMediaSeconds();
-            if (ytSeconds < 3600) return; // short YouTube clip — skip
+            if (ytSeconds < 3600) {
+                // Short clip — no real IMDb match likely (trailer/bumper/ad),
+                // but oEmbed is free and beats showing nothing.
+                const videoId = currentYtVideoId || _domYtVideoId();
+                if (videoId) {
+                    const mySeq = ++_titleRequestSeq;
+                    fetchYtOembed(videoId).then((info) => {
+                        if (mySeq !== _titleRequestSeq) return; // superseded by a newer title
+                        if (!info || !info.title) return; // no data — leave _npData untouched
+                        _npData = {
+                            cleanTitle: info.title,
+                            cleanYear: null,
+                            poster: info.thumbnail_url || null,
+                            backdrop: info.thumbnail_url || null,
+                            overview: info.author_name ? `Uploaded by ${info.author_name}` : null,
+                            rating: null, runtime: null, genres: [], parentalGuide: null,
+                            killCount: null, imdbId: null, links: {}, season: null, episode: null,
+                        };
+                    });
+                }
+                return;
+            }
         }
 
-        const { title, year } = isYt ? parseYouTubeTitle(rawTitle) : parseMovieFilename(rawTitle);
+        const { title, year, season, episode, isEpisode } = isYt ? parseYouTubeTitle(rawTitle) : parseMovieFilename(rawTitle);
         if (!title || title.length < 2) return;
 
         const mySeq = ++_titleRequestSeq;
-        lookupMovie(title, year).then(({ links, killCount, parentalGuide, imdbId, cleanTitle, cleanYear, rating, runtime, genres, poster, backdrop, overview }) => {
+        lookupMovie(title, year, season, episode).then(({ links, killCount, parentalGuide, imdbId, cleanTitle, cleanYear, rating, runtime, genres, poster, backdrop, overview, season, episode }) => {
             if (mySeq !== _titleRequestSeq) return; // a newer title lookup has since superseded this one — discard
 
             if (isYt && !cleanTitle) {
@@ -544,7 +610,7 @@
             }
 
             _currentImdbId = imdbId || null;
-            _npData = { cleanTitle, cleanYear, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, killCount, imdbId, links };
+            _npData = { cleanTitle, cleanYear, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, killCount, imdbId, links, season, episode };
 
             // Update title with clean IMDb title, wrapped in a clickable span
             if (cleanTitle && titleEl) {
@@ -661,6 +727,7 @@
                 try {
                     currentMediaSeconds = (data && typeof data.seconds === 'number') ? data.seconds : 0;
                     currentMediaType    = (data && data.type) ? data.type : '';
+                    currentYtVideoId    = (data && data.type === 'yt' && data.id) ? data.id : '';
                     // Authoritative lineup match straight from the raw socket payload, ahead of
                     // (and independent from) the DOM-title path below -- see
                     // lineupObserveTitleChange's own comment for why this matters.

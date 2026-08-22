@@ -1,6 +1,7 @@
-    // Current media duration/type — updated by the changeMedia socket event.
+    // Current media duration/type/YouTube-video-id — updated by the changeMedia socket event.
     let currentMediaSeconds = 0;
     let currentMediaType    = '';
+    let currentYtVideoId    = '';
     function parseTimeToSeconds(t) {
         const parts = String(t).trim().split(':').map(Number);
         if (!parts.length || parts.some(isNaN)) return 0;

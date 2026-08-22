@@ -57,7 +57,8 @@
       ],
       "connects": [
         "caching.graphql.imdb.com",
-        "en.wikipedia.org"
+        "en.wikipedia.org",
+        "www.youtube.com"
       ],
       "features": [
         "Full-screen Now Playing info card auto-triggered on title change — backdrop, poster, title/year, rating, runtime, genres, synopsis",

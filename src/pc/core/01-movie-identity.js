@@ -16,6 +16,34 @@
        → returns { title: "White Fire", year: "1984" }
     ========================================================== */
 
+    // Ordered season/episode detectors. Order matters -- more specific/anchored
+    // patterns are tried first so e.g. "S01E10" can't get partially re-matched
+    // by the looser bare-episode pattern below it. `season: null` means the
+    // pattern has no season group at all.
+    const EPISODE_PATTERNS = [
+        { re: /\bS(\d{1,2})[\s._-]?E(\d{1,3})\b/i, season: 1, episode: 2 },                              // S01E10
+        { re: /\bSeason[\s._-]?(\d{1,2})[\s._-]+Episode[\s._-]?(\d{1,3})\b/i, season: 1, episode: 2 },    // Season 1 Episode 20
+        { re: /\bEpisode[\s._-]?(\d{1,3})[\s._-]+Season[\s._-]?(\d{1,2})\b/i, season: 2, episode: 1 },    // Episode 20 Season 1
+        { re: /\b(\d{1,2})x(\d{1,3})\b/i, season: 1, episode: 2 },                                        // 1x22
+        { re: /\bEp(?:isode)?\.?[\s._-]?(\d{1,3})\b/i, season: null, episode: 1 },                        // Ep. 5 / Episode 5 (no season)
+    ];
+
+    // Runs EPISODE_PATTERNS in order; returns { match, season, episode } for the
+    // first hit, or null. season/episode are numbers (or season: null), never strings.
+    function _matchEpisode(s) {
+        for (const p of EPISODE_PATTERNS) {
+            const m = s.match(p.re);
+            if (m) {
+                return {
+                    match: m,
+                    season: p.season !== null ? parseInt(m[p.season], 10) : null,
+                    episode: parseInt(m[p.episode], 10),
+                };
+            }
+        }
+        return null;
+    }
+
     function parseMovieFilename(raw) {
         // Remove file extension
         let s = raw.replace(/\.(mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts|divx|xvid|ogv)$/i, '');
@@ -28,16 +56,42 @@
             s = s.slice(0, yearMatch.index); // strip everything from year onwards
         }
 
+        // Extract season/episode (S01E10, Season 1 Episode 20, 1x22, Ep. 5, etc.)
+        // and cut the title at the match, same convention as the year cut above --
+        // keeps the series-name prefix, discards the episode-specific subtitle
+        // scene/upload filenames often append after the marker.
+        let season = null, episode = null;
+        const epMatch = _matchEpisode(s);
+        if (epMatch) {
+            season = epMatch.season;
+            episode = epMatch.episode;
+            s = s.slice(0, epMatch.match.index);
+        }
+
+        // Acronym-style titles (R.O.T.O.R., S.W.A.T.) use dots as part of the actual
+        // name, not as filename word-separators -- protect runs of 2+ single-letter-dot
+        // groups from the dot/underscore-to-space cleanup below, which is tuned for
+        // scene-release filenames like White.Fire.mkv, not acronyms. Confirmed live:
+        // without this, "R.O.T.O.R." came out as "R O T O R".
+        const acronyms = [];
+        s = s.replace(/\b(?:[A-Za-z]\.){2,}/g, (m) => {
+            acronyms.push(m);
+            return ` @@${acronyms.length - 1}@@ `;
+        });
+
         // Replace dots and underscores with spaces
         s = s.replace(/[._]+/g, ' ');
 
         // Strip leftover brackets and their contents (tags like [BluRay], [720p])
         s = s.replace(/[\[(][^\])]*/g, '').replace(/[\])]/, '');
 
+        // Restore protected acronyms
+        s = s.replace(/@@(\d+)@@/g, (_, i) => acronyms[i]);
+
         // Trim and collapse whitespace
         s = s.replace(/\s+/g, ' ').trim();
 
-        return { title: s, year };
+        return { title: s, year, season, episode, isEpisode: episode !== null };
     }
 
     /* ==========================================================
@@ -69,18 +123,45 @@
         if (ym) year = ym[1];
         s = s.replace(/[\[({][^\])}]*[\])}]/g, ' ');
         if (year) s = s.replace(new RegExp('\\b' + year + '\\b', 'g'), ' ');
+
+        // Extract season/episode and cut at the match, same convention as
+        // parseMovieFilename.
+        let season = null, episode = null;
+        const epMatch = _matchEpisode(s);
+        if (epMatch) {
+            season = epMatch.season;
+            episode = epMatch.episode;
+            s = s.slice(0, epMatch.match.index);
+        }
+        const isEpisode = episode !== null;
+
         [...YT_NOISE, ...YT_GENRES].forEach(n => {
             s = s.replace(new RegExp('\\b' + n + '\\b', 'gi'), ' ');
         });
-        s = s.replace(/[^\w\s&':!.,-]/g, ' ');
+        // Preserve the segment-separator characters the split below relies on
+        // (|–—•) -- stripping them here first, before they can be used as
+        // delimiters, silently merged every pipe/em-dash/bullet-separated
+        // title into one blob (only plain "-" survived, since it's in this
+        // allowed set already, which is why dash-separated titles "worked"
+        // while pipe-separated ones never actually split).
+        s = s.replace(/[^\w\s&':!.,|–—•-]/g, ' ');
         const segs = s.split(/\s[|–—•:_-]+\s/)
             .map(x => x.replace(/\s+/g, ' ').trim())
             .filter(x => x.length >= 2);
-        let title = segs.sort((a, b) =>
-            (b.match(/[a-z]/gi) || []).length - (a.match(/[a-z]/gi) || []).length
-        )[0] || s;
+        // When an episode marker was found, the channel's series-name-first
+        // convention means the correct segment is the FIRST one, not the
+        // longest-alpha one -- an episode subtitle (e.g. "The Rameses
+        // Connection") routinely has more alpha characters than the actual
+        // series name (e.g. "The Tomorrow People") that precedes it, so the
+        // longest-wins heuristic below would silently pick the wrong segment
+        // for every episodic title.
+        let title = isEpisode
+            ? (segs[0] || s)
+            : (segs.sort((a, b) =>
+                (b.match(/[a-z]/gi) || []).length - (a.match(/[a-z]/gi) || []).length
+              )[0] || s);
         title = title.replace(/\s+/g, ' ').replace(/^[\s'":.,-]+|[\s'":.,-]+$/g, '').trim();
-        return { title, year };
+        return { title, year, season, episode, isEpisode };
     }
 
     /* ==========================================================
@@ -126,7 +207,7 @@
     // title has been detected yet.
     function getBridgeMovieInfo() {
         if (!lastMovieTitle) return null;
-        const { title, year } = parseMovieFilename(lastMovieTitle);
+        const { title, year, season, episode } = parseMovieFilename(lastMovieTitle);
         if (!title) return null;
-        return { title, year: year || null, imdbId: (_npData && _npData.imdbId) || null };
+        return { title, year: year || null, season: season || null, episode: episode || null, imdbId: (_npData && _npData.imdbId) || null };
     }
