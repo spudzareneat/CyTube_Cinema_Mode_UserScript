@@ -22,6 +22,7 @@
     const LS_MOVIE_LEAD  = 'sc_movie_lead_sec'; // seconds to run ahead of sync during movies (not YouTube); 0 = off
     const LS_EMOTE_PANEL_POS = 'sc_emote_panel_pos'; // JSON {left, top} -- dragged position of the custom emote picker panel
     const LS_EMOTE_FAVORITES = 'sc_emote_favorites'; // JSON array of favorited emote name strings (custom emote picker panel)
+    const LS_EMOTE_ACTIVE_TAB = 'sc_emote_active_tab'; // 'all' | 'favorites' -- last-selected tab in the custom emote picker panel
     const getKey   = id => localStorage.getItem(id) || '';
     const setKey   = (id, v) => localStorage.setItem(id, v.trim());
     const hasKey   = id => !!getKey(id);

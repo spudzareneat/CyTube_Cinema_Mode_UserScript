@@ -10,7 +10,9 @@
        Star/pin favoriting lives in the FAVORITES sections below --
        the star toggle sits inside each tile's .sc-emotes-tile-actions
        slot (originally left empty), and LS_EMOTE_FAVORITES persists
-       the favorited name list.
+       the favorited name list. An All/Favorites tab bar (LS_EMOTE_ACTIVE_TAB
+       persists the last-selected one) switches which list feeds the one
+       shared #sc-emotes-grid -- see renderActiveTabGrid().
     ========================================================== */
 
     /* ==========================================================
@@ -104,12 +106,12 @@
     let _scEmoteData = [];
 
     // Re-derives the emote list and, if the panel is currently open,
-    // re-renders its grid in place (preserving whatever search filter
-    // is active). Called on first panel open (allowForceRender=true) and
-    // whenever a live emote-list socket event fires (allowForceRender
-    // omitted/false -- a background refresh never triggers the native-
-    // popup force-render dance). Never throws -- worst case the list
-    // just doesn't refresh.
+    // re-renders whichever tab is active in place (preserving whatever
+    // search filter is active). Called on first panel open
+    // (allowForceRender=true) and whenever a live emote-list socket event
+    // fires (allowForceRender omitted/false -- a background refresh never
+    // triggers the native-popup force-render dance). Never throws --
+    // worst case the list just doesn't refresh.
     function refreshEmoteData(allowForceRender) {
         try {
             _scEmoteData = computeEmoteList(allowForceRender);
@@ -120,9 +122,7 @@
         const grid = document.getElementById('sc-emotes-grid');
         if (!grid) return;
         const search = document.getElementById('sc-emotes-search');
-        renderEmoteGrid(grid, _scEmoteData, search ? search.value : '');
-        const favRow = document.getElementById('sc-emotes-favorites');
-        if (favRow) renderFavoritesRow(favRow, _scEmoteData);
+        renderActiveTabGrid(grid, search ? search.value : '');
     }
 
     // Guarded/retried the same way core's initChatTimestamps guards its
@@ -284,41 +284,24 @@
                 padding: 18px 4px !important; text-align: center !important;
                 color: rgba(244,244,242,0.4) !important; font-size: 12px !important;
             }
-            /* Pinned favorites row -- lives between the search input and
-               the main grid, only occupying space when non-empty (see
-               renderFavoritesRow()). Same tile size as the grid, just
-               wrapped in a flex row instead of a grid so a handful of
-               favorites don't stretch to fill the panel's full width. */
-            .sc-emotes-favorites {
-                display: flex !important; flex-wrap: wrap !important; gap: 6px !important;
-                flex: none !important; max-height: 100px !important; overflow-y: auto !important;
-                padding-bottom: 8px !important; margin-bottom: 2px !important;
-                border-bottom: 1px solid rgba(244,244,242,0.1) !important;
-                scrollbar-width: thin !important; scrollbar-color: rgba(244,244,242,0.2) #000 !important;
+            /* All / Favorites tab bar -- lives between the header and the
+               search box. Both tabs render into the same #sc-emotes-grid
+               (see renderActiveTabGrid()), so Favorites gets the full
+               panel height instead of being squeezed into a small strip. */
+            #sc-emotes-tabs {
+                display: flex !important; gap: 4px !important; flex: none !important;
             }
-            .sc-emotes-favorites::-webkit-scrollbar { width: 10px !important; }
-            .sc-emotes-favorites::-webkit-scrollbar-track { background: #000 !important; }
-            .sc-emotes-favorites::-webkit-scrollbar-thumb {
-                background: rgba(244,244,242,0.2) !important; border-radius: 6px !important; border: 2px solid #000 !important;
+            .sc-emotes-tab {
+                flex: 1 1 0 !important;
+                background: rgba(255,255,255,0.04) !important; color: rgba(244,244,242,0.62) !important;
+                border: 1px solid rgba(255,255,255,0.1) !important; border-radius: 6px !important;
+                padding: 6px 8px !important; font-size: 12px !important; font-weight: 600 !important;
+                cursor: pointer !important; text-align: center !important;
+                transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease !important;
             }
-            .sc-emotes-favorites::-webkit-scrollbar-thumb:hover { background: #3ecbff !important; }
-            .sc-emotes-favorites:empty {
-                display: none !important; padding: 0 !important; margin: 0 !important; border: none !important;
-            }
-            .sc-emotes-favorites .sc-emotes-tile {
-                flex: 0 0 60px !important; width: 60px !important;
-            }
-            /* Horizontal panel is wide enough (420px, see body.sc-horizontal
-               #sc-emotes-panel below) that 6 fixed 60px tiles + gaps fit
-               exactly -- but a *fixed* px basis doesn't shrink when the
-               scrollbar appears (once favorites overflow to a 2nd row),
-               so the scrollbar's own width used to steal enough room to
-               knock row 1 down to 5-per-line. Sizing each tile as a live
-               1/6 fraction of the row's current content width instead
-               makes it self-adjust to whatever room is actually left
-               (scrollbar or not), always landing on exactly 6 per line. */
-            body.sc-horizontal .sc-emotes-favorites .sc-emotes-tile {
-                flex: 0 0 calc((100% - 30px) / 6) !important; width: auto !important;
+            .sc-emotes-tab:hover { color: #f4f4f2 !important; border-color: rgba(62,203,255,0.4) !important; }
+            .sc-emotes-tab-active {
+                background: rgba(62,203,255,0.16) !important; color: #3ecbff !important; border-color: #3ecbff !important;
             }
 
             /* Orientation-aware sizing/placement -- mirrors the pattern
@@ -473,10 +456,10 @@
        chatimages' LS_BANNED (src/pc/modules/chatimages/index.js).
        _scEmoteFavorites is the in-memory Set of favorited emote
        `name` strings; loadFavorites() (re)reads it from storage on
-       every panel open so the star states/pinned row start accurate,
+       every panel open so the star states/Favorites tab start accurate,
        and saveFavorites() persists it on every toggle. A favorited
        name that no longer resolves to a current channel emote (e.g.
-       it was removed) is never pruned here -- renderFavoritesRow()
+       it was removed) is never pruned here -- currentTabSourceList()
        below just skips rendering it, storage keeps the name in case
        the emote comes back.
     ========================================================== */
@@ -497,26 +480,44 @@
         if (isFav) _scEmoteFavorites.add(name);
         else _scEmoteFavorites.delete(name);
         saveFavorites();
-        refreshFavoritesUI(name, isFav);
+        refreshAfterFavoriteToggle(name, isFav);
     }
-    // Updates the UI after a toggle WITHOUT rebuilding the main grid --
-    // rebuilding it (grid.innerHTML = ...) used to reset its scrollTop
-    // to 0 and destroy/recreate whatever tile currently held keyboard
-    // focus, so starring an emote after scrolling down (or starring
-    // several in a row via keyboard/D-pad) threw the user back to the
-    // top and dropped focus to <body> every time. A tile's presence in
-    // the main grid never depends on favorite status, so its star is
-    // just mutated in place (there may be a second matching star in the
-    // pinned favorites row too -- both get updated, neither destroyed).
-    // The pinned row's *tile membership* does change on every toggle
-    // (the emote needs to appear/disappear there), so that row alone is
-    // still fully re-rendered here.
-    function refreshFavoritesUI(name, isFav) {
+    // On the All tab, a toggle never changes tile *membership* -- the tile
+    // stays right where it is either way -- so its star is just mutated in
+    // place rather than rebuilding the grid (rebuilding it, i.e.
+    // grid.innerHTML = ..., used to reset scrollTop to 0 and destroy/
+    // recreate whatever tile held keyboard focus, throwing the user back
+    // to the top on every star click). On the Favorites tab, unstarring
+    // DOES change membership -- the tile needs to actually disappear --
+    // so that tab alone is fully re-rendered here.
+    function refreshAfterFavoriteToggle(name, isFav) {
+        if (_scEmoteActiveTab === 'favorites') {
+            const grid = document.getElementById('sc-emotes-grid');
+            const search = document.getElementById('sc-emotes-search');
+            if (grid) renderActiveTabGrid(grid, search ? search.value : '');
+            return;
+        }
         document.querySelectorAll('#sc-emotes-panel .sc-emotes-star').forEach(star => {
             if (star.dataset.emoteName === name) setEmoteStarState(star, isFav);
         });
-        const favRow = document.getElementById('sc-emotes-favorites');
-        if (favRow) renderFavoritesRow(favRow, _scEmoteData);
+    }
+
+    /* ==========================================================
+       PERSISTED ACTIVE TAB — LS_EMOTE_ACTIVE_TAB / getKey / setKey are
+       core's (02-keys-and-helpers.js). Same try/fallback convention as
+       getSavedEmotePanelPos() above; an unrecognized/missing value falls
+       back to 'all'.
+    ========================================================== */
+    let _scEmoteActiveTab = 'all';
+    function getSavedActiveTab() {
+        try {
+            const raw = getKey(LS_EMOTE_ACTIVE_TAB);
+            if (raw === 'all' || raw === 'favorites') return raw;
+        } catch (e) {}
+        return 'all';
+    }
+    function saveActiveTab(tab) {
+        try { setKey(LS_EMOTE_ACTIVE_TAB, tab); } catch (e) {}
     }
 
     /* ==========================================================
@@ -542,16 +543,16 @@
     }
 
     // Shared between renderEmoteTile() (initial markup) and
-    // setEmoteStarState() (in-place toggle update, see refreshFavoritesUI()
-    // above) so the two never drift on wording.
+    // setEmoteStarState() (in-place toggle update, see
+    // refreshAfterFavoriteToggle() above) so the two never drift on wording.
     function _emoteStarLabel(isFav) {
         return isFav ? 'Remove from favorites' : 'Add to favorites';
     }
 
     // Mutates an already-rendered star in place -- glyph, active class,
     // aria-pressed/aria-label/title -- without touching the tile/button
-    // it lives in. Used by refreshFavoritesUI() so toggling a favorite
-    // never has to destroy and recreate the grid (or favorites row) DOM.
+    // it lives in. Used by refreshAfterFavoriteToggle() so toggling a
+    // favorite on the All tab never has to destroy and recreate the grid.
     function setEmoteStarState(star, isFav) {
         star.classList.toggle('sc-emotes-star-active', isFav);
         star.setAttribute('aria-pressed', isFav ? 'true' : 'false');
@@ -561,9 +562,9 @@
         star.textContent = isFav ? '★' : '☆';
     }
 
-    // Shared tile markup for both the main grid and the pinned favorites
-    // row -- keeps the two renderers from carrying near-duplicate copies
-    // of this template. The tile itself is a <button> (click = insert),
+    // Shared tile markup for both the All and Favorites tabs -- both
+    // render through renderActiveTabGrid(), just with a different source
+    // list. The tile itself is a <button> (click = insert),
     // so the star toggle inside it is deliberately NOT a <button> --
     // nested buttons get silently mangled/reparented by the browser.
     // isFav drives the filled/outline glyph and aria-pressed state; the
@@ -602,31 +603,36 @@
         });
     }
 
-    // Live case-insensitive substring filter on emote.name, re-rendered
-    // on every search keystroke and on data refresh.
-    function renderEmoteGrid(grid, list, searchTerm) {
-        const term = (searchTerm || '').trim().toLowerCase();
-        const filtered = term ? list.filter(e => e.name.toLowerCase().includes(term)) : list;
-        if (!filtered.length) {
-            grid.innerHTML = `<div class="sc-emotes-empty">${list.length ? 'No matching emotes' : 'No emotes available'}</div>`;
-            return;
+    // Source list for whichever tab is active -- the All tab is every
+    // known emote, the Favorites tab is _scEmoteData filtered down to
+    // favorited names (a favorited name no longer present in _scEmoteData,
+    // e.g. a removed channel emote, is simply skipped -- see LS_EMOTE_FAVORITES
+    // above; storage still keeps the name in case it comes back).
+    function currentTabSourceList() {
+        if (_scEmoteActiveTab === 'favorites') {
+            return _scEmoteData.filter(e => _scEmoteFavorites.has(e.name));
         }
-        grid.innerHTML = filtered.map(e => renderEmoteTile(e, _scEmoteFavorites.has(e.name))).join('');
-        wireImageLoadSpinners(grid);
+        return _scEmoteData;
     }
 
-    // Pinned row directly under the search input, above the main grid.
-    // Same tile markup/star as the main grid -- favorited emotes still
-    // also render in their normal spot below, they aren't removed from
-    // that list. A favorited name no longer present in `list` (channel
-    // emote removed) is simply skipped -- see LS_EMOTE_FAVORITES above.
-    // Left empty (and hidden via the :empty CSS rule) when there are no
-    // favorites, or none of them currently resolve.
-    function renderFavoritesRow(row, list) {
-        if (!_scEmoteFavorites.size) { row.innerHTML = ''; return; }
-        const favTiles = list.filter(e => _scEmoteFavorites.has(e.name));
-        row.innerHTML = favTiles.map(e => renderEmoteTile(e, true)).join('');
-        wireImageLoadSpinners(row);
+    // Live case-insensitive substring filter on emote.name, re-rendered
+    // on every search keystroke, tab switch, and data refresh. Every tile
+    // rendered on the Favorites tab is by definition a favorite (isFav is
+    // hardcoded true there) rather than re-checked against the Set.
+    function renderActiveTabGrid(grid, searchTerm) {
+        const source = currentTabSourceList();
+        const term = (searchTerm || '').trim().toLowerCase();
+        const filtered = term ? source.filter(e => e.name.toLowerCase().includes(term)) : source;
+        if (!filtered.length) {
+            const onFavorites = _scEmoteActiveTab === 'favorites';
+            const msg = onFavorites
+                ? (source.length ? 'No matching favorites' : 'No favorites yet')
+                : (source.length ? 'No matching emotes' : 'No emotes available');
+            grid.innerHTML = `<div class="sc-emotes-empty">${msg}</div>`;
+            return;
+        }
+        grid.innerHTML = filtered.map(e => renderEmoteTile(e, _scEmoteActiveTab === 'favorites' || _scEmoteFavorites.has(e.name))).join('');
+        wireImageLoadSpinners(grid);
     }
 
     /* ==========================================================
@@ -745,9 +751,11 @@
     function openEmotesPanel() {
         if (document.getElementById('sc-emotes-panel')) return;
         injectEmotesPanelCss();
-        // Read on every open so star states / the pinned row reflect
-        // whatever was last saved (see PERSISTED FAVORITES above).
+        // Read on every open so star states / the active tab reflect
+        // whatever was last saved (see PERSISTED FAVORITES / PERSISTED
+        // ACTIVE TAB above).
         _scEmoteFavorites = loadFavorites();
+        _scEmoteActiveTab = getSavedActiveTab();
         // allowForceRender=true: only here, in direct response to the user
         // opening the panel, is the disruptive native-popup click-dance
         // permitted (see computeEmoteList()/scrapeEmotesFallback() above).
@@ -761,28 +769,51 @@
                 <button id="sc-emotes-close" type="button">✕</button>
             </div>
             <div id="sc-emotes-body">
+                <div id="sc-emotes-tabs" role="tablist">
+                    <button type="button" class="sc-emotes-tab" data-tab="all" role="tab">All</button>
+                    <button type="button" class="sc-emotes-tab" data-tab="favorites" role="tab">Favorites</button>
+                </div>
                 <input type="text" id="sc-emotes-search" class="sc-emotes-search" placeholder="Search emotes…" autocomplete="off" inputmode="none">
-                <div id="sc-emotes-favorites" class="sc-emotes-favorites"></div>
                 <div id="sc-emotes-grid" class="sc-emotes-grid"></div>
             </div>`;
         document.body.appendChild(panel);
 
         const body = panel.querySelector('#sc-emotes-body');
         const search = panel.querySelector('#sc-emotes-search');
-        const favRow = panel.querySelector('#sc-emotes-favorites');
+        const tabs = panel.querySelector('#sc-emotes-tabs');
         const grid = panel.querySelector('#sc-emotes-grid');
-        renderEmoteGrid(grid, _scEmoteData, '');
-        renderFavoritesRow(favRow, _scEmoteData);
 
-        search.addEventListener('input', () => {
-            renderEmoteGrid(grid, _scEmoteData, search.value);
-            // The pinned row is never search-filtered -- leave it alone.
+        // Reflects _scEmoteActiveTab onto the tab buttons' active class/
+        // aria-selected -- called on open and on every tab switch below.
+        const updateTabButtonStates = () => {
+            tabs.querySelectorAll('.sc-emotes-tab').forEach(btn => {
+                const active = btn.dataset.tab === _scEmoteActiveTab;
+                btn.classList.toggle('sc-emotes-tab-active', active);
+                btn.setAttribute('aria-selected', active ? 'true' : 'false');
+            });
+        };
+        updateTabButtonStates();
+        renderActiveTabGrid(grid, '');
+
+        tabs.addEventListener('click', (e) => {
+            const btn = e.target.closest('.sc-emotes-tab');
+            if (!btn || btn.dataset.tab === _scEmoteActiveTab) return;
+            _scEmoteActiveTab = btn.dataset.tab;
+            saveActiveTab(_scEmoteActiveTab);
+            updateTabButtonStates();
+            // Keep whatever's typed in search -- just re-filter it against
+            // the newly-active tab's list.
+            renderActiveTabGrid(grid, search.value);
         });
 
-        // Delegated at the body level so one pair of listeners covers
-        // both the pinned favorites row and the main grid. Star clicks
-        // are checked first and stopPropagation()'d so they never also
-        // match .sc-emotes-tile and trigger an insert+close.
+        search.addEventListener('input', () => {
+            renderActiveTabGrid(grid, search.value);
+        });
+
+        // Delegated at the body level so one pair of listeners covers the
+        // grid regardless of which tab is currently rendered into it.
+        // Star clicks are checked first and stopPropagation()'d so they
+        // never also match .sc-emotes-tile and trigger an insert+close.
         body.addEventListener('click', (e) => {
             const star = e.target.closest('.sc-emotes-star');
             if (star) {
