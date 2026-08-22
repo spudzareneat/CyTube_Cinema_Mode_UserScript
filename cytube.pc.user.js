@@ -6,24 +6,19 @@
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
 // @grant        GM_xmlhttpRequest
-// @connect      api.themoviedb.org
+// @connect      caching.graphql.imdb.com
 // @connect      en.wikipedia.org
+// @connect      www.youtube.com
+// @connect      api.themoviedb.org
 // @connect      raw.githubusercontent.com
 // @connect      api.languagetool.org
 // @connect      cdnjs.cloudflare.com
 // @connect      cdn.jsdelivr.net
 // @connect      api.imgbb.com
-// @connect      caching.graphql.imdb.com
 // @connect      www.reddit.com
 // @require      https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js
 // @run-at       document-start
 // ==/UserScript==
-
-// NOTE: This file is a stale, hand-maintained snapshot. Source of truth is
-// src/pc/** (core + modules); this file is not kept in sync with it on
-// every change. Regenerate a current build with `node scripts/build-dev-bundle.mjs`
-// (writes cytube.pc.dev.user.js) when you actually need an up-to-date copy
-// to install -- don't hand-edit this file expecting it to match src/pc/**.
 
 (function () {
     'use strict';
@@ -32,12 +27,17 @@
        API KEYS — stored in localStorage, managed via settings modal.
        Keys are never hard-coded; the settings modal handles first-run.
     ========================================================== */
-    const LS_TMDB        = 'sc_tmdb_key';
     const LS_SPELLCHECK  = 'sc_spellcheck';
     const LS_CHAT_FONT   = 'sc_chat_fontsize';
     const LS_MOVIE_LINKS = 'sc_movie_links';
     const LS_IMGBB       = 'sc_imgbb_key';
-    const LS_MOVIE_CACHE = 'sc_movie_cache_v1';
+    const LS_MOVIE_CACHE = 'sc_movie_cache_v3'; // v3: Letterboxd switched from a TMDB-id redirect to an IMDb-id one --
+                                                 // v2 entries can carry a permanently-null `links.letterboxd` from
+                                                 // when that required the optional tmdb module/key; bump forces a
+                                                 // clean slate so those don't shadow the fixed lookup forever.
+                                                 // v2: IMDb-first rewrite -- v1 entries predate `resolved` and can carry
+                                                 // permanently-null TMDB-only results from pre-upgrade builds; bump forced
+                                                 // a clean slate so those didn't shadow the new IMDb lookup forever.
     const LS_LINEUP_TIMING = 'sc_lineup_timing'; // Experimental: live NOW PLAYING/ETA tracking; off by default
     const LS_CHAT_PANEL_W = 'sc_chat_panel_w';   // vw — horizontal-layout chat panel width
     const LS_CHAT_PANEL_H = 'sc_chat_panel_h';   // vh — vertical-layout chat panel height
@@ -45,6 +45,9 @@
     const LS_GIF_OPTIMIZE = 'sc_gif_optimize'; // shared with cytube.gifmaker.user.js
     const LS_AUTOEMBED   = 'sc_autoembed_images';
     const LS_MOVIE_LEAD  = 'sc_movie_lead_sec'; // seconds to run ahead of sync during movies (not YouTube); 0 = off
+    const LS_EMOTE_PANEL_POS = 'sc_emote_panel_pos'; // JSON {left, top} -- dragged position of the custom emote picker panel
+    const LS_EMOTE_FAVORITES = 'sc_emote_favorites'; // JSON array of favorited emote name strings (custom emote picker panel)
+    const LS_EMOTE_ACTIVE_TAB = 'sc_emote_active_tab'; // 'all' | 'favorites' -- last-selected tab in the custom emote picker panel
     const getKey   = id => localStorage.getItem(id) || '';
     const setKey   = (id, v) => localStorage.setItem(id, v.trim());
     const hasKey   = id => !!getKey(id);
@@ -97,6 +100,34 @@
        → returns { title: "White Fire", year: "1984" }
     ========================================================== */
 
+    // Ordered season/episode detectors. Order matters -- more specific/anchored
+    // patterns are tried first so e.g. "S01E10" can't get partially re-matched
+    // by the looser bare-episode pattern below it. `season: null` means the
+    // pattern has no season group at all.
+    const EPISODE_PATTERNS = [
+        { re: /\bS(\d{1,2})[\s._-]?E(\d{1,3})\b/i, season: 1, episode: 2 },                              // S01E10
+        { re: /\bSeason[\s._-]?(\d{1,2})[\s._-]+Episode[\s._-]?(\d{1,3})\b/i, season: 1, episode: 2 },    // Season 1 Episode 20
+        { re: /\bEpisode[\s._-]?(\d{1,3})[\s._-]+Season[\s._-]?(\d{1,2})\b/i, season: 2, episode: 1 },    // Episode 20 Season 1
+        { re: /\b(\d{1,2})x(\d{1,3})\b/i, season: 1, episode: 2 },                                        // 1x22
+        { re: /\bEp(?:isode)?\.?[\s._-]?(\d{1,3})\b/i, season: null, episode: 1 },                        // Ep. 5 / Episode 5 (no season)
+    ];
+
+    // Runs EPISODE_PATTERNS in order; returns { match, season, episode } for the
+    // first hit, or null. season/episode are numbers (or season: null), never strings.
+    function _matchEpisode(s) {
+        for (const p of EPISODE_PATTERNS) {
+            const m = s.match(p.re);
+            if (m) {
+                return {
+                    match: m,
+                    season: p.season !== null ? parseInt(m[p.season], 10) : null,
+                    episode: parseInt(m[p.episode], 10),
+                };
+            }
+        }
+        return null;
+    }
+
     function parseMovieFilename(raw) {
         // Remove file extension
         let s = raw.replace(/\.(mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts|divx|xvid|ogv)$/i, '');
@@ -109,16 +140,42 @@
             s = s.slice(0, yearMatch.index); // strip everything from year onwards
         }
 
+        // Extract season/episode (S01E10, Season 1 Episode 20, 1x22, Ep. 5, etc.)
+        // and cut the title at the match, same convention as the year cut above --
+        // keeps the series-name prefix, discards the episode-specific subtitle
+        // scene/upload filenames often append after the marker.
+        let season = null, episode = null;
+        const epMatch = _matchEpisode(s);
+        if (epMatch) {
+            season = epMatch.season;
+            episode = epMatch.episode;
+            s = s.slice(0, epMatch.match.index);
+        }
+
+        // Acronym-style titles (R.O.T.O.R., S.W.A.T.) use dots as part of the actual
+        // name, not as filename word-separators -- protect runs of 2+ single-letter-dot
+        // groups from the dot/underscore-to-space cleanup below, which is tuned for
+        // scene-release filenames like White.Fire.mkv, not acronyms. Confirmed live:
+        // without this, "R.O.T.O.R." came out as "R O T O R".
+        const acronyms = [];
+        s = s.replace(/\b(?:[A-Za-z]\.){2,}/g, (m) => {
+            acronyms.push(m);
+            return ` @@${acronyms.length - 1}@@ `;
+        });
+
         // Replace dots and underscores with spaces
         s = s.replace(/[._]+/g, ' ');
 
         // Strip leftover brackets and their contents (tags like [BluRay], [720p])
         s = s.replace(/[\[(][^\])]*/g, '').replace(/[\])]/, '');
 
+        // Restore protected acronyms
+        s = s.replace(/@@(\d+)@@/g, (_, i) => acronyms[i]);
+
         // Trim and collapse whitespace
         s = s.replace(/\s+/g, ' ').trim();
 
-        return { title: s, year };
+        return { title: s, year, season, episode, isEpisode: episode !== null };
     }
 
     /* ==========================================================
@@ -150,18 +207,45 @@
         if (ym) year = ym[1];
         s = s.replace(/[\[({][^\])}]*[\])}]/g, ' ');
         if (year) s = s.replace(new RegExp('\\b' + year + '\\b', 'g'), ' ');
+
+        // Extract season/episode and cut at the match, same convention as
+        // parseMovieFilename.
+        let season = null, episode = null;
+        const epMatch = _matchEpisode(s);
+        if (epMatch) {
+            season = epMatch.season;
+            episode = epMatch.episode;
+            s = s.slice(0, epMatch.match.index);
+        }
+        const isEpisode = episode !== null;
+
         [...YT_NOISE, ...YT_GENRES].forEach(n => {
             s = s.replace(new RegExp('\\b' + n + '\\b', 'gi'), ' ');
         });
-        s = s.replace(/[^\w\s&':!.,-]/g, ' ');
+        // Preserve the segment-separator characters the split below relies on
+        // (|–—•) -- stripping them here first, before they can be used as
+        // delimiters, silently merged every pipe/em-dash/bullet-separated
+        // title into one blob (only plain "-" survived, since it's in this
+        // allowed set already, which is why dash-separated titles "worked"
+        // while pipe-separated ones never actually split).
+        s = s.replace(/[^\w\s&':!.,|–—•-]/g, ' ');
         const segs = s.split(/\s[|–—•:_-]+\s/)
             .map(x => x.replace(/\s+/g, ' ').trim())
             .filter(x => x.length >= 2);
-        let title = segs.sort((a, b) =>
-            (b.match(/[a-z]/gi) || []).length - (a.match(/[a-z]/gi) || []).length
-        )[0] || s;
+        // When an episode marker was found, the channel's series-name-first
+        // convention means the correct segment is the FIRST one, not the
+        // longest-alpha one -- an episode subtitle (e.g. "The Rameses
+        // Connection") routinely has more alpha characters than the actual
+        // series name (e.g. "The Tomorrow People") that precedes it, so the
+        // longest-wins heuristic below would silently pick the wrong segment
+        // for every episodic title.
+        let title = isEpisode
+            ? (segs[0] || s)
+            : (segs.sort((a, b) =>
+                (b.match(/[a-z]/gi) || []).length - (a.match(/[a-z]/gi) || []).length
+              )[0] || s);
         title = title.replace(/\s+/g, ' ').replace(/^[\s'":.,-]+|[\s'":.,-]+$/g, '').trim();
-        return { title, year };
+        return { title, year, season, episode, isEpisode };
     }
 
     /* ==========================================================
@@ -178,6 +262,14 @@
 
     let lastMovieTitle = '';
     let _npData         = null;
+    // Set by Movie Links' lookupMovie() once it resolves an IMDb id for the
+    // current title; read by IMDb Trivia's showTriviaCard() (and its 'T'
+    // hotkey handler). Declared here alongside lastMovieTitle/_npData for
+    // consistency with the rest of this shared now-playing state block --
+    // not because it's needed to cover a build combination that no longer
+    // exists (imdb-trivia now hard-depends on movie-title-links, see
+    // imdb-trivia's manifest.json).
+    let _currentImdbId  = null;
 
     // Filesystem/URL-safe slug of the currently playing movie, e.g. "Blade-Runner-1982".
     // Falls back to '' when no title has been detected yet.
@@ -194,14 +286,14 @@
     // cytube.subtitles.user.js) can build lookups without re-deriving this
     // themselves. title/year come from the same source _gifTitleSlug() uses
     // (available once a video is playing); imdbId is only set once the Now
-    // Playing card's TMDB lookup has resolved for this video (requires a TMDB
-    // key -- null otherwise, caller falls back). Returns null when no title
-    // has been detected yet.
+    // Playing card's IMDb lookup has resolved for this video (no key
+    // required -- null until then, caller falls back). Returns null when no
+    // title has been detected yet.
     function getBridgeMovieInfo() {
         if (!lastMovieTitle) return null;
-        const { title, year } = parseMovieFilename(lastMovieTitle);
+        const { title, year, season, episode } = parseMovieFilename(lastMovieTitle);
         if (!title) return null;
-        return { title, year: year || null, imdbId: (_npData && _npData.imdbId) || null };
+        return { title, year: year || null, season: season || null, episode: episode || null, imdbId: (_npData && _npData.imdbId) || null };
     }
     /* ==========================================================
        GIF MAKER INTEGRATION BRIDGE
@@ -336,9 +428,10 @@
     function getChatUsernames() {
         const names = new Set();
         document.querySelectorAll('#userlist .userlist_item').forEach(item => {
+            // Idle/AFK users (.userlist_afk) get an extra icon span before the
+            // name, so the username is always the LAST span, not a fixed index.
             const spans = item.querySelectorAll('span');
-            const nameSpan = spans.length >= 2 ? spans[1] : spans[0];
-            const n = nameSpan?.textContent?.trim();
+            const n = spans[spans.length - 1]?.textContent?.trim();
             if (n) names.add(n);
         });
         document.querySelectorAll('#messagebuffer .username').forEach(el => {
@@ -454,8 +547,14 @@
     /* ==========================================================
        EMOTE BUTTON RELOCATION
        CyTube's #emotelistbtn lives inside #leftcontrols which we
-       hide in horizontal mode. Clone it outside so it's always visible,
-       and forward clicks to the original so CyTube's picker still opens.
+       hide in horizontal mode. Clone it outside so it's always visible.
+       Clicks now toggle the custom emote-picker module's panel
+       (src/pc/modules/emote-picker/index.js) instead of forwarding to
+       CyTube's own native #emotelist popup -- toggleEmotesPanel is
+       typeof-guarded the same way core guards optional-module calls
+       elsewhere (e.g. attemptSend in 06-chat-textarea-install.js), so a
+       build with that module excluded still falls back to the original
+       native-forward behavior instead of silently doing nothing.
     ========================================================== */
 
     const _VHS_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 5628 3728" fill="currentColor" aria-hidden="true"><g transform="matrix(1.3333333,0,0,-1.3333333,0,3728)"><g transform="scale(0.1)"><g transform="scale(2.31715)"><path d="m 16300,9657.36 v -335.45 c -157.2,180.66 -390.4,294.66 -648.5,294.66 H 2567.81 c -260.88,0 -494.75,-115.91 -651.51,-298.23 v 339.02 c 0,353.34 291.56,640.74 649.98,640.74 H 15650 c 358.5,0 650,-287.4 650,-640.74"/></g><g transform="scale(1.06574)"><path d="m 11418,14609.4 h 187.4 V 16300 c -2170.61,-146.3 -3886.11,-1953.4 -3886.11,-4161.2 0,-2207.82 1715.5,-4015.03 3886.11,-4161.31 v 1924.59 c -132.5,17.26 -261.1,46.72 -384.9,86.79 -79.8,26.13 -165.5,-18.86 -189.4,-99.46 l -34.2,-114.57 c -29.3,-98.71 -147.7,-138.87 -231.1,-78.26 l -763.8,555.02 c -83.41,60.6 -81.81,185.5 3.1,244.1 l 98.6,68 c 69.3,47.7 85.5,143.1 36.1,211 -260.06,357.1 -413.47,796.9 -413.47,1272.5 v 1.6 c 0,83.3 -68.31,150.7 -151.73,148.6 l -121.51,-3.1 c -103.15,-2.5 -177.72,97.6 -145.84,195.6 l 291.75,898 c 31.81,98.1 151.07,135.2 232.89,72.5 l 95.24,-72.8 c 66.71,-51.1 162.37,-37.3 211.77,30.6 265.9,366 643.9,645.2 1083.3,787.6 79.8,25.9 122.4,112.7 94.5,191.8 l -39.7,112.8 c -34.3,97.1 37.8,199 141,199"/></g><g transform="scale(2.08529)"><path d="m 14313.8,8330.5 v -864 h 95.9 c 52.6,0 89.5,-52.03 71.9,-101.72 l -20.2,-57.59 c -14.3,-40.47 7.4,-84.83 48.2,-98.07 224.6,-72.79 417.8,-215.46 553.8,-402.53 25.2,-34.67 74,-41.72 108.2,-15.63 l 48.6,37.26 c 41.8,31.98 102.8,12.99 119.1,-37.12 l 149.1,-458.88 c 16.3,-50.11 -21.9,-101.33 -74.6,-100.04 l -62.1,1.63 c -42.6,1.01 -77.6,-33.37 -77.5,-76 v -0.82 c 0,-243.04 -78.5,-467.75 -211.3,-650.32 -25.3,-34.67 -17,-83.49 18.4,-107.85 l 50.5,-34.76 c 43.3,-29.88 44.1,-93.76 1.5,-124.74 l -390.4,-283.6 c -42.6,-31.03 -103.1,-10.5 -118.1,39.99 l -17.4,58.51 c -12.3,41.19 -56.1,64.16 -96.9,50.88 -63.2,-20.53 -129,-35.58 -196.7,-44.41 v -983.6 c 1109.4,74.76 1986.2,998.37 1986.2,2126.75 0,1128.34 -876.8,2051.9 -1986.2,2126.66"/></g><g transform="scale(2.31715)"><path d="m 15169.1,3729.71 c 0,-505.24 -409.6,-914.79 -914.8,-914.79 h -1098.8 c -277.4,0 -502.4,224.93 -502.4,502.38 v 4531.45 c 0,277.42 225,502.4 502.4,502.4 h 1098.9 c 487.9,0 886.5,-381.98 913.3,-863.17 0.9,-17.09 1.4,-34.26 1.4,-51.57 z m -3232.9,-341.07 c 0,-340.98 -276.4,-617.4 -617.4,-617.4 H 6900.45 c -340.98,0 -617.4,276.42 -617.4,617.4 v 4388.71 c 0,340.99 276.42,617.41 617.4,617.41 h 4418.35 c 341,0 617.4,-276.42 617.4,-617.41 z M 5566.1,3317.3 c 0,-277.45 -224.93,-502.38 -502.39,-502.38 H 3964.9 c -505.22,0 -914.78,409.55 -914.78,914.79 v 3706.7 c 0,505.18 409.56,914.74 914.73,914.74 h 1098.86 c 264.47,0 481.2,-204.38 500.96,-463.77 0.95,-12.76 1.43,-25.62 1.43,-38.63 z m 10732.5,5385.84 c -24.1,387.6 -346.1,694.52 -739.8,694.52 H 2660.51 c -409.41,0 -741.25,-331.89 -741.25,-741.25 V 2509.63 c 0,-409.38 331.84,-741.21 741.25,-741.21 H 15558.8 c 409.4,0 741.2,331.83 741.2,741.21 v 6146.78 c 0,15.73 -0.5,31.3 -1.4,46.73"/></g></g></g></svg>';
@@ -477,7 +576,8 @@
 
         proxy.addEventListener('click', e => {
             e.stopPropagation();
-            original.click();
+            if (typeof toggleEmotesPanel === 'function') toggleEmotesPanel();
+            else original.click(); // emote-picker module excluded from this build -- fall back to native picker
         });
 
         document.body.appendChild(proxy);
@@ -723,9 +823,10 @@
         const hue = (hashString(u) * 137.508) % 360;
         return `hsl(${hue.toFixed(1)}, 72%, 70%)`;
     }
-    // Current media duration/type — updated by the changeMedia socket event.
+    // Current media duration/type/YouTube-video-id — updated by the changeMedia socket event.
     let currentMediaSeconds = 0;
     let currentMediaType    = '';
+    let currentYtVideoId    = '';
     function parseTimeToSeconds(t) {
         const parts = String(t).trim().split(':').map(Number);
         if (!parts.length || parts.some(isNaN)) return 0;
@@ -955,8 +1056,10 @@
         const t = e.target;
         if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;
         // hideLineupScreen lives in the optional tonights-lineup module -- typeof-guarded
-        // so a build without it doesn't throw here (same pattern movie-title-links and
-        // imdb-trivia use for calls into each other).
+        // so a build without it doesn't throw here (the same guard movie-title-links uses
+        // for its own optional call into imdb-trivia's toggleTriviaPanel -- imdb-trivia's
+        // call back into movie-title-links is unguarded, since movie-title-links is now
+        // imdb-trivia's hard dependency).
         if (e.key === 'Escape') { if (typeof hideLineupScreen === 'function') hideLineupScreen(); return; }
         if (e.key === 'ArrowLeft') {
             e.preventDefault();
@@ -1072,6 +1175,14 @@
         return (Array.isArray(entry) && entry[1]) ? entry[1] : null;
     }
 
+    // Single source of truth for "what color is this username" outside of an
+    // actual rendered chat message (e.g. the users panel) -- same precedence
+    // chat itself lands on: the channel script's own per-user color first,
+    // else our hash color.
+    function resolveUserColor(u) {
+        return getExternalUserColor(u) || usernameToColor(u);
+    }
+
     function applyUserDecorations() {
         document.querySelectorAll('#messagebuffer [class*="chat-msg-"]').forEach(el => {
             const cls = [...el.classList].find(c => c.startsWith('chat-msg-'));
@@ -1109,6 +1220,21 @@
         _decorationObserverStarted = true;
         new MutationObserver(applyUserDecorations).observe(buf, { childList: true, subtree: true });
         applyUserDecorations();
+
+        // applyUserDecorations() above only re-runs on new #messagebuffer DOM
+        // nodes, but the emoji/color data comes from CHANNEL.js's raw source
+        // text, which CyTube populates asynchronously with no readiness event
+        // of its own. If the first pass lands before that text reflects the
+        // full userStyles map, messages already in the buffer stay wrong
+        // until an unrelated new message happens to arrive. Retry on a
+        // bounded interval (same shape as initChannelScriptAutoApprove in
+        // 04-channel-script-autoapprove.js) so backlog messages self-correct
+        // without needing new chat activity.
+        let tick = 0;
+        const retryTimer = setInterval(() => {
+            applyUserDecorations();
+            if (++tick > 40) clearInterval(retryTimer); // ~20s
+        }, 500);
     }
     /* ==========================================================
        TOP-BAR / GAP-BUTTON DIM-ON-IDLE — generic chrome-dimming shared by
@@ -1143,6 +1269,7 @@
             document.getElementById('sc-poster-toggle'),
             document.getElementById('sc-movie-links'),
             document.getElementById('sc-trivia-btn'),
+            document.getElementById('sc-upnext-btn'),
         ].filter(Boolean);
 
         const dim = () => {
@@ -1412,86 +1539,218 @@
     function initUserCount() {
         const header = document.getElementById('sc-chat-header');
         if (!header) return;
-        const btn = document.createElement('button');
+        const btn = document.createElement('div');
         btn.id = 'sc-usercount-btn';
         header.appendChild(btn);
+
+        const connectedBtn = document.createElement('button');
+        connectedBtn.id = 'sc-usercount-connected';
+        connectedBtn.className = 'sc-usercount-part';
+        connectedBtn.title = 'Connected';
+        btn.appendChild(connectedBtn);
+
+        const onlineBtn = document.createElement('button');
+        onlineBtn.id = 'sc-usercount-online';
+        onlineBtn.className = 'sc-usercount-part';
+        onlineBtn.title = 'Online';
+        btn.appendChild(onlineBtn);
 
         // Create users panel
         const panel = document.createElement('div');
         panel.id = 'sc-users-panel';
         document.body.appendChild(panel);
 
-        let open = false;
+        let activeMode = null; // 'connected' | 'online' | null
+        let lastTotal = 0;
 
-        const getUsers = () => {
-            const items = [...document.querySelectorAll('#userlist .userlist_item')];
-            return items
-                .map(item => {
-                    // CyTube structure: <span>(rank icon)</span><span (optional class)>Name</span>
-                    // Get the second span which always contains the username
-                    const spans = item.querySelectorAll('span');
-                    const nameSpan = spans.length >= 2 ? spans[1] : spans[0];
-                    return nameSpan?.textContent?.trim() || '';
-                })
-                .filter(Boolean)
-                .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+        // CyTube structure: <span>(rank icon)</span>[<span>(afk icon)</span>]<span>Name</span>
+        // Idle/AFK users (.userlist_afk) get an extra icon span before the name,
+        // so the username is always the LAST span, not a fixed index.
+        const readItemUsername = (item) => {
+            const spans = item.querySelectorAll('span');
+            return spans[spans.length - 1]?.textContent?.trim() || '';
+        };
+
+        const getUserItems = () => [...document.querySelectorAll('#userlist .userlist_item')];
+
+        const sortByName = (a, b) => a.toLowerCase().localeCompare(b.toLowerCase());
+
+        // "Connected" (🗨) = actively chatting -- excludes idle/AFK users.
+        const getConnectedUsers = () => getUserItems()
+            .filter(item => !item.classList.contains('userlist_afk'))
+            .map(readItemUsername)
+            .filter(Boolean)
+            .sort(sortByName);
+
+        // "Online" (👁) = everyone in the userlist, idle or not. Active users
+        // are grouped first, idle users after, each sorted alphabetically.
+        const getOnlineUsers = () => {
+            const all = getUserItems()
+                .map(item => ({ name: readItemUsername(item), afk: item.classList.contains('userlist_afk') }))
+                .filter(u => u.name);
+            const active = all.filter(u => !u.afk).sort((a, b) => sortByName(a.name, b.name));
+            const idle = all.filter(u => u.afk).sort((a, b) => sortByName(a.name, b.name));
+            return [...active, ...idle];
         };
 
         const updateCount = () => {
+            const connected = getConnectedUsers().length;
             // Prefer CyTube's own count (accurate, socket-driven)
             const cytubCount = document.getElementById('usercount');
             const raw = cytubCount?.textContent?.match(/\d+/)?.[0];
-            const count = raw ? parseInt(raw) : getUsers().length;
-            btn.textContent = count + ' USERS';
+            const total = raw ? parseInt(raw) : connected;
+            lastTotal = total;
+            connectedBtn.textContent = `🗨 ${connected}`;
+            onlineBtn.textContent = `👁 ${total}`;
+        };
+
+        // data-name only lives in jQuery's internal .data() cache, not as a real
+        // HTML attribute, so a rendered username has to be matched back to its
+        // native item by re-reading the same visible span readItemUsername reads.
+        const findUserItem = (name) => {
+            const items = [...document.querySelectorAll('#userlist .userlist_item')];
+            return items.find(item => readItemUsername(item) === name) || null;
+        };
+
+        // CyTube never adds these buttons for the local user's own item, so their
+        // absence (both null) is the source of truth for "is this me" — no separate
+        // CLIENT.name check needed.
+        const getUserActionButtons = (item) => {
+            const dropdown = item.querySelector('.user-dropdown');
+            if (!dropdown) return { ignoreBtn: null, pmBtn: null };
+            const buttons = [...dropdown.querySelectorAll('button')];
+            const ignoreBtn = buttons.find(b => /^(Ignore|Unignore) User$/.test(b.textContent.trim())) || null;
+            const pmBtn = buttons.find(b => b.textContent.trim() === 'Private Message') || null;
+            return { ignoreBtn, pmBtn };
+        };
+
+        let expandedRow = null;
+
+        const collapseActions = () => {
+            if (!expandedRow) return;
+            const actions = expandedRow.nextElementSibling;
+            if (actions && actions.classList.contains('sc-users-panel-actions')) actions.remove();
+            expandedRow = null;
         };
 
         const renderPanel = () => {
-            const users = getUsers();
+            const users = activeMode === 'online'
+                ? getOnlineUsers()
+                : getConnectedUsers().map(name => ({ name, afk: false }));
+            expandedRow = null;
+            const headerText = activeMode === 'online' ? `${users.length} of ${lastTotal} online` : `${users.length} connected`;
             panel.innerHTML = `
-                <div class="sc-users-panel-header">${users.length} connected</div>
+                <div class="sc-users-panel-header">${headerText}</div>
                 ${users.map(u => {
-                    const color = usernameToColor(u);
-                    return `<div class="sc-users-panel-name" style="color:${color}">${u}</div>`;
+                    const color = resolveUserColor(u.name);
+                    const emoji = getExternalUserEmoji(u.name);
+                    const emojiHtml = emoji ? `<span class="sc-users-panel-emoji">${emoji}</span>` : '';
+                    const item = findUserItem(u.name);
+                    const { ignoreBtn, pmBtn } = item ? getUserActionButtons(item) : { ignoreBtn: null, pmBtn: null };
+                    const actionableClass = (ignoreBtn || pmBtn) ? ' sc-users-panel-actionable' : '';
+                    const afkClass = u.afk ? ' sc-users-panel-afk' : '';
+                    return `<div class="sc-users-panel-name${actionableClass}${afkClass}" style="color:${color}">${emojiHtml}${u.name}</div>`;
                 }).join('')}
             `;
+
+            [...panel.querySelectorAll('.sc-users-panel-name')].forEach((row, i) => {
+                const username = users[i].name;
+                row.addEventListener('click', () => {
+                    const item = findUserItem(username);
+                    if (!item) return;
+                    const { ignoreBtn, pmBtn } = getUserActionButtons(item);
+                    if (!ignoreBtn && !pmBtn) return;
+
+                    const wasExpanded = expandedRow === row;
+                    collapseActions();
+                    if (wasExpanded) return;
+
+                    const actions = document.createElement('div');
+                    actions.className = 'sc-users-panel-actions';
+
+                    if (ignoreBtn) {
+                        const ignoreToggle = document.createElement('button');
+                        ignoreToggle.textContent = ignoreBtn.textContent.trim();
+                        ignoreToggle.addEventListener('click', () => {
+                            ignoreBtn.click();
+                            ignoreToggle.textContent = ignoreBtn.textContent.trim();
+                        });
+                        actions.appendChild(ignoreToggle);
+                    }
+
+                    if (pmBtn) {
+                        const pmToggle = document.createElement('button');
+                        pmToggle.textContent = 'Private Message';
+                        pmToggle.addEventListener('click', () => {
+                            pmBtn.click();
+                            closePanel();
+                        });
+                        actions.appendChild(pmToggle);
+                    }
+
+                    row.after(actions);
+                    expandedRow = row;
+                });
+            });
         };
 
         const closePanel = () => {
             panel.style.display = 'none';
-            btn.classList.remove('sc-users-active');
-            open = false;
+            connectedBtn.classList.remove('sc-users-active');
+            onlineBtn.classList.remove('sc-users-active');
+            activeMode = null;
         };
 
-        btn.addEventListener('click', e => {
+        const openPanel = (mode, modeBtn) => {
+            activeMode = mode;
+            renderPanel();
+            panel.style.display = 'block';
+            connectedBtn.classList.toggle('sc-users-active', modeBtn === connectedBtn);
+            onlineBtn.classList.toggle('sc-users-active', modeBtn === onlineBtn);
+        };
+
+        const handleModeClick = (mode, modeBtn) => e => {
             e.stopPropagation();
-            open = !open;
-            if (open) {
-                renderPanel();
-                panel.style.display = 'block';
-                btn.classList.add('sc-users-active');
-            } else {
+            if (activeMode === mode) {
                 closePanel();
+            } else {
+                openPanel(mode, modeBtn);
             }
-        });
+        };
+
+        connectedBtn.addEventListener('click', handleModeClick('connected', connectedBtn));
+        onlineBtn.addEventListener('click', handleModeClick('online', onlineBtn));
 
         document.addEventListener('click', e => {
-            if (open && !panel.contains(e.target) && e.target !== btn) closePanel();
+            if (activeMode && !panel.contains(e.target) && !connectedBtn.contains(e.target) && !onlineBtn.contains(e.target)) {
+                closePanel();
+            }
         });
 
         // Update count and panel when userlist changes
         const ul = document.getElementById('userlist');
         if (ul) {
-            new MutationObserver(() => {
+            new MutationObserver(muts => {
                 updateCount();
-                if (open) renderPanel();
+                if (!activeMode) return;
+                // Clicking Ignore in our panel calls the native button's own click
+                // handler, which mutates that button's text node inside its
+                // .user-dropdown -- a childList change under #userlist that isn't a
+                // join/leave. Re-rendering on it would wipe the actions row (and its
+                // just-flipped label) we're mid-update on, so only real userlist
+                // changes outside any .user-dropdown should trigger a re-render.
+                const relevant = muts.some(m => !m.target.closest || !m.target.closest('.user-dropdown'));
+                if (relevant) renderPanel();
             }).observe(ul, { childList: true, subtree: true });
         }
 
         // Also watch CyTube's usercount element for socket-driven updates
         const uc = document.getElementById('usercount');
         if (uc) {
-            new MutationObserver(updateCount)
-                .observe(uc, { childList: true, subtree: true, characterData: true });
+            new MutationObserver(() => {
+                updateCount();
+                if (activeMode === 'online') renderPanel();
+            }).observe(uc, { childList: true, subtree: true, characterData: true });
         }
 
         updateCount();
@@ -1514,8 +1773,13 @@
     }
     /* ==========================================================
        SETTINGS MODAL
-       First-run: shown automatically if TMDB key is absent.
-       Re-openable via the ⚙ button added to the floating buttons.
+       First-run: shown automatically once, gated on the generic
+       `sc_onboarded` localStorage flag (set the first time this modal
+       opens, below) rather than on any particular feature's key --
+       core has no feature-specific keys of its own anymore, so this
+       stays true regardless of which optional modules a build
+       includes. Re-openable via the ⚙ button added to the floating
+       buttons.
     ========================================================== */
 
     // Per-feature toggle rows, registered by the feature that owns them (all
@@ -1558,16 +1822,15 @@
                 </div>`;
     }
 
-    // Text-input row, modeled on the hardcoded TMDB key field below
-    // (input + optional Test button + status line + optional "get a key"
-    // link). `r.testHandler`, if present, is an async (value) =>
-    // 'valid'|'invalid'|'error' function — wireTextRowTestButton() below
-    // hooks it up once the row is in the DOM. `r.link`/`r.linkText`, if
-    // both present, render an <a target="_blank" rel="noopener"> below the
-    // status line, matching the hardcoded TMDB field's own "Get a free TMDB
-    // key ↗" link — lets a registered row (e.g. gifmaker's ImgBB field)
-    // carry the same kind of sign-up instructions/link the TMDB field has
-    // without smuggling markup through `note`.
+    // Text-input row (input + optional Test button + status line + optional
+    // "get a key" link), used by every registered type:'text' row -- e.g.
+    // the tmdb module's API-key row, gifmaker's ImgBB field. `r.testHandler`,
+    // if present, is an async (value) => 'valid'|'invalid'|'error' function
+    // — wireTextRowTestButton() below hooks it up once the row is in the
+    // DOM. `r.link`/`r.linkText`, if both present, render an
+    // <a target="_blank" rel="noopener"> below the status line, letting a
+    // row carry sign-up instructions/a link without smuggling markup
+    // through `note`.
     function textRowHtml(r) {
         const val = getKey(r.key);
         return `
@@ -1606,9 +1869,9 @@
     }
 
     // Wires up the Test button for a rendered text row that declared a
-    // testHandler, mirroring the TMDB Test button behavior below: disable
-    // while checking, show a pending message, then a result message with
-    // the matching status class. Messages are overridable per-row via
+    // testHandler: disable while checking, show a pending message, then a
+    // result message with the matching status class. Messages are
+    // overridable per-row via
     // testEmptyMessage/testValidMessage/testInvalidMessage/testErrorMessage
     // so a registered row (e.g. gifmaker's ImgBB field) can match its own
     // pre-existing copy exactly.
@@ -1650,27 +1913,10 @@
         return SC_SETTINGS_ROWS.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     }
 
-    async function validateTmdbKey(key) {
-        try {
-            const res = await new Promise((resolve, reject) => {
-                GM_xmlhttpRequest({
-                    method: 'GET',
-                    url: `https://api.themoviedb.org/3/configuration?api_key=${encodeURIComponent(key)}`,
-                    onload: r => resolve(r),
-                    onerror: reject,
-                });
-            });
-            if (res.status === 200) return 'valid';
-            if (res.status === 401) return 'invalid';
-            return 'error';
-        } catch (e) { return 'error'; }
-    }
-
     function openSettingsModal() {
         const old = document.getElementById('sc-settings-overlay');
         if (old) old.remove();
 
-        const tmdbVal  = getKey(LS_TMDB);
         const firstRun = !localStorage.getItem('sc_onboarded');
         try { localStorage.setItem('sc_onboarded', '1'); } catch (e) {}
         const fontSize = getChatFontSize();
@@ -1680,28 +1926,7 @@
         overlay.innerHTML = `
             <div id="sc-settings-modal">
                 <div id="sc-settings-title">⚙ Grindhouse Settings</div>
-                ${firstRun ? '<div class="sc-settings-intro">First-time setup — everything here is optional. Enable TMDB for richer movie info. Reopen any time with the ⚙ button.</div>' : ''}
-
-                <div class="sc-settings-group sc-settings-divider">
-                    <label class="sc-settings-toggle-label">
-                        <span class="sc-toggle-row">
-                            <input type="checkbox" id="sc-input-tmdb-enable" ${tmdbVal ? 'checked' : ''} />
-                            <span class="sc-toggle-text">Enable TMDB features</span>
-                        </span>
-                        <span class="sc-settings-note">Movie posters, ratings, runtime, IMDb/Letterboxd links, trivia</span>
-                    </label>
-                    <div id="sc-tmdb-fields" class="${tmdbVal ? '' : 'sc-hidden'}">
-                        <div class="sc-settings-input-row">
-                            <input id="sc-input-tmdb" class="sc-settings-input" type="text"
-                                placeholder="Paste TMDB v3 key…" value="${tmdbVal}" spellcheck="false" />
-                            <button id="sc-test-tmdb" class="sc-settings-test" type="button">Test</button>
-                        </div>
-                        <span id="sc-test-tmdb-status" class="sc-settings-test-status"></span>
-                        <a class="sc-settings-link" href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">
-                            Get a free TMDB key ↗
-                        </a>
-                    </div>
-                </div>
+                ${firstRun ? '<div class="sc-settings-intro">First-time setup — everything here is optional. Reopen any time with the ⚙ button.</div>' : ''}
 
                 ${sortedSettingsRows().map(r => settingsRowHtml(r)).join('')}
 
@@ -1730,11 +1955,6 @@
         // Wire up Test buttons for any registered text rows that declared one.
         sortedSettingsRows().forEach(r => wireTextRowTestButton(r));
 
-        // TMDB toggle shows/hides key fields
-        const tmdbToggle = document.getElementById('sc-input-tmdb-enable');
-        const tmdbFields = document.getElementById('sc-tmdb-fields');
-        tmdbToggle.addEventListener('change', () => tmdbFields.classList.toggle('sc-hidden', !tmdbToggle.checked));
-
         // Font size live preview
         const fontInput  = document.getElementById('sc-input-fontsize');
         const fontVal    = document.getElementById('sc-font-val');
@@ -1746,25 +1966,8 @@
             applyChatFontSize(px);
         });
 
-        // TMDB test button
-        const testBtn    = document.getElementById('sc-test-tmdb');
-        const testStatus = document.getElementById('sc-test-tmdb-status');
-        testBtn.addEventListener('click', async () => {
-            const key = document.getElementById('sc-input-tmdb').value.trim();
-            if (!key) { testStatus.textContent = 'Enter a key first'; testStatus.className = 'sc-settings-test-status sc-test-bad'; return; }
-            testBtn.disabled = true;
-            testStatus.textContent = 'Checking…'; testStatus.className = 'sc-settings-test-status sc-test-pending';
-            const result = await validateTmdbKey(key);
-            testBtn.disabled = false;
-            if (result === 'valid')        { testStatus.textContent = '✓ Valid key';           testStatus.className = 'sc-settings-test-status sc-test-ok'; }
-            else if (result === 'invalid') { testStatus.textContent = '✗ Invalid key';         testStatus.className = 'sc-settings-test-status sc-test-bad'; }
-            else                           { testStatus.textContent = '⚠ Couldn\'t reach API'; testStatus.className = 'sc-settings-test-status sc-test-bad'; }
-        });
-
         document.getElementById('sc-settings-save').addEventListener('click', () => {
-            const tmdb   = tmdbToggle.checked ? document.getElementById('sc-input-tmdb').value.trim() : '';
             const fontPx = parseInt(fontInput.value, 10);
-            setKey(LS_TMDB,        tmdb);
             SC_SETTINGS_ROWS.forEach(row => {
                 const el = document.getElementById(row.id);
                 if (!el) return;
@@ -1866,8 +2069,11 @@
             try { fn(); } catch (e) { console.error('[SC] init failed:', fn.name, e); }
         });
 
-        // First-run settings modal
-        if (!hasKey(LS_TMDB)) {
+        // First-run settings modal -- gated on the generic `sc_onboarded` flag
+        // (core has no feature-specific key of its own to gate on anymore),
+        // so this still shows once on a clean profile regardless of which
+        // optional modules a build includes.
+        if (!localStorage.getItem('sc_onboarded')) {
             setTimeout(openSettingsModal, 1200);
         }
 
@@ -1944,8 +2150,6 @@
                 flex: 0 0 auto !important; cursor: pointer !important; accent-color: #c0b0ff !important;
             }
             .sc-toggle-text { line-height: 1.2 !important; }
-            #sc-tmdb-fields { display: flex !important; flex-direction: column !important; gap: 6px !important; margin: 8px 0 0 26px !important; }
-            #sc-tmdb-fields.sc-hidden { display: none !important; }
             .sc-settings-range { width: 100% !important; accent-color: #c0b0ff !important; cursor: pointer !important; }
             .sc-font-sample {
                 margin-top: 6px !important; padding: 8px 12px !important;
@@ -2177,7 +2381,11 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
                 bottom: calc(var(--sc-chat-h) - 20px) !important;
                 top: auto !important;
             }
-            #sc-usercount-btn, #sc-poll-btn {
+            #sc-usercount-btn {
+                display: flex !important;
+                align-items: center !important;
+            }
+            .sc-usercount-part, #sc-poll-btn {
                 background: transparent !important;
                 border: none !important;
                 font-size: 10px !important;
@@ -2191,9 +2399,10 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
                 transition: color 0.2s !important;
                 line-height: 28px !important;
             }
-            #sc-usercount-btn:hover, #sc-poll-btn:hover { color: rgba(255,255,255,0.9) !important; }
-            #sc-usercount-btn.sc-users-active,
+            .sc-usercount-part:hover, #sc-poll-btn:hover { color: rgba(255,255,255,0.9) !important; }
+            .sc-usercount-part.sc-users-active,
             #sc-poll-btn.sc-poll-btn-active { color: white !important; }
+            .sc-usercount-part { margin: 0 3px !important; }
 
             /* Users panel — drops down from usercount, same style as poll panel */
             #sc-users-panel {
@@ -2239,6 +2448,41 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
                 white-space: nowrap !important;
                 overflow: hidden !important;
                 text-overflow: ellipsis !important;
+            }
+            .sc-users-panel-name.sc-users-panel-actionable {
+                cursor: pointer !important;
+            }
+            .sc-users-panel-name.sc-users-panel-afk {
+                opacity: 0.55 !important;
+                font-style: italic !important;
+            }
+            /* Same fixed-width emoji slot as #messagebuffer .username[data-emoji]::before */
+            .sc-users-panel-emoji {
+                display: inline-block !important;
+                width: 1.3em !important;
+                margin-right: 0.15em !important;
+                text-align: center !important;
+            }
+            .sc-users-panel-actions {
+                display: flex !important;
+                gap: 6px !important;
+                padding: 4px 0 6px !important;
+                margin-bottom: 2px !important;
+                border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+            }
+            .sc-users-panel-actions button {
+                background: rgba(255,255,255,0.08) !important;
+                color: rgba(255,255,255,0.7) !important;
+                border: 1px solid rgba(255,255,255,0.18) !important;
+                border-radius: 3px !important;
+                font-size: 10px !important;
+                padding: 2px 6px !important;
+                cursor: pointer !important;
+                font-family: inherit !important;
+            }
+            .sc-users-panel-actions button:hover {
+                background: rgba(255,255,255,0.18) !important;
+                color: white !important;
             }
 
             #videowrap-header .pull-left > span:first-child,
@@ -2401,6 +2645,13 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
 
             /* ===== MOTD — keep hidden, we extract images ourselves ===== */
             #motdrow { display: none !important; }
+
+            /* Native PM panel — raised above this file's own overlay stack
+               (settings modal / dropdowns sit at 20001-20002) so it doesn't
+               render underneath our chrome */
+            #pmbar {
+                z-index: 20003 !important;
+            }
 
             /* ===== FLOATING BUTTONS (body-level, always visible) ===== */
             #sc-desync-btn {
@@ -2672,20 +2923,322 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
             }
 `);
     /* ==========================================================
-       MOVIE LINKS — TMDB lookup → confirmed IMDb + Letterboxd + Wikipedia
-       Populates the shared `_npData` (declared once in core's
-       01-movie-identity.js) with everything the Now Playing card and
-       the floating stats bar render. `fetchImdbParentalGuide` lives
-       in the imdb-trivia module (it shares that module's IMDb GraphQL
-       connect grant) — this module only calls it through a
-       typeof-guard so a build without imdb-trivia still works, just
-       without parental-guide chips. Same pattern for the "Trivia"
-       button's click handler (toggleTriviaPanel), and — in the other
-       direction — for this module's own calls into the optional
-       tonights-lineup module's lineupObserveTitleChange (feeds its
-       timing/ETA model; this module doesn't depend on tonights-lineup,
-       so a build without it just skips those calls).
+       MOVIE LINKS — IMDb lookup (primary) + optional TMDB supplemental
+       + Wikipedia. Populates the shared `_npData` (declared once in
+       core's 01-movie-identity.js) with everything the Now Playing
+       card and the floating stats bar render.
+
+       This module owns its own IMDb GraphQL traffic to
+       caching.graphql.imdb.com (free, no API key -- hence the
+       `connects`/`grants` entries on this module in manifest.json) for
+       the primary lookup: title resolution (fetchImdbMovieByTitle, via
+       imdbSearchTitle + fetchImdbTitleFields) and the parental-guide
+       chips (fetchImdbParentalGuide) that the Now Playing card renders
+       unconditionally. Both are plain local functions defined below,
+       not an external dependency, so lookupMovie() calls them directly
+       with no typeof-guard.
+
+       `imdb-trivia` is a separate, optional module for the trivia
+       panel feature; it hard-depends on this module (`dependsOn:
+       ["core", "movie-title-links"]` in manifest.json) since trivia
+       inherently needs a movie to already be identified, and its own
+       fetchImdbTrivia() reuses imdbQuery()/imdbGmFetch() defined below
+       rather than duplicating them.
+
+       TMDB is optional supplemental data only (poster/backdrop
+       fallback + kill count), supplied by the `tmdb` module's
+       fetchTmdbSupplemental(imdbId) — called through a typeof-guard so
+       a build without it (or before that module exists) still resolves
+       the rest of the lookup, just without TMDB's poster/backdrop/killCount.
+
+       Same typeof-guard pattern applies to the "Trivia" button's click
+       handler (toggleTriviaPanel), since imdb-trivia is a genuinely
+       optional module — and, in the other direction, for this
+       module's own calls into the optional tonights-lineup module's
+       lineupObserveTitleChange (feeds its timing/ETA model; this
+       module doesn't depend on tonights-lineup, so a build without it
+       just skips those calls).
     ========================================================== */
+
+    const IMDB_GQL = 'https://caching.graphql.imdb.com/';
+
+    function imdbGmFetch(url) {
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url,
+                headers: {
+                    'Accept': 'application/graphql+json, application/json',
+                    'Content-Type': 'application/json',
+                    'x-imdb-client-name': 'imdb-web-next-localized',
+                    'x-imdb-user-language': 'en-US',
+                    'x-imdb-user-country': 'US',
+                },
+                onload: r => {
+                    if (r.status >= 200 && r.status < 300) {
+                        try { resolve(JSON.parse(r.responseText)); }
+                        catch (e) { reject(e); }
+                    } else {
+                        reject(new Error(`HTTP ${r.status}`));
+                    }
+                },
+                onerror: reject,
+            });
+        });
+    }
+
+    // Fallback when changeMedia hasn't fired yet this session (e.g. a
+    // fresh/refreshed page load) -- reads the video id straight from the
+    // YouTube iframe's src, the same element isYouTubeMedia() (core) checks.
+    function _domYtVideoId() {
+        const el = document.querySelector('#ytapiplayer iframe[src*="youtube.com"]');
+        if (!el) return '';
+        const src = el.getAttribute('src') || '';
+        const m = src.match(/[?&]v=([\w-]{11})/) || src.match(/\/embed\/([\w-]{11})/);
+        return m ? m[1] : '';
+    }
+
+    // Free, no-key YouTube oEmbed lookup -- title/channel/thumbnail only, no
+    // year/plot/rating/imdbId. Used only as a fallback for short clips that
+    // injectMovieLinks() otherwise skips entirely (trailers/bumpers/ads).
+    // Resolves null on any failure instead of rejecting, so the call site
+    // needs no .catch().
+    function fetchYtOembed(videoId) {
+        if (!videoId) return Promise.resolve(null);
+        const watchUrl = 'https://www.youtube.com/watch?v=' + encodeURIComponent(videoId);
+        const url = 'https://www.youtube.com/oembed?url=' + encodeURIComponent(watchUrl) + '&format=json';
+        return new Promise((resolve) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url,
+                onload: r => {
+                    if (r.status >= 200 && r.status < 300) {
+                        try { resolve(JSON.parse(r.responseText)); }
+                        catch (e) { resolve(null); }
+                    } else {
+                        resolve(null);
+                    }
+                },
+                onerror: () => resolve(null),
+            });
+        });
+    }
+
+    async function imdbQuery(operationName, query, variables) {
+        const url = IMDB_GQL +
+            '?operationName=' + encodeURIComponent(operationName) +
+            '&query='         + encodeURIComponent(query) +
+            '&variables='     + encodeURIComponent(JSON.stringify(variables));
+        return imdbGmFetch(url);
+    }
+
+    async function fetchImdbParentalGuide(tconst) {
+        if (!tconst) return null;
+        const q = 'query GHGuide($id: ID!){ title(id:$id){ parentsGuide{ categories{ category{ text } severity{ text } } } } }';
+        try {
+            const data = await imdbQuery('GHGuide', q, { id: tconst });
+            const cats = data?.data?.title?.parentsGuide?.categories;
+            if (!cats) return null;
+            return cats
+                .map(c => ({ category: c.category?.text, severity: c.severity?.text }))
+                .filter(c => c.category && c.severity);
+        } catch (e) { return null; }
+    }
+
+    /* ==========================================================
+       PRIMARY LOOKUP — title+year -> tconst, plus rating/runtime/
+       overview/poster/genres. Query text/field-paths/disambiguation
+       logic ported verbatim from the discovery scripts
+       working/imdb-search-test.mjs and working/imdb-title-fields-test.mjs
+       (proven live against caching.graphql.imdb.com; not re-derived).
+    ========================================================== */
+
+    // Unfiltered search + client-side pick, NOT a server-side year filter.
+    // IMDb's mainSearch(options.titleSearchOptions.releaseDateRange) IS a
+    // real hard filter, but a naive off-by-one year silently returns
+    // unrelated-but-plausible titles instead of zero results (confirmed
+    // against "Whiplash", which has both a 2013 short and the 2014 feature
+    // under the identical name) — worse than TMDB's zero-results failure
+    // mode at movie-title-links/index.js:85-90. So: search title-only
+    // (first: 20 — franchises with heavy fan-video/short/podcast coverage
+    // can bury the real film past the first handful of IMDb's relevance-
+    // ordered results; confirmed live for "Friday the 13th Part 3", where
+    // the 1982 film only appears at position 7), then narrow to
+    // titleType.id === 'movie' (matters — a plain year match could
+    // otherwise land on a same-named short/video instead of the real
+    // feature; NOTE this alone isn't sufficient either, since IMDb tags
+    // some fan-made shorts/compilations as titleType "movie" too), then
+    // among the movie-typed pool prefer an edge whose releaseYear matches,
+    // breaking ties (or falling back, if no edge or no year matches) by
+    // highest ratingsSummary.voteCount rather than raw relevance order —
+    // real theatrical releases outvote fan content by orders of magnitude,
+    // which also resolves the "Whiplash" short-vs-feature case above without
+    // needing the year filter to be exact.
+    //
+    // Edge case: when a channel plays a TV episode (rare here, but it
+    // happens), there's no 'movie'-typed result to fall back on, so the
+    // old code fell straight through to the raw `results` pool and could
+    // land on a podcastEpisode *about* that episode (rewatch/recap shows
+    // often reuse the episode's exact title and can out-vote the real
+    // tvEpisode entry). Give titleType.id === 'tvEpisode' its own
+    // second-priority pool -- ahead of anything else -- so a genuine
+    // episode match always wins over commentary/podcast content with the
+    // same title. Only once neither a movie nor a tvEpisode is found do we
+    // fall back to the full pool, and even then podcastEpisode entries are
+    // deprioritized rather than allowed to win by vote count.
+    //
+    // Follow-up fix: the above tiebreak-by-votes logic had no title check at
+    // all, so an obscure title with no same-year candidate in the top-20
+    // would fall back to picking the whole pool's most-voted entry regardless
+    // of title -- confirmed live for "Island of the Living Dead (2007)"
+    // resolving to "Pirates of the Caribbean: Dead Man's Chest (2006)" and
+    // "Star Crystal (1984)" resolving to "Indiana Jones and the Kingdom of
+    // the Crystal Skull (2008)". imdbSearchTitle now requires titlesMatch()
+    // (normalized word-set similarity, roman/arabic tolerant) before a
+    // candidate is eligible at all; year is still only a tiebreaker among
+    // title matches, never a filter dropped in favor of an unrelated title.
+    // Also confirmed live: IMDb tags some direct-to-video genre titles (e.g.
+    // "Island of the Living Dead" itself) as titleType 'video', not 'movie'
+    // -- so tier fallthrough (movie -> tvEpisode -> nonPodcast -> results) now
+    // advances based on whether a tier has a title-matching candidate, not
+    // merely whether the tier is non-empty; otherwise an unrelated same-tier
+    // 'movie' result (e.g. "Night of the Living Dead", which shares enough
+    // generic words to no longer be a risk post-titlesMatch, but was before
+    // stopword-stripping was added) could still block the loop from ever
+    // reaching the tier holding the real title.
+    const IMDB_MAIN_SEARCH_QUERY = 'query MainSearch($term: String!) { mainSearch(first: 20, options: { searchTerm: $term, type: TITLE }) { edges { node { entity { ... on Title { id titleText { text } releaseYear { year } titleType { text id isSeries isEpisode } ratingsSummary { voteCount } } } } } } }';
+
+    function byVoteCountDesc(a, b) {
+        return (b.ratingsSummary?.voteCount ?? 0) - (a.ratingsSummary?.voteCount ?? 0);
+    }
+
+    // Sequel numbering swaps freely between roman and arabic ("Part III" vs
+    // "Part 3") between how the stream/schedule names a title and how IMDb's
+    // own titleText spells it -- normalize both to arabic so they compare
+    // equal. Deliberately excludes bare I/V/X: those collide with the pronoun
+    // "I", rating-board "V"/"X", etc. far too often in real titles to treat
+    // as numerals.
+    const ROMAN_NUMERALS = {
+        ii: 2, iii: 3, iv: 4, vi: 6, vii: 7, viii: 8, ix: 9,
+        xi: 11, xii: 12, xiii: 13, xiv: 14, xv: 15,
+        xvi: 16, xvii: 17, xviii: 18, xix: 19, xx: 20,
+    };
+
+    function normalizeTitle(s) {
+        return (s || '')
+            .toLowerCase()
+            .replace(/^(the|a|an)\s+/, '')
+            .split(/[^a-z0-9]+/)
+            .filter(Boolean)
+            .map(w => ROMAN_NUMERALS[w] !== undefined ? String(ROMAN_NUMERALS[w]) : w)
+            .join(' ');
+    }
+
+    // Excluded from the token sets before comparing -- otherwise formulaic
+    // genre titles that share only connector words (e.g. "Island of the
+    // Living Dead" vs "Night of the Living Dead") clear the similarity bar on
+    // "of"/"the"/"living"/"dead" alone despite being unrelated films.
+    const TITLE_STOPWORDS = new Set(['a', 'an', 'the', 'of', 'and']);
+
+    function titleTokens(s) {
+        return new Set(normalizeTitle(s).split(' ').filter(w => w && !TITLE_STOPWORDS.has(w)));
+    }
+
+    // Dice coefficient over normalized, stopword-stripped word sets --
+    // tolerant of punctuation, subtitle, and roman/arabic differences, but
+    // still confidently rejects an unrelated title (near-zero token overlap).
+    function titlesMatch(a, b) {
+        const setA = titleTokens(a);
+        const setB = titleTokens(b);
+        if (!setA.size || !setB.size) return false;
+        let intersection = 0;
+        for (const w of setA) if (setB.has(w)) intersection++;
+        return (2 * intersection) / (setA.size + setB.size) >= 0.7;
+    }
+
+    async function imdbSearchTitle(title, year) {
+        if (!title) return null;
+        try {
+            const data = await imdbQuery('MainSearch', IMDB_MAIN_SEARCH_QUERY, { term: title });
+            const edges = data?.data?.mainSearch?.edges || [];
+            const results = edges.map(e => e?.node?.entity).filter(Boolean);
+            const movies = results.filter(r => r.titleType?.id === 'movie');
+            const tvEpisodes = results.filter(r => r.titleType?.id === 'tvEpisode');
+            const nonPodcast = results.filter(r => r.titleType?.id !== 'podcastEpisode');
+            // A candidate must actually resemble the query title before it's
+            // eligible at all -- year is only a tiebreaker among title
+            // matches, never a filter we fall back off of onto an unrelated
+            // popular title (that was the bug: an obscure title with no
+            // same-year candidate in the fuzzy top-20 would silently fall
+            // back to picking the whole pool's most-voted entry, regardless
+            // of title).
+            //
+            // Advance to the next tier only when the current one has no
+            // title-matching candidate at all (not merely when it's empty) --
+            // some genre titles (e.g. direct-to-video releases) are tagged a
+            // titleType other than 'movie' on IMDb, so a same-named-but-wrong
+            // 'movie' entry must not block the loop from ever reaching the
+            // tier that actually holds the real title.
+            const tiers = [movies, tvEpisodes, nonPodcast, results];
+            let titleMatches = [];
+            for (const tier of tiers) {
+                titleMatches = tier.filter(r => titlesMatch(r.titleText?.text, title));
+                if (titleMatches.length) break;
+            }
+            if (!titleMatches.length) return null;
+            const yearMatches = year ? titleMatches.filter(r => String(r.releaseYear?.year) === String(year)) : [];
+            const candidates = yearMatches.length ? yearMatches : titleMatches;
+            const best = candidates.slice().sort(byVoteCountDesc)[0] || null;
+            if (!best) return null;
+            return {
+                tconst: best.id,
+                title: best.titleText?.text ?? null,
+                year: best.releaseYear?.year ?? null,
+                titleType: best.titleType?.id ?? null,
+            };
+        } catch (e) { return null; }
+    }
+
+    // All 5 fields confirmed working in Task 1's discovery (rating, runtime,
+    // overview, poster, genres) — none omitted. Field paths and the
+    // `titleGenres.genres[].genre.text` nesting are exactly as proven there.
+    const IMDB_TITLE_FIELDS_QUERY = 'query GHCombined($id: ID!){ title(id:$id){ id ratingsSummary{ aggregateRating voteCount } runtime{ seconds } plot{ plotText{ plainText } } primaryImage{ url width height } titleGenres{ genres{ genre{ text } } } } }';
+
+    async function fetchImdbTitleFields(tconst) {
+        if (!tconst) return null;
+        try {
+            const data = await imdbQuery('GHCombined', IMDB_TITLE_FIELDS_QUERY, { id: tconst });
+            const t = data?.data?.title;
+            if (!t) return null;
+            return {
+                rating:       t.ratingsSummary?.aggregateRating ?? null,
+                voteCount:    t.ratingsSummary?.voteCount ?? null,
+                runtime:      t.runtime?.seconds != null ? Math.round(t.runtime.seconds / 60) : null,
+                overview:     t.plot?.plotText?.plainText ?? null,
+                poster:       t.primaryImage?.url ?? null,
+                posterWidth:  t.primaryImage?.width ?? null,
+                posterHeight: t.primaryImage?.height ?? null,
+                genres:       t.titleGenres?.genres?.map(g => g.genre?.text).filter(Boolean) ?? null,
+            };
+        } catch (e) { return null; }
+    }
+
+    // Combined entry point for callers: resolves title+year to a tconst,
+    // then pulls its fields, and returns a single merged object. Returns
+    // null if the title can't be resolved at all; still returns the
+    // tconst/title/year even if the field lookup itself fails (fields
+    // spread in as {} in that case).
+    async function fetchImdbMovieByTitle(title, year) {
+        const match = await imdbSearchTitle(title, year);
+        if (!match || !match.tconst) return null;
+        const fields = await fetchImdbTitleFields(match.tconst);
+        return {
+            tconst: match.tconst,
+            title:  match.title,
+            year:   match.year,
+            ...(fields || {}),
+        };
+    }
 
     const LINK_DEFS = [
         { key: 'imdb',       label: 'IMDb',       color: '#f5c518', fg: '#000', char: 'i' },
@@ -2694,7 +3247,7 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
     ];
 
     // Cache by raw title to avoid repeat lookups — persisted to localStorage so a page
-    // reload doesn't re-hit TMDB/Wikipedia/IMDb for every title already looked up.
+    // reload doesn't re-hit IMDb/Wikipedia/TMDB for every title already looked up.
     let movieLinkCache = (() => {
         try {
             const raw = localStorage.getItem(LS_MOVIE_CACHE);
@@ -2702,93 +3255,27 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
         } catch (e) { return {}; }
     })();
 
-    // ── Kill-Count JSONL (fetched once, keyed by tmdbId) ───────────────────────
-    let killCountDb = null; // null = not loaded yet, {} = loaded (may be empty)
-
-    async function getKillCountDb() {
-        if (killCountDb !== null) return killCountDb;
-        killCountDb = {};
-        try {
-            // Use GM_xmlhttpRequest to bypass any CORS issues with raw.githubusercontent.com
-            const text = await new Promise((resolve, reject) => {
-                GM_xmlhttpRequest({
-                    method: 'GET',
-                    url: 'https://raw.githubusercontent.com/lklynet/Kill-Count/main/killcounts.jsonl',
-                    onload: r => r.status === 200 ? resolve(r.responseText) : reject(new Error(`HTTP ${r.status}`)),
-                    onerror: reject,
-                });
-            });
-            let loaded = 0;
-            for (const line of text.split('\n')) {
-                const s = line.trim();
-                if (!s) continue;
-                try {
-                    const entry = JSON.parse(s);
-                    // Field name confirmed from repo: tmdb_id and count
-                    if (entry.tmdb_id != null) {
-                        killCountDb[String(entry.tmdb_id)] = entry.count;
-                        loaded++;
-                    }
-                } catch (e) {}
-            }
-        } catch (e) {
-            console.warn('[CyTube SC] Kill count DB failed to load:', e);
-        }
-        return killCountDb;
-    }
-
-    async function lookupMovie(title, year) {
-        const cacheKey = title + (year || '');
+    async function lookupMovie(title, year, season, episode) {
+        // Extend the key with season/episode so two episodes sharing an
+        // identical cleaned title (e.g. two differently-numbered episodes
+        // that both parsed down to "The Tomorrow People") don't collide in
+        // the cache. Additive-only: when episode is null (the movie case),
+        // the key is byte-identical to before, so existing cached movie
+        // entries stay valid with no migration needed.
+        const cacheKey = title + (year || '') + (episode != null ? `S${season ?? ''}E${episode}` : '');
         if (movieLinkCache[cacheKey] !== undefined) return movieLinkCache[cacheKey];
 
-        // ── TMDB + Wikipedia in parallel ─────────────────────────────────────────
-        let tmdbResult = null;
-        let wikiUrl    = null;
+        // ── IMDb (primary) + Wikipedia in parallel ───────────────────────────────
+        // fetchImdbMovieByTitle is defined above in this same file -- a plain
+        // local call, not an external dependency (unlike the typeof-guarded
+        // optional calls below).
+        let wikiUrl = null;
 
-        const tmdbPromise = hasKey(LS_TMDB) ? (async () => {
-            try {
-                const params = new URLSearchParams({ api_key: getKey(LS_TMDB), query: title, language: 'en-US' });
-                if (year) params.set('year', year);
-                let res = await fetch(`https://api.themoviedb.org/3/search/movie?${params}`);
-                if (!res.ok) return;
-                let data = await res.json();
-                // TMDB's `year` param is a hard filter, not a ranking hint -- a schedule's
-                // listed year one off from TMDB's own release date returns zero results even
-                // though the film is right there under a yearless search. Retry once without it.
-                if (!data.results?.length && year) {
-                    params.delete('year');
-                    res = await fetch(`https://api.themoviedb.org/3/search/movie?${params}`);
-                    if (!res.ok) return;
-                    data = await res.json();
-                }
-                if (!data.results?.length) return;
-                let best = data.results[0];
-                if (year) {
-                    const withYear = data.results.find(r => r.release_date?.startsWith(year));
-                    if (withYear) best = withYear;
-                }
-                const detailRes = await fetch(
-                    `https://api.themoviedb.org/3/movie/${best.id}?api_key=${getKey(LS_TMDB)}&append_to_response=external_ids`
-                );
-                if (!detailRes.ok) return;
-                const detail = await detailRes.json();
-                tmdbResult = {
-                    tmdbId:   best.id,
-                    imdbId:   detail.imdb_id || detail.external_ids?.imdb_id || null,
-                    title:    detail.title,
-                    year:     detail.release_date ? detail.release_date.slice(0, 4) : year,
-                    rating:   detail.vote_average  ? Math.round(detail.vote_average * 10) / 10 : null,
-                    runtime:  detail.runtime || null,
-                    genres:   (detail.genres || []).map(g => g.name),
-                    poster:   detail.poster_path   ? `https://image.tmdb.org/t/p/w342${detail.poster_path}` : null,
-                    backdrop: detail.backdrop_path ? `https://image.tmdb.org/t/p/w780${detail.backdrop_path}` : null,
-                    overview: detail.overview || null,
-                };
-            } catch (e) {}
-        })() : Promise.resolve();
+        const imdbPromise = fetchImdbMovieByTitle(title, year);
 
-        // Wikipedia can start immediately with the raw title; we'll use tmdbResult.title if available
-        // but since it runs in parallel we use the raw title — good enough for wiki search
+        // Wikipedia can start immediately with the raw title; we'll use the IMDb
+        // result's title if available, but since it runs in parallel we use the
+        // raw title — good enough for wiki search.
         const wikiPromise = (async () => {
             try {
                 const searchTitle = title + (year ? ' ' + year : '') + ' film';
@@ -2804,45 +3291,62 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
             } catch (e) {}
         })();
 
-        await Promise.all([tmdbPromise, wikiPromise]);
+        const [imdbResult] = await Promise.all([imdbPromise, wikiPromise]);
+        const imdbId = imdbResult?.tconst || null;
 
-        // ── Kill count (from cached JSONL) ───────────────────────────────────────
-        let killCount = null;
-        if (tmdbResult?.tmdbId) {
-            const db = await getKillCountDb();
-            const count = db[String(tmdbResult.tmdbId)];
-            if (count !== undefined && count !== null) killCount = count;
-        }
-
-        // ── IMDb Parent Guide — defined in the imdb-trivia module (shares its IMDb
-        // GraphQL connect grant); typeof-guarded so a build without imdb-trivia still
-        // resolves the rest of this lookup instead of throwing. ──────────────────────
-        const parentalGuide = (typeof fetchImdbParentalGuide === 'function')
-            ? await fetchImdbParentalGuide(tmdbResult?.imdbId)
+        // ── TMDB supplemental — poster/backdrop fallback + kill count. Defined in
+        // the (optional) tmdb module; typeof-guarded so a build without it (or,
+        // right now, before that module exists at all) still resolves the rest of
+        // this lookup, just without TMDB's poster/backdrop/killCount. ────────────
+        const tmdbSupplemental = (typeof fetchTmdbSupplemental === 'function')
+            ? await fetchTmdbSupplemental(imdbId)
             : null;
 
+        // ── IMDb Parent Guide — also defined above in this file; called
+        // directly, same as fetchImdbMovieByTitle above. ─────────────────────────
+        const parentalGuide = await fetchImdbParentalGuide(imdbId);
+
         const result = {
+            season:  season ?? null,
+            episode: episode ?? null,
             links: {
-                imdb:       tmdbResult?.imdbId  ? `https://www.imdb.com/title/${tmdbResult.imdbId}/` : null,
-                letterboxd: tmdbResult?.tmdbId  ? `https://letterboxd.com/tmdb/${tmdbResult.tmdbId}` : null,
+                imdb:       imdbId ? `https://www.imdb.com/title/${imdbId}/` : null,
+                // Letterboxd supports an /imdb/<id> redirect (same as its /tmdb/<id>
+                // one), so this keys off imdbId directly -- available whenever the
+                // primary IMDb lookup resolves, unlike tmdbSupplemental which needs
+                // the optional tmdb module *and* a user-supplied TMDB API key.
+                letterboxd: imdbId ? `https://letterboxd.com/imdb/${imdbId}` : null,
                 wiki:       wikiUrl,
             },
-            killCount,
+            resolved:      !!imdbResult,
+            killCount:     tmdbSupplemental?.killCount ?? null,
             parentalGuide,
-            imdbId:     tmdbResult?.imdbId   || null,
-            cleanTitle: tmdbResult?.title    || null,
-            cleanYear:  tmdbResult?.year     || null,
-            rating:     tmdbResult?.rating   ?? null,
-            runtime:    tmdbResult?.runtime  || null,
-            genres:     tmdbResult?.genres   || [],
-            poster:     tmdbResult?.poster   || null,
-            backdrop:   tmdbResult?.backdrop || null,
-            overview:   tmdbResult?.overview || null,
+            imdbId,
+            cleanTitle: imdbResult?.title    || null,
+            cleanYear:  imdbResult?.year     || null,
+            rating:     imdbResult?.rating   ?? null,
+            runtime:    imdbResult?.runtime  || null,
+            genres:     imdbResult?.genres   || [],
+            // TMDB's poster/backdrop overlay IMDb's when TMDB supplied one; otherwise
+            // fall back to IMDb's primaryImage (if the lookup found one). IMDb has no
+            // dedicated wide "backdrop" field, so its (usually portrait) primaryImage
+            // is reused for both -- the card's CSS crops it to fill (`background-size:
+            // cover`), same pattern apps use when no dedicated backdrop exists.
+            poster:     tmdbSupplemental?.poster   || imdbResult?.poster || null,
+            backdrop:   tmdbSupplemental?.backdrop || imdbResult?.poster || null,
+            overview:   imdbResult?.overview || null,
         };
 
-        movieLinkCache[cacheKey] = result;
-        try { localStorage.setItem(LS_MOVIE_CACHE, JSON.stringify(movieLinkCache)); }
-        catch (e) { /* storage full/unavailable -- in-memory cache for this session still works */ }
+        // Only persist a resolved result -- caching an unresolved one (e.g. a
+        // transient IMDb GraphQL failure) would permanently poison future
+        // lookups for this title, the same trap the old TMDB-absent case fell
+        // into pre-upgrade. An unresolved result still gets returned to the
+        // caller this time, just not cached.
+        if (result.resolved) {
+            movieLinkCache[cacheKey] = result;
+            try { localStorage.setItem(LS_MOVIE_CACHE, JSON.stringify(movieLinkCache)); }
+            catch (e) { /* storage full/unavailable -- in-memory cache for this session still works */ }
+        }
         return result;
     }
 
@@ -2850,9 +3354,12 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
     // always a dependency of every module, so it's called directly here with no
     // typeof-guard needed.
 
-    // _currentImdbId is also read by the imdb-trivia module (which depends on this
-    // one, so it's guaranteed to exist whenever imdb-trivia is present).
-    let _currentImdbId = null;
+    // _currentImdbId is declared once in core's 01-movie-identity.js (shared
+    // now-playing state, alongside lastMovieTitle/_npData), not here -- kept
+    // there for consistency with those fields rather than moved here, even
+    // though imdb-trivia's hard dependsOn on this module (manifest.json)
+    // now guarantees this module is always present wherever imdb-trivia's
+    // showTriviaCard() reads it.
     let _npHideTimer   = null;
 
     const NP_PG_SHORT = {
@@ -2878,6 +3385,7 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
                         <div id="sc-np-meta"></div>
                         <div id="sc-np-overview"></div>
                         <div id="sc-np-chips"></div>
+                        <div id="sc-np-links"></div>
                     </div>
                 </div>`;
             document.body.appendChild(card);
@@ -2906,6 +3414,28 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
             chipHtml.push(`<span class="sc-np-chip">💀 ${data.killCount} kills</span>`);
         }
         card.querySelector('#sc-np-chips').innerHTML = chipHtml.join('');
+
+        // Render movie links badges
+        const linksEl = card.querySelector('#sc-np-links');
+        linksEl.innerHTML = '';
+        if (movieLinksEnabled()) {
+            LINK_DEFS.forEach(({ key, label, color, fg, char }) => {
+                const url = (data.links || {})[key];
+                if (!url) return;
+                const a = document.createElement('a');
+                a.href = url;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.title = label;
+                a.className = 'sc-movie-link';
+                a.style.background = color;
+                a.style.color = fg;
+                a.textContent = char;
+                a.addEventListener('click', (e) => e.stopPropagation());
+                linksEl.appendChild(a);
+            });
+        }
+
         card.classList.add('sc-np-visible');
         clearTimeout(_npHideTimer);
         if (opts.autoHide) _npHideTimer = setTimeout(hideNowPlayingCard, 7000);
@@ -2917,18 +3447,38 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
         clearTimeout(_npHideTimer);
     }
 
-    function injectMovieLinks(titleEl) {
-        const rawTitle = titleEl.textContent.trim()
+    // Incremented once per injectMovieLinks() call that passes the dedup/idle
+    // guards and reaches a real lookupMovie() call. mySeq is captured locally
+    // at that point; the lookupMovie().then() callback checks it against the
+    // current value before applying anything, so an out-of-order-resolving
+    // (e.g. cache-hit-fast) stale lookup can never overwrite what a
+    // more-recently-started lookup already applied.
+    let _titleRequestSeq = 0;
+
+    // overrideRawTitle, when given, is trusted verbatim instead of re-deriving
+    // the title from titleEl's live text -- used by the changeMedia socket
+    // handler below, which has an authoritative title straight from the
+    // server. titleEl is still needed for the visible title-bar rewrite.
+    function injectMovieLinks(titleEl, overrideRawTitle) {
+        const rawTitle = overrideRawTitle !== undefined ? overrideRawTitle : titleEl.textContent.trim()
             .replace(/^currently\s+playing[:\s]*/i, '')
             .replace(/^now\s+playing[:\s]*/i, '').trim();
+
+        // CyTube shows this literal placeholder in #currenttitle when nothing is
+        // queued. It's not a real title, but real enough that IMDb's fuzzy search
+        // can return a plausible-looking (real, unrelated) movie for it -- confirmed
+        // live, it matched "Double or Nothing with Your Life (2018)". Bail before
+        // any lookup; don't touch lastMovieTitle so a later real title never gets
+        // deduped against this placeholder.
+        if (/^nothing\s+playing$/i.test(rawTitle)) return;
 
         if (!rawTitle || rawTitle === lastMovieTitle || rawTitle.length < 2) return;
         lastMovieTitle = rawTitle;
         const knownSeconds = getCurrentMediaSeconds();
         // lineupObserveTitleChange lives in the optional tonights-lineup module --
-        // typeof-guarded so a build without it (this module only depends on core)
-        // still injects links/stats normally, just without feeding the lineup's
-        // timing/ETA model.
+        // typeof-guarded so a build without it (this module doesn't depend on
+        // tonights-lineup) still injects links/stats normally, just without
+        // feeding the lineup's timing/ETA model.
         if (typeof lineupObserveTitleChange === 'function') {
             lineupObserveTitleChange(rawTitle, knownSeconds > 0 ? knownSeconds : null);
         }
@@ -2944,34 +3494,49 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
         let ytSeconds = 0;
         if (isYt) {
             ytSeconds = getCurrentMediaSeconds();
-            if (ytSeconds < 3600) return; // short YouTube clip — skip
+            if (ytSeconds < 3600) {
+                // Short clip — no real IMDb match likely (trailer/bumper/ad),
+                // but oEmbed is free and beats showing nothing.
+                const videoId = currentYtVideoId || _domYtVideoId();
+                if (videoId) {
+                    const mySeq = ++_titleRequestSeq;
+                    fetchYtOembed(videoId).then((info) => {
+                        if (mySeq !== _titleRequestSeq) return; // superseded by a newer title
+                        if (!info || !info.title) return; // no data — leave _npData untouched
+                        _npData = {
+                            cleanTitle: info.title,
+                            cleanYear: null,
+                            poster: info.thumbnail_url || null,
+                            backdrop: info.thumbnail_url || null,
+                            overview: info.author_name ? `Uploaded by ${info.author_name}` : null,
+                            rating: null, runtime: null, genres: [], parentalGuide: null,
+                            killCount: null, imdbId: null, links: {}, season: null, episode: null,
+                        };
+                    });
+                }
+                return;
+            }
         }
 
-        const { title, year } = isYt ? parseYouTubeTitle(rawTitle) : parseMovieFilename(rawTitle);
+        const { title, year, season, episode, isEpisode } = isYt ? parseYouTubeTitle(rawTitle) : parseMovieFilename(rawTitle);
         if (!title || title.length < 2) return;
 
-        if (movieLinksEnabled()) {
-            const linkRow = document.createElement('span');
-            linkRow.id = 'sc-movie-links';
-            linkRow.innerHTML = '<span class="sc-movie-loading">…</span>';
-            titleEl.parentElement.insertBefore(linkRow, titleEl.nextSibling);
-        }
+        const mySeq = ++_titleRequestSeq;
+        lookupMovie(title, year, season, episode).then(({ links, killCount, parentalGuide, imdbId, cleanTitle, cleanYear, rating, runtime, genres, poster, backdrop, overview, season, episode }) => {
+            if (mySeq !== _titleRequestSeq) return; // a newer title lookup has since superseded this one — discard
 
-        lookupMovie(title, year).then(({ links, killCount, parentalGuide, imdbId, cleanTitle, cleanYear, rating, runtime, genres, poster, backdrop, overview }) => {
             if (isYt && !cleanTitle) {
-                const r = document.getElementById('sc-movie-links');
-                if (r) r.remove();
                 return;
             }
             if (isYt && runtime && ytSeconds) {
                 const diff = Math.abs(runtime - ytSeconds / 60);
-                if (diff > 30) { const r = document.getElementById('sc-movie-links'); if (r) r.remove(); return; }
+                if (diff > 30) { return; }
             }
 
             _currentImdbId = imdbId || null;
-            _npData = { cleanTitle, cleanYear, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, killCount, imdbId };
+            _npData = { cleanTitle, cleanYear, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, killCount, imdbId, links, season, episode };
 
-            // Update title with clean TMDB title, wrapped in a clickable span
+            // Update title with clean IMDb title, wrapped in a clickable span
             if (cleanTitle && titleEl) {
                 const newText = cleanTitle + (cleanYear ? ` (${cleanYear})` : '');
                 let span = document.getElementById('sc-title-text');
@@ -2986,28 +3551,6 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
                     else titleEl.insertBefore(span, titleEl.firstChild);
                 }
                 span.textContent = newText;
-            }
-
-            // Icon links row
-            if (movieLinksEnabled()) {
-                const currentRow = document.getElementById('sc-movie-links');
-                if (currentRow) {
-                    currentRow.innerHTML = '';
-                    let anyLink = false;
-                    LINK_DEFS.forEach(({ key, label, color, fg, char }) => {
-                        const url = links[key];
-                        if (!url) return;
-                        anyLink = true;
-                        const a = document.createElement('a');
-                        a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
-                        a.title = `${label}: "${cleanTitle || title}"${cleanYear ? ` (${cleanYear})` : ''}`;
-                        a.className = 'sc-movie-link';
-                        a.style.background = color; a.style.color = fg;
-                        a.textContent = char;
-                        currentRow.appendChild(a);
-                    });
-                    if (!anyLink) currentRow.remove();
-                }
             }
 
             // Trivia button — only when we have an IMDb ID and the imdb-trivia module is
@@ -3047,15 +3590,37 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
         });
     }
 
-    function triggerTitleInject() {
+    function findTitleEl() {
         for (const el of [
             document.getElementById('currenttitle'),
             document.querySelector('#videowrap-header .pull-left'),
             document.querySelector('#videowrap-header span'),
             document.querySelector('.video-title'),
         ]) {
-            if (el && el.textContent.trim()) { injectMovieLinks(el); return; }
+            if (el && el.textContent.trim()) return el;
         }
+        return null;
+    }
+
+    // Right after a real media change, CyTube's title element (and/or a
+    // third-party player script sharing it) can flicker through a transient
+    // bumper/trailer title before settling -- confirmed via debug logging: a
+    // reload showed "Currently Playing: The.Crippled.Masters.[1979].mp4" then
+    // "Playing Double or Nothing with Your Life (2018)" (a different, real
+    // IMDb title -- not garbage, so nothing in the parse/lookup layer could
+    // have caught it) then back to the correct title, then the bumper again,
+    // where it stuck. tonights-lineup already learned this exact lesson (see
+    // its lineupBuildDaySections comment) and prefers the socket's changeMedia
+    // payload over DOM observation for that reason. _socketTitleLockUntil
+    // mirrors that here: while set, DOM-triggered triggerTitleInject() calls
+    // are ignored so this flicker window can't clobber the authoritative
+    // title the socket handler below just committed.
+    let _socketTitleLockUntil = 0;
+
+    function triggerTitleInject() {
+        if (_socketTitleLockUntil && Date.now() < _socketTitleLockUntil) return;
+        const el = findTitleEl();
+        if (el) injectMovieLinks(el);
     }
 
     let _titleObsAttached = false;
@@ -3086,12 +3651,27 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
                 try {
                     currentMediaSeconds = (data && typeof data.seconds === 'number') ? data.seconds : 0;
                     currentMediaType    = (data && data.type) ? data.type : '';
+                    currentYtVideoId    = (data && data.type === 'yt' && data.id) ? data.id : '';
                     // Authoritative lineup match straight from the raw socket payload, ahead of
                     // (and independent from) the DOM-title path below -- see
                     // lineupObserveTitleChange's own comment for why this matters.
                     // typeof-guarded -- see the other call site above in injectMovieLinks.
                     if (data && data.title && typeof lineupObserveTitleChange === 'function') {
                         lineupObserveTitleChange(data.title, data.seconds);
+                    }
+                    if (data && data.title) {
+                        // Authoritative straight from the server -- process it directly
+                        // instead of trusting the DOM, and hold off DOM-triggered
+                        // re-processing for a few seconds so a transient bumper/trailer
+                        // title flicker (see findTitleEl/triggerTitleInject comment)
+                        // can't overwrite it before things settle. Only lock once we've
+                        // actually processed it -- if the title element genuinely isn't
+                        // in the DOM yet, leave the DOM path free to pick things up.
+                        const el = findTitleEl();
+                        if (el) {
+                            _socketTitleLockUntil = Date.now() + 8000;
+                            injectMovieLinks(el, data.title);
+                        }
                     }
                     setTimeout(triggerTitleInject, 350);
                 } catch (e) {}
@@ -3117,7 +3697,6 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
         }
     });
 
-    scRegisterInit(getKillCountDb); // pre-fetch kill count DB
     scRegisterInit(watchMovieTitle);
     scRegisterInit(initMediaWatcher);
 
@@ -3125,20 +3704,8 @@ injectCSS('core', `            /* ===== SHARED HIDDEN ELEMENTS ===== */
     // (spellcheck, movielinks, autoembed, gifoptimize) — see
     // src/pc/core/15-settings-modal-shell.js, which sorts SC_SETTINGS_ROWS by
     // this field before rendering.
-    scRegisterSetting({ id: 'sc-input-movielinks', group: 'movie-title-links', label: 'Show movie links (IMDb / Letterboxd / Wiki)', note: 'Adds clickable badge icons next to the title', key: LS_MOVIE_LINKS, defaultOn: true, order: 2 });
+    scRegisterSetting({ id: 'sc-input-movielinks', group: 'movie-title-links', label: 'Show movie links (IMDb / Letterboxd / Wiki)', note: 'Adds clickable badge icons to the Now Playing card', key: LS_MOVIE_LINKS, defaultOn: true, order: 2 });
 injectCSS('movie-title-links', `            /* ===== MOVIE LINKS ===== */
-            #sc-movie-links {
-                display: inline-flex !important;
-                gap: 3px !important;
-                margin-left: 8px !important;
-                vertical-align: middle !important;
-            }
-            /* Dim: override inline background with transparent, fade text to ghost */
-            #sc-movie-links.sc-bar-dim .sc-movie-link {
-                background: transparent !important;
-                color: rgba(255,255,255,0.3) !important;
-                box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15) !important;
-            }
             .sc-movie-link {
                 display: inline-flex !important;
                 align-items: center !important; justify-content: center !important;
@@ -3151,7 +3718,6 @@ injectCSS('movie-title-links', `            /* ===== MOVIE LINKS ===== */
                 transition: background 2s ease, color 2s ease, box-shadow 2s ease, filter 0.2s ease !important;
             }
             .sc-movie-link:hover { filter: brightness(1.3) !important; }
-            .sc-movie-loading { font-size: 11px !important; color: rgba(255,255,255,0.3) !important; margin-left: 6px !important; }
             /* Stats bar — floats over bottom-left of video, auto-hides after 12s */
             #sc-movie-stats {
                 position: fixed !important;
@@ -3229,6 +3795,7 @@ injectCSS('movie-title-links', `            /* ===== MOVIE LINKS ===== */
                 -webkit-box-orient: vertical !important; overflow: hidden !important;
             }
             #sc-np-chips { display: flex !important; flex-wrap: wrap !important; gap: 8px !important; }
+            #sc-np-links { display: flex !important; gap: 6px !important; margin-top: 10px !important; }
             .sc-np-chip {
                 font-size: 12px !important; color: rgba(255,255,255,0.9) !important;
                 background: rgba(255,255,255,0.12) !important;
@@ -3241,6 +3808,151 @@ injectCSS('movie-title-links', `            /* ===== MOVIE LINKS ===== */
             .sc-np-chip.sc-sev-moderate { background: rgba(200,150,40,0.34)  !important; border-color: rgba(230,180,60,0.55) !important; color: #ffe9b8 !important; }
             .sc-np-chip.sc-sev-severe   { background: rgba(200,60,50,0.38)   !important; border-color: rgba(235,90,80,0.6) !important; color: #ffd2cc !important; }
 `);
+    /* ==========================================================
+       TMDB — optional supplemental data for the Now Playing card:
+       poster/backdrop images and kill-count chips. IMDb (imdb-trivia
+       module) is the primary/required lookup now; this module only
+       adds on top of an already-resolved `imdbId`, so movie-title-
+       links calls fetchTmdbSupplemental(imdbId) through a typeof-guard
+       (this module is optional — a build without it still resolves
+       title/rating/runtime/overview/poster from IMDb alone, just
+       without TMDB's backdrop/poster-upgrade/kill-count/Letterboxd
+       link).
+
+       Owns everything TMDB-related that used to live in core:
+       - LS_TMDB key + validateTmdbKey() (moved verbatim from
+         src/pc/core/15-settings-modal-shell.js) + the registered
+         settings row for it (a plain type:'text' row now, like
+         gifmaker's ImgBB field — no more hardcoded enable/disable
+         toggle; the row's presence in the settings modal already
+         doubles as "TMDB is available in this build").
+       - The kill-count DB (raw.githubusercontent.com JSONL, keyed by
+         tmdb_id) — written fresh here; movie-title-links's old copy
+         was deleted outright in the prior task, not moved.
+       - fetchTmdbSupplemental(imdbId): TMDB's /3/find/{imdb_id}
+         endpoint to resolve a TMDB id from the IMDb id movie-title-
+         links already found, then poster_path/backdrop_path (same
+         image.tmdb.org/t/p/w342|w780 URL construction the old TMDB-
+         first lookupMovie() used) plus a kill-count lookup. Returns
+         { tmdbId, poster, backdrop, killCount } — null fields when
+         there's no key set or no TMDB match — exactly the shape
+         movie-title-links's lookupMovie() already destructures.
+    ========================================================== */
+
+    const LS_TMDB = 'sc_tmdb_key';
+
+    async function validateTmdbKey(key) {
+        try {
+            const res = await new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `https://api.themoviedb.org/3/configuration?api_key=${encodeURIComponent(key)}`,
+                    onload: r => resolve(r),
+                    onerror: reject,
+                });
+            });
+            if (res.status === 200) return 'valid';
+            if (res.status === 401) return 'invalid';
+            return 'error';
+        } catch (e) { return 'error'; }
+    }
+
+    // ── Kill-Count JSONL (fetched once, keyed by tmdb_id) ───────────────────────
+    let killCountDb = null; // null = not loaded yet, {} = loaded (may be empty)
+
+    async function getKillCountDb() {
+        if (killCountDb !== null) return killCountDb;
+        killCountDb = {};
+        try {
+            // Use GM_xmlhttpRequest to bypass any CORS issues with raw.githubusercontent.com
+            const text = await new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: 'https://raw.githubusercontent.com/lklynet/Kill-Count/main/killcounts.jsonl',
+                    onload: r => r.status === 200 ? resolve(r.responseText) : reject(new Error(`HTTP ${r.status}`)),
+                    onerror: reject,
+                });
+            });
+            for (const line of text.split('\n')) {
+                const s = line.trim();
+                if (!s) continue;
+                try {
+                    const entry = JSON.parse(s);
+                    // Field name confirmed from repo: tmdb_id and count
+                    if (entry.tmdb_id != null) {
+                        killCountDb[String(entry.tmdb_id)] = entry.count;
+                    }
+                } catch (e) {}
+            }
+        } catch (e) {
+            console.warn('[CyTube SC] Kill count DB failed to load:', e);
+        }
+        return killCountDb;
+    }
+
+    // Given an already-resolved IMDb id, finds the matching TMDB movie (if a
+    // key is set and TMDB has one) and returns its poster/backdrop/kill-count.
+    // Called by movie-title-links's lookupMovie() through a typeof-guard.
+    async function fetchTmdbSupplemental(imdbId) {
+        const empty = { tmdbId: null, poster: null, backdrop: null, killCount: null };
+        if (!imdbId || !hasKey(LS_TMDB)) return empty;
+        try {
+            const res = await new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `https://api.themoviedb.org/3/find/${encodeURIComponent(imdbId)}` +
+                        `?external_source=imdb_id&api_key=${encodeURIComponent(getKey(LS_TMDB))}`,
+                    onload: r => resolve(r),
+                    onerror: reject,
+                });
+            });
+            if (res.status !== 200) return empty;
+            const data = JSON.parse(res.responseText);
+            const movie = data?.movie_results?.[0];
+            if (!movie) return empty;
+
+            const tmdbId   = movie.id ?? null;
+            const poster   = movie.poster_path   ? `https://image.tmdb.org/t/p/w342${movie.poster_path}`   : null;
+            const backdrop = movie.backdrop_path ? `https://image.tmdb.org/t/p/w780${movie.backdrop_path}` : null;
+
+            let killCount = null;
+            if (tmdbId != null) {
+                const db = await getKillCountDb();
+                const count = db[String(tmdbId)];
+                if (count !== undefined && count !== null) killCount = count;
+            }
+
+            return { tmdbId, poster, backdrop, killCount };
+        } catch (e) {
+            return empty;
+        }
+    }
+
+    scRegisterInit(getKillCountDb); // pre-fetch kill count DB
+
+    // order: 0 — reproduces the original hardcoded field's position at the
+    // very top of the settings modal, above every other registered row
+    // (spellcheck=1, movielinks=2, autoembed=3, gifoptimize=4,
+    // lineuptiming=5, imgbb=6, movie-lead-time=7 — see
+    // src/pc/core/15-settings-modal-shell.js, which sorts SC_SETTINGS_ROWS
+    // by this field before rendering). testEmptyMessage/testValidMessage/
+    // testInvalidMessage/testErrorMessage carry over byte-for-byte from the
+    // old hardcoded TMDB Test button in core/15-settings-modal-shell.js.
+    scRegisterSetting({
+        id: 'sc-input-tmdb', group: 'tmdb', type: 'text',
+        label: 'TMDB API key',
+        note: 'Optional — adds movie posters, backdrops, kill-count chips, and a Letterboxd link to the Now Playing card',
+        key: LS_TMDB,
+        placeholder: 'Paste TMDB v3 key…',
+        testHandler: validateTmdbKey,
+        testEmptyMessage: 'Enter a key first',
+        testValidMessage: '✓ Valid key',
+        testInvalidMessage: '✗ Invalid key',
+        testErrorMessage: '⚠ Couldn\'t reach API',
+        link: 'https://www.themoviedb.org/settings/api',
+        linkText: 'Get a free TMDB key ↗',
+        order: 0,
+    });
     /* ==========================================================
        GRAMMAR CHECK — LanguageTool check + readability checks, the
        inline error review modal, and the send-flow glue that invokes
@@ -3642,6 +4354,1017 @@ injectCSS('grammar-check', `            /* ===== REVIEW MODAL ===== */
                 padding: 2px 4px !important; flex-shrink: 0 !important;
             }
 `);
+    /* ==========================================================
+       EMOTE PICKER — a fully custom draggable panel that replaces
+       CyTube's native #emotelist popup. relocateEmoteButton() in core
+       (11-chat-input-and-emotes.js) still owns the floating
+       #sc-emote-proxy trigger button; it just toggles this module's
+       panel now instead of forwarding clicks to CyTube's own button.
+       #emotelistbtn/#emotelist themselves are left untouched in the
+       DOM -- this module only reads from them as a data-source
+       fallback (see EMOTE DATA below), never shows them.
+       Star/pin favoriting lives in the FAVORITES sections below --
+       the star toggle sits inside each tile's .sc-emotes-tile-actions
+       slot (originally left empty), and LS_EMOTE_FAVORITES persists
+       the favorited name list. An All/Favorites tab bar (LS_EMOTE_ACTIVE_TAB
+       persists the last-selected one) switches which list feeds the one
+       shared #sc-emotes-grid -- see renderActiveTabGrid().
+    ========================================================== */
+
+    /* ==========================================================
+       EMOTE DATA — hybrid sourcing.
+       Primary: unsafeWindow.CHANNEL.emotes, the array CyTube's own
+       client keeps in sync ({name, image, source, regex} per entry --
+       confirmed against calzoneman/sync's callbacks.js/util.js). Only
+       `name`/`image` are used here; `source`/`regex` are irrelevant to
+       clicking a tile (insertion is a literal `emote.name` string, not
+       a regex match).
+       readChannelEmotes() returns `null` only when CHANNEL.emotes isn't
+       a real array yet (not loaded / malformed) -- a genuinely-loaded
+       empty array comes back as `[]`, distinct from `null`. This
+       distinction matters: computeEmoteList() must never fall through
+       to the DOM-scrape fallback for a channel that has confirmed zero
+       emotes, only for one whose data truly isn't available.
+       Fallback: scrape #emotelist img.channel-emote nodes directly
+       (img.src/img.title, matching CyTube's own emoteToImg() output).
+       CyTube renders #emotelist's contents once it has emote data,
+       independent of whether the popup has ever been opened, but on
+       the rare chance it hasn't rendered yet AND the caller is the
+       user actually opening our panel (`allowForceRender` -- never
+       true for a passive background socket event, see
+       bindEmoteSocketEvents() below), force it open-then-closed via
+       #emotelistbtn (the same element relocateEmoteButton() already
+       references) so the DOM scrape has something to read -- the
+       native popup is never left visible to the user, and never
+       flashed unprompted while nobody has asked to see emotes at all.
+       _uw is core's shared unsafeWindow/window fallback (see
+       03-gif-bridge.js / 04-channel-script-autoapprove.js) -- this
+       module doesn't redeclare it.
+    ========================================================== */
+    function readChannelEmotes() {
+        try {
+            const arr = _uw.CHANNEL && _uw.CHANNEL.emotes;
+            if (!Array.isArray(arr)) return null; // not loaded yet / malformed
+            const out = [];
+            for (const e of arr) {
+                if (e && typeof e.name === 'string' && e.name && typeof e.image === 'string' && e.image) {
+                    out.push({ name: e.name, image: e.image });
+                }
+            }
+            return out; // may legitimately be [] -- a real array means the channel truly has (or filtered down to) zero usable emotes
+        } catch (e) { return null; }
+    }
+
+    function readEmotesFromDom() {
+        const out = [];
+        document.querySelectorAll('#emotelist img.channel-emote').forEach(img => {
+            const name = img.title;
+            const image = img.src;
+            if (name && image) out.push({ name, image });
+        });
+        return out;
+    }
+
+    // The click-open-then-close dance is real UI disruption (it briefly
+    // shows/hides CyTube's own popup), so `allowForceRender` gates it to
+    // only ever run when the user actually opened our panel (never from
+    // a background socket refresh), and even then only once per page
+    // load via this flag. Plain DOM reads (no click) are cheap and still
+    // attempted every call regardless of `allowForceRender`.
+    let _scEmoteForceRenderAttempted = false;
+    function scrapeEmotesFallback(allowForceRender) {
+        let out = readEmotesFromDom();
+        if (out.length || !allowForceRender || _scEmoteForceRenderAttempted) return out;
+        _scEmoteForceRenderAttempted = true;
+        const btn = document.getElementById('emotelistbtn');
+        if (btn) {
+            try {
+                btn.click(); // force a native render if it hasn't happened yet
+                out = readEmotesFromDom();
+            } finally {
+                btn.click(); // close it again -- our panel is what actually shows
+            }
+        }
+        return out;
+    }
+
+    // `allowForceRender` must only be true when called in direct response
+    // to the user opening the panel (see openEmotesPanel()) -- background
+    // callers (the socket handler below) always pass false/omit it, so an
+    // emote-less or not-yet-loaded channel never flashes CyTube's native
+    // popup on its own.
+    function computeEmoteList(allowForceRender) {
+        const fromChannel = readChannelEmotes();
+        if (fromChannel !== null) return fromChannel; // genuine data, even if empty
+        return scrapeEmotesFallback(!!allowForceRender);
+    }
+
+    let _scEmoteData = [];
+
+    // Re-derives the emote list and, if the panel is currently open,
+    // re-renders whichever tab is active in place (preserving whatever
+    // search filter is active). Called on first panel open
+    // (allowForceRender=true) and whenever a live emote-list socket event
+    // fires (allowForceRender omitted/false -- a background refresh never
+    // triggers the native-popup force-render dance). Never throws --
+    // worst case the list just doesn't refresh.
+    function refreshEmoteData(allowForceRender) {
+        try {
+            _scEmoteData = computeEmoteList(allowForceRender);
+        } catch (e) {
+            console.warn('[SC][emote-picker] failed to refresh emote data:', e);
+            return;
+        }
+        warmFavoriteBlobUrls(); // fire-and-forget -- see FAVORITE IMAGE CACHE above
+        const grid = document.getElementById('sc-emotes-grid');
+        if (!grid) return;
+        const search = document.getElementById('sc-emotes-search');
+        renderActiveTabGrid(grid, search ? search.value : '');
+    }
+
+    // Guarded/retried the same way core's initChatTimestamps guards its
+    // own socket.on('chatMsg', ...) hookup (12-playback-sync-and-seek.js)
+    // -- `socket` may not exist yet at script-load time (document-start),
+    // so poll for it instead of assuming it's ready. If it never shows up,
+    // the emote list simply never live-updates; nothing here throws.
+    function bindEmoteSocketEvents() {
+        let bound = false;
+        const tryBind = () => {
+            if (bound || typeof socket === 'undefined' || !socket || !socket.on) return;
+            bound = true;
+            // Background refresh only -- never force-renders the native
+            // popup (see computeEmoteList()'s allowForceRender contract).
+            const onEmoteUpdate = () => refreshEmoteData(false);
+            // Registered after CyTube's own handlers for these events, so by
+            // the time this fires CHANNEL.emotes already reflects the change.
+            socket.on('emoteList', onEmoteUpdate);
+            socket.on('updateEmote', onEmoteUpdate);
+            socket.on('removeEmote', onEmoteUpdate);
+        };
+        tryBind();
+        window.addEventListener('load', () => { tryBind(); setTimeout(tryBind, 2000); });
+        const poll = setInterval(() => { tryBind(); if (bound) clearInterval(poll); }, 250);
+        setTimeout(() => clearInterval(poll), 10000);
+    }
+    bindEmoteSocketEvents();
+
+    /* ==========================================================
+       PANEL CSS (lazily injected on first open, matching the
+       gifmaker/subtitles convention)
+    ========================================================== */
+    function injectEmotesPanelCss() {
+        if (document.getElementById('scemotes-panel-style')) return;
+        const style = document.createElement('style');
+        style.id = 'scemotes-panel-style';
+        style.textContent = `
+            #sc-emotes-panel {
+                position: fixed !important;
+                z-index: 30002 !important;
+                width: 340px !important; max-width: 92vw !important;
+                max-height: 56vh !important;
+                display: flex !important; flex-direction: column !important;
+                background: #0c0c0e !important;
+                border: 1px solid rgba(244,244,242,0.14) !important;
+                border-radius: 12px !important;
+                box-shadow: 0 12px 40px rgba(0,0,0,0.6) !important;
+                color: #f4f4f2 !important; font-size: 13px !important;
+                font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif !important;
+            }
+            #sc-emotes-head {
+                display: flex !important; align-items: center !important; justify-content: space-between !important;
+                flex: none !important;
+                padding: 10px 16px !important;
+                border-bottom: 1px solid rgba(244,244,242,0.08) !important;
+                font-weight: 700 !important; font-size: 14px !important; color: #3ecbff !important;
+                letter-spacing: 0.01em !important;
+                cursor: grab !important; user-select: none !important; touch-action: none !important;
+            }
+            #sc-emotes-head.sc-emotes-dragging { cursor: grabbing !important; }
+            #sc-emotes-close {
+                background: transparent !important; border: none !important; color: rgba(244,244,242,0.62) !important;
+                font-size: 15px !important; cursor: pointer !important; padding: 0 4px !important;
+                transition: color 120ms ease !important;
+            }
+            #sc-emotes-close:hover { color: #f4f4f2 !important; }
+            #sc-emotes-body {
+                padding: 10px 12px 12px !important;
+                display: flex !important; flex-direction: column !important; gap: 8px !important;
+                flex: 1 1 auto !important; min-height: 0 !important;
+            }
+            .sc-emotes-search {
+                flex: none !important;
+                background: rgba(255,255,255,0.06) !important; color: #f4f4f2 !important;
+                border: 1px solid rgba(255,255,255,0.18) !important; border-radius: 6px !important;
+                padding: 6px 10px !important; font-size: 13px !important;
+                box-sizing: border-box !important; width: 100% !important;
+                transition: border-color 120ms ease !important;
+            }
+            .sc-emotes-search:hover, .sc-emotes-search:focus { border-color: rgba(62,203,255,0.5) !important; }
+            .sc-emotes-search::placeholder { color: rgba(244,244,242,0.34) !important; }
+            .sc-emotes-grid {
+                flex: 1 1 auto !important; min-height: 0 !important; overflow-y: auto !important;
+                display: grid !important;
+                grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)) !important;
+                gap: 6px !important;
+                align-content: start !important;
+                scrollbar-width: thin !important; scrollbar-color: rgba(244,244,242,0.2) #000 !important;
+            }
+            .sc-emotes-grid::-webkit-scrollbar { width: 10px !important; }
+            .sc-emotes-grid::-webkit-scrollbar-track { background: #000 !important; }
+            .sc-emotes-grid::-webkit-scrollbar-thumb {
+                background: rgba(244,244,242,0.2) !important; border-radius: 6px !important; border: 2px solid #000 !important;
+            }
+            .sc-emotes-grid::-webkit-scrollbar-thumb:hover { background: #3ecbff !important; }
+            .sc-emotes-tile {
+                position: relative !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
+                background: rgba(244,244,242,0.04) !important;
+                border: 1px solid rgba(244,244,242,0.08) !important; border-radius: 6px !important;
+                padding: 4px !important; height: 60px !important; box-sizing: border-box !important;
+                cursor: pointer !important;
+                transition: background-color 120ms ease, border-color 120ms ease !important;
+            }
+            .sc-emotes-tile:hover, .sc-emotes-tile:focus-visible {
+                background: rgba(62,203,255,0.14) !important; border-color: #3ecbff !important;
+                outline: none !important;
+            }
+            .sc-emotes-tile img {
+                max-width: 100% !important; max-height: 46px !important;
+                display: block !important; pointer-events: none !important;
+                opacity: 0 !important; transition: opacity 150ms ease !important;
+            }
+            .sc-emotes-tile.sc-emotes-img-loaded img { opacity: 1 !important; }
+            /* Shown until the tile's image fires load/error (see
+               wireImageLoadSpinners()), then hidden via the same
+               .sc-emotes-img-loaded class that fades the image in. */
+            .sc-emotes-spinner {
+                position: absolute !important; top: 50% !important; left: 50% !important;
+                transform: translate(-50%, -50%) !important;
+                width: 18px !important; height: 18px !important; box-sizing: border-box !important;
+                border: 2px solid rgba(244,244,242,0.18) !important;
+                border-top-color: #3ecbff !important;
+                border-radius: 50% !important;
+                animation: sc-emotes-spin 700ms linear infinite !important;
+                pointer-events: none !important;
+            }
+            .sc-emotes-tile.sc-emotes-img-loaded .sc-emotes-spinner { display: none !important; }
+            @keyframes sc-emotes-spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
+            /* Holds the star favorite-toggle. pointer-events:none here so
+               the container itself never swallows clicks meant for
+               anything else in the tile; .sc-emotes-star below overrides
+               back to pointer-events:auto on itself so it still receives
+               its own clicks. */
+            .sc-emotes-tile-actions {
+                position: absolute !important; top: 2px !important; right: 2px !important;
+                pointer-events: none !important;
+            }
+            .sc-emotes-star {
+                pointer-events: auto !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
+                width: 16px !important; height: 16px !important;
+                font-size: 12px !important; line-height: 1 !important;
+                color: rgba(244,244,242,0.5) !important;
+                background: rgba(0,0,0,0.4) !important;
+                border-radius: 4px !important;
+                cursor: pointer !important;
+                transition: color 120ms ease, transform 120ms ease !important;
+            }
+            .sc-emotes-star:hover, .sc-emotes-star:focus-visible {
+                color: #f4f4f2 !important; outline: none !important; transform: scale(1.12) !important;
+            }
+            .sc-emotes-star-active {
+                color: #ffd24a !important;
+            }
+            .sc-emotes-star-active:hover, .sc-emotes-star-active:focus-visible { color: #ffdd70 !important; }
+            .sc-emotes-empty {
+                grid-column: 1 / -1 !important;
+                padding: 18px 4px !important; text-align: center !important;
+                color: rgba(244,244,242,0.4) !important; font-size: 12px !important;
+            }
+            /* All / Favorites tab bar -- lives between the header and the
+               search box. Both tabs render into the same #sc-emotes-grid
+               (see renderActiveTabGrid()), so Favorites gets the full
+               panel height instead of being squeezed into a small strip. */
+            #sc-emotes-tabs {
+                display: flex !important; gap: 4px !important; flex: none !important;
+            }
+            .sc-emotes-tab {
+                flex: 1 1 0 !important;
+                background: rgba(255,255,255,0.04) !important; color: rgba(244,244,242,0.62) !important;
+                border: 1px solid rgba(255,255,255,0.1) !important; border-radius: 6px !important;
+                padding: 6px 8px !important; font-size: 12px !important; font-weight: 600 !important;
+                cursor: pointer !important; text-align: center !important;
+                transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease !important;
+            }
+            .sc-emotes-tab:hover { color: #f4f4f2 !important; border-color: rgba(62,203,255,0.4) !important; }
+            .sc-emotes-tab-active {
+                background: rgba(62,203,255,0.16) !important; color: #3ecbff !important; border-color: #3ecbff !important;
+            }
+
+            /* Orientation-aware sizing/placement -- mirrors the pattern
+               00-layout-core.css already uses for other panels/buttons
+               (e.g. #sc-poll-panel, #sc-emote-proxy). Default spawn point
+               anchors near #sc-emote-proxy's own corner per layout, not
+               screen-center like the GIF/caption panels -- but offset
+               *past* the button's own footprint (00-layout-core.css:
+               #fs-toggle-btn, #sc-emote-proxy is a 28px circle, 1px
+               border) rather than directly on top of it, so the trigger
+               stays clickable (and therefore closeable) once the panel
+               is open instead of being buried under it (z-index 30002
+               vs. the proxy's 20002). Only applies while no saved
+               position exists -- openEmotesPanel() sets explicit
+               left/top inline (clearing right/bottom) once a drag has
+               been saved. */
+            body.sc-horizontal #sc-emotes-panel {
+                /* proxy: bottom 6px, 28px + 1px border tall -> top edge
+                   sits ~36px up; clear it with a bit of breathing room */
+                bottom: 44px !important; right: 8px !important;
+                width: 420px !important; max-height: 46vh !important;
+            }
+            body.sc-horizontal .sc-emotes-grid {
+                grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)) !important;
+            }
+            body.sc-vertical #sc-emotes-panel {
+                /* proxy: bottom 18px, ~30px tall -> top edge ~48px up */
+                bottom: 56px !important; right: 8px !important;
+                width: 280px !important; max-height: 66vh !important;
+            }
+            body.sc-vertical .sc-emotes-grid {
+                grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)) !important;
+            }
+
+            /* Floating GIF hover-preview -- see GIF HOVER PREVIEW below.
+               Appended to <body>, not the grid, so it's never clipped by
+               .sc-emotes-grid's own overflow:auto. */
+            #sc-emotes-preview {
+                position: fixed !important;
+                z-index: 30003 !important;
+                display: none !important;
+                pointer-events: none !important;
+                background: #0c0c0e !important;
+                border: 1px solid rgba(244,244,242,0.14) !important;
+                border-radius: 10px !important;
+                box-shadow: 0 12px 40px rgba(0,0,0,0.6) !important;
+                padding: 6px !important;
+                box-sizing: border-box !important;
+            }
+            /* Image starts hidden (opacity:0) and only fades in once ITS
+               OWN load/error fires (see ensureEmotePreviewEl()) -- without
+               this, swapping a persistent <img>'s src keeps rendering the
+               previously-loaded gif until the new one finishes decoding,
+               so a still-loading gif would flash the last-hovered one. */
+            #sc-emotes-preview img {
+                display: block !important;
+                width: 176px !important; height: 176px !important;
+                object-fit: contain !important;
+                opacity: 0 !important;
+                transition: opacity 100ms ease !important;
+            }
+            #sc-emotes-preview.sc-emotes-preview-loaded img { opacity: 1 !important; }
+            #sc-emotes-preview.sc-emotes-preview-loaded .sc-emotes-spinner { display: none !important; }
+            #sc-emotes-preview-name {
+                display: block !important;
+                width: 176px !important; max-width: 176px !important;
+                margin-top: 6px !important;
+                color: #f4f4f2 !important; font-size: 12px !important; text-align: center !important;
+                white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important;
+                box-sizing: border-box !important;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    /* ==========================================================
+       DRAG + CLAMP HELPER
+       Adapted from the (independently duplicated) pointer-drag logic
+       in gifmaker's openGifPanel (src/pc/modules/gifmaker/index.js
+       around line 1342) and subtitles' openSubtitlePanel
+       (src/pc/modules/subtitles/index.js around line 490). Net-new
+       here, local to this module, and used only by #sc-emotes-panel --
+       gifmaker/subtitles keep their own copies untouched.
+    ========================================================== */
+    function clampPanelPos(left, top, width, height) {
+        return {
+            x: Math.min(Math.max(left, -(width - 40)), window.innerWidth - 40),
+            y: Math.min(Math.max(top, 0), window.innerHeight - 32),
+        };
+    }
+
+    function makePanelDraggable(panel, head, draggingClass, onDragEnd) {
+        let dragging = false, dragDX = 0, dragDY = 0;
+        const setPos = (prop, val) => panel.style.setProperty(prop, val, 'important');
+        head.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('button')) return; // don't start a drag from the close button
+            const rect = panel.getBoundingClientRect();
+            setPos('left', rect.left + 'px');
+            setPos('top', rect.top + 'px');
+            setPos('right', 'auto');
+            setPos('bottom', 'auto');
+            dragDX = e.clientX - rect.left;
+            dragDY = e.clientY - rect.top;
+            dragging = true;
+            head.classList.add(draggingClass);
+            head.setPointerCapture(e.pointerId);
+        });
+        head.addEventListener('pointermove', (e) => {
+            if (!dragging) return;
+            const rect = panel.getBoundingClientRect();
+            const { x, y } = clampPanelPos(e.clientX - dragDX, e.clientY - dragDY, rect.width, rect.height);
+            setPos('left', x + 'px');
+            setPos('top', y + 'px');
+        });
+        const endDrag = (e) => {
+            if (!dragging) return;
+            dragging = false;
+            head.classList.remove(draggingClass);
+            try { head.releasePointerCapture(e.pointerId); } catch (err) {}
+            if (onDragEnd) {
+                const rect = panel.getBoundingClientRect();
+                onDragEnd(rect.left, rect.top);
+            }
+        };
+        head.addEventListener('pointerup', endDrag);
+        head.addEventListener('pointercancel', endDrag);
+    }
+
+    /* ==========================================================
+       PERSISTED POSITION — LS_EMOTE_PANEL_POS / getKey / setKey are
+       core's (02-keys-and-helpers.js). Missing or unparseable falls
+       back to the smart default spawn point (the orientation-aware
+       CSS bottom/right rules above), same as chatimages' LS_BANNED
+       JSON-array convention (getKey(...) || fallback, wrapped in try).
+    ========================================================== */
+    function getSavedEmotePanelPos() {
+        try {
+            const raw = getKey(LS_EMOTE_PANEL_POS);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed.left === 'number' && typeof parsed.top === 'number') return parsed;
+        } catch (e) {}
+        return null;
+    }
+    function saveEmotePanelPos(left, top) {
+        try { setKey(LS_EMOTE_PANEL_POS, JSON.stringify({ left, top })); } catch (e) {}
+    }
+
+    /* ==========================================================
+       PERSISTED FAVORITES — LS_EMOTE_FAVORITES / getKey / setKey are
+       core's (02-keys-and-helpers.js), same JSON-array convention as
+       chatimages' LS_BANNED (src/pc/modules/chatimages/index.js).
+       _scEmoteFavorites is the in-memory Set of favorited emote
+       `name` strings; loadFavorites() (re)reads it from storage on
+       every panel open so the star states/Favorites tab start accurate,
+       and saveFavorites() persists it on every toggle. A favorited
+       name that no longer resolves to a current channel emote (e.g.
+       it was removed) is never pruned here -- currentTabSourceList()
+       below just skips rendering it, storage keeps the name in case
+       the emote comes back.
+    ========================================================== */
+    let _scEmoteFavorites = new Set();
+    function loadFavorites() {
+        try {
+            const arr = JSON.parse(getKey(LS_EMOTE_FAVORITES) || '[]');
+            if (Array.isArray(arr)) return new Set(arr.filter(n => typeof n === 'string' && n));
+        } catch (e) {}
+        return new Set();
+    }
+    function saveFavorites() {
+        try { setKey(LS_EMOTE_FAVORITES, JSON.stringify([..._scEmoteFavorites])); } catch (e) {}
+    }
+
+    /* ==========================================================
+       FAVORITE IMAGE CACHE — Cache Storage API, keyed by emote image
+       URL. Separate from (and independent of) the browser's own HTTP
+       disk cache: that cache is a shared LRU across everything the
+       page loads, including every gif anyone else posts in chat, so a
+       favorited emote can get silently evicted and re-download even
+       though nothing about it changed. Storing it here means it's
+       only ever evicted by us (see evictFavoriteImage() below) or by
+       the browser's storage eviction under genuine disk-space
+       pressure, which is far rarer than ordinary HTTP cache churn.
+       Cross-origin emote CDNs that don't send CORS headers make
+       fetch() below throw -- caught and swallowed like every other
+       best-effort path in this module, so favoriting still works via
+       saveFavorites() either way; that particular emote just falls
+       back to the old live-URL/browser-cache behavior instead of
+       this extra layer.
+       _scFavoriteBlobUrls (name -> object URL) is populated lazily by
+       cacheFavoriteImage()/warmFavoriteBlobUrls() and read
+       synchronously by renderEmoteTile() below, so no render ever
+       blocks on a cache lookup -- the very first paint after a fresh
+       page load uses the live URL like before, then
+       patchFavoriteTileImage() swaps in the cached one once the
+       lookup resolves. Every panel open after that in the same page
+       session already has the map warm.
+    ========================================================== */
+    const EMOTE_FAVORITES_CACHE = 'sc-emote-favorites-v1';
+
+    function openFavoritesCache() {
+        if (!('caches' in window)) return Promise.resolve(null);
+        return caches.open(EMOTE_FAVORITES_CACHE).catch(() => null);
+    }
+
+    let _scFavoriteBlobUrls = new Map();
+
+    function patchFavoriteTileImage(name, src) {
+        document.querySelectorAll('#sc-emotes-panel .sc-emotes-tile').forEach(tile => {
+            if (tile.dataset.emoteName !== name) return;
+            const img = tile.querySelector('img');
+            if (img && img.src !== src) img.src = src;
+        });
+    }
+
+    function setFavoriteBlobUrl(name, blob) {
+        const objUrl = URL.createObjectURL(blob);
+        const prev = _scFavoriteBlobUrls.get(name);
+        _scFavoriteBlobUrls.set(name, objUrl);
+        if (prev) URL.revokeObjectURL(prev);
+        patchFavoriteTileImage(name, objUrl);
+    }
+
+    // Fetches+persists a favorited emote's actual bytes into the cache the
+    // moment it's starred, rather than only caching whatever the browser
+    // happened to already have loaded (see block comment above).
+    async function cacheFavoriteImage(name, url) {
+        if (!url) return;
+        try {
+            const cache = await openFavoritesCache();
+            if (!cache) return;
+            const res = await fetch(url);
+            if (!res.ok) return;
+            await cache.put(url, res.clone());
+            setFavoriteBlobUrl(name, await res.blob());
+        } catch (e) {} // cross-origin without CORS headers, offline, etc. -- old behavior just continues
+    }
+
+    async function evictFavoriteImage(name, url) {
+        const blobUrl = _scFavoriteBlobUrls.get(name);
+        if (blobUrl) {
+            URL.revokeObjectURL(blobUrl);
+            _scFavoriteBlobUrls.delete(name);
+        }
+        try {
+            const cache = await openFavoritesCache();
+            if (cache && url) await cache.delete(url);
+        } catch (e) {}
+    }
+
+    // Backfills _scFavoriteBlobUrls for every current favorite, resolving
+    // from the cache where possible and, for a favorite the cache doesn't
+    // have yet (favorited before this cache existed, or evicted by the
+    // browser under storage pressure), falling through to
+    // cacheFavoriteImage() to fetch+store it fresh -- so a user never has
+    // to unstar/restar an existing favorite to get it cached; it happens
+    // automatically the first time emote data is available (panel open,
+    // or the background 'emoteList' socket event on page load -- see
+    // refreshEmoteData() above). Called fire-and-forget, never awaited;
+    // already-resolved names are skipped, so repeat calls are cheap.
+    async function warmFavoriteBlobUrls() {
+        if (!_scEmoteFavorites.size || !_scEmoteData.length) return;
+        const cache = await openFavoritesCache();
+        if (!cache) return;
+        for (const e of _scEmoteData) {
+            if (!_scEmoteFavorites.has(e.name) || _scFavoriteBlobUrls.has(e.name)) continue;
+            try {
+                const res = await cache.match(e.image);
+                if (res) setFavoriteBlobUrl(e.name, await res.blob());
+                else await cacheFavoriteImage(e.name, e.image);
+            } catch (err) {}
+        }
+    }
+
+    function toggleFavorite(name) {
+        if (!name) return;
+        const isFav = !_scEmoteFavorites.has(name);
+        if (isFav) _scEmoteFavorites.add(name);
+        else _scEmoteFavorites.delete(name);
+        saveFavorites();
+        refreshAfterFavoriteToggle(name, isFav);
+        const emote = _scEmoteData.find(em => em.name === name);
+        const image = emote && emote.image;
+        if (isFav) cacheFavoriteImage(name, image);
+        else evictFavoriteImage(name, image);
+    }
+    // On the All tab, a toggle never changes tile *membership* -- the tile
+    // stays right where it is either way -- so its star is just mutated in
+    // place rather than rebuilding the grid (rebuilding it, i.e.
+    // grid.innerHTML = ..., used to reset scrollTop to 0 and destroy/
+    // recreate whatever tile held keyboard focus, throwing the user back
+    // to the top on every star click). On the Favorites tab, unstarring
+    // DOES change membership -- the tile needs to actually disappear --
+    // so that tab alone is fully re-rendered here.
+    function refreshAfterFavoriteToggle(name, isFav) {
+        if (_scEmoteActiveTab === 'favorites') {
+            const grid = document.getElementById('sc-emotes-grid');
+            const search = document.getElementById('sc-emotes-search');
+            if (grid) renderActiveTabGrid(grid, search ? search.value : '');
+            return;
+        }
+        document.querySelectorAll('#sc-emotes-panel .sc-emotes-star').forEach(star => {
+            if (star.dataset.emoteName === name) setEmoteStarState(star, isFav);
+        });
+    }
+
+    /* ==========================================================
+       PERSISTED ACTIVE TAB — LS_EMOTE_ACTIVE_TAB / getKey / setKey are
+       core's (02-keys-and-helpers.js). Same try/fallback convention as
+       getSavedEmotePanelPos() above; an unrecognized/missing value falls
+       back to 'all'.
+    ========================================================== */
+    let _scEmoteActiveTab = 'all';
+    function getSavedActiveTab() {
+        try {
+            const raw = getKey(LS_EMOTE_ACTIVE_TAB);
+            if (raw === 'all' || raw === 'favorites') return raw;
+        } catch (e) {}
+        return 'all';
+    }
+    function saveActiveTab(tab) {
+        try { setKey(LS_EMOTE_ACTIVE_TAB, tab); } catch (e) {}
+    }
+
+    /* ==========================================================
+       INSERTION — #sc-chat-textarea is the real send-source (doSend()
+       in 11-chat-input-and-emotes.js reads its .value directly), so
+       this writes there and nowhere else -- no round-trip through the
+       native input or startEmoteWatcher().
+    ========================================================== */
+    function insertEmoteIntoChat(name) {
+        const textarea = document.getElementById('sc-chat-textarea');
+        if (!textarea || !name) return;
+        const start = typeof textarea.selectionStart === 'number' ? textarea.selectionStart : textarea.value.length;
+        const end = typeof textarea.selectionEnd === 'number' ? textarea.selectionEnd : textarea.value.length;
+        textarea.value = textarea.value.slice(0, start) + name + textarea.value.slice(end);
+        const newPos = start + name.length;
+        textarea.selectionStart = textarea.selectionEnd = newPos;
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        textarea.focus();
+    }
+
+    function _emoteEscHtml(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+
+    // Shared between renderEmoteTile() (initial markup) and
+    // setEmoteStarState() (in-place toggle update, see
+    // refreshAfterFavoriteToggle() above) so the two never drift on wording.
+    function _emoteStarLabel(isFav) {
+        return isFav ? 'Remove from favorites' : 'Add to favorites';
+    }
+
+    // Mutates an already-rendered star in place -- glyph, active class,
+    // aria-pressed/aria-label/title -- without touching the tile/button
+    // it lives in. Used by refreshAfterFavoriteToggle() so toggling a
+    // favorite on the All tab never has to destroy and recreate the grid.
+    function setEmoteStarState(star, isFav) {
+        star.classList.toggle('sc-emotes-star-active', isFav);
+        star.setAttribute('aria-pressed', isFav ? 'true' : 'false');
+        const label = _emoteStarLabel(isFav);
+        star.setAttribute('aria-label', label);
+        star.title = label;
+        star.textContent = isFav ? '★' : '☆';
+    }
+
+    // Shared tile markup for both the All and Favorites tabs -- both
+    // render through renderActiveTabGrid(), just with a different source
+    // list. The tile itself is a <button> (click = insert),
+    // so the star toggle inside it is deliberately NOT a <button> --
+    // nested buttons get silently mangled/reparented by the browser.
+    // isFav drives the filled/outline glyph and aria-pressed state; the
+    // star sets its own pointer-events:auto to override the container's
+    // pointer-events:none (see .sc-emotes-tile-actions in
+    // injectEmotesPanelCss()) so it actually receives clicks.
+    function renderEmoteTile(e, isFav) {
+        const name = _emoteEscHtml(e.name);
+        const starLabel = _emoteStarLabel(isFav);
+        // Favorited + already resolved this session -> the Cache Storage-backed
+        // object URL (see FAVORITE IMAGE CACHE above), bypassing the network
+        // entirely. Otherwise the live URL, same as before that cache existed.
+        const src = (isFav && _scFavoriteBlobUrls.has(e.name)) ? _scFavoriteBlobUrls.get(e.name) : e.image;
+        return `<button type="button" class="sc-emotes-tile" data-emote-name="${name}">` +
+                `<span class="sc-emotes-spinner" aria-hidden="true"></span>` +
+                `<img src="${_emoteEscHtml(src)}" alt="${name}" title="${name}" loading="lazy">` +
+                `<span class="sc-emotes-tile-actions">` +
+                    `<span class="sc-emotes-star${isFav ? ' sc-emotes-star-active' : ''}" role="button" tabindex="0" ` +
+                        `data-emote-name="${name}" aria-pressed="${isFav ? 'true' : 'false'}" ` +
+                        `aria-label="${starLabel}" title="${starLabel}">${isFav ? '★' : '☆'}</span>` +
+                `</span>` +
+            `</button>`;
+    }
+
+    // Each tile starts with its .sc-emotes-spinner visible and its <img>
+    // faded to opacity:0 (see injectEmotesPanelCss()) until that image's
+    // load/error event fires -- 'load'/'error' don't bubble, so each <img>
+    // needs its own listener rather than a single delegated one on the
+    // container. An already-cached image reports `.complete` synchronously,
+    // so this checks that first instead of waiting on an event that already
+    // fired before the listener was attached.
+    function wireImageLoadSpinners(container) {
+        container.querySelectorAll('img').forEach(img => {
+            const tile = img.closest('.sc-emotes-tile');
+            if (!tile) return;
+            if (img.complete) { tile.classList.add('sc-emotes-img-loaded'); return; }
+            const onDone = () => tile.classList.add('sc-emotes-img-loaded');
+            img.addEventListener('load', onDone, { once: true });
+            img.addEventListener('error', onDone, { once: true });
+        });
+    }
+
+    // Source list for whichever tab is active -- the All tab is every
+    // known emote, the Favorites tab is _scEmoteData filtered down to
+    // favorited names (a favorited name no longer present in _scEmoteData,
+    // e.g. a removed channel emote, is simply skipped -- see LS_EMOTE_FAVORITES
+    // above; storage still keeps the name in case it comes back).
+    function currentTabSourceList() {
+        if (_scEmoteActiveTab === 'favorites') {
+            return _scEmoteData.filter(e => _scEmoteFavorites.has(e.name));
+        }
+        return _scEmoteData;
+    }
+
+    // Live case-insensitive substring filter on emote.name, re-rendered
+    // on every search keystroke, tab switch, and data refresh. Every tile
+    // rendered on the Favorites tab is by definition a favorite (isFav is
+    // hardcoded true there) rather than re-checked against the Set.
+    function renderActiveTabGrid(grid, searchTerm) {
+        const source = currentTabSourceList();
+        const term = (searchTerm || '').trim().toLowerCase();
+        const filtered = term ? source.filter(e => e.name.toLowerCase().includes(term)) : source;
+        if (!filtered.length) {
+            const onFavorites = _scEmoteActiveTab === 'favorites';
+            const msg = onFavorites
+                ? (source.length ? 'No matching favorites' : 'No favorites yet')
+                : (source.length ? 'No matching emotes' : 'No emotes available');
+            grid.innerHTML = `<div class="sc-emotes-empty">${msg}</div>`;
+            return;
+        }
+        grid.innerHTML = filtered.map(e => renderEmoteTile(e, _scEmoteActiveTab === 'favorites' || _scEmoteFavorites.has(e.name))).join('');
+        wireImageLoadSpinners(grid);
+    }
+
+    /* ==========================================================
+       GIF HOVER PREVIEW — hovering a tile whose image is an actual
+       .gif shows it enlarged in a floating box beside the panel (see
+       #sc-emotes-preview in injectEmotesPanelCss()). Non-gif tiles
+       (most channel emotes are static PNGs) get no hover behavior.
+       The preview element is lazily created/appended to <body> --
+       same convention as the panel itself -- and torn down whenever
+       the panel closes so it never lingers.
+    ========================================================== */
+    function isGifImageUrl(url) {
+        if (!url) return false;
+        try {
+            return /\.gif$/i.test(new URL(url, location.href).pathname);
+        } catch (e) {
+            return /\.gif(?:[?#]|$)/i.test(url);
+        }
+    }
+
+    function ensureEmotePreviewEl() {
+        let preview = document.getElementById('sc-emotes-preview');
+        if (preview) return preview;
+        preview = document.createElement('div');
+        preview.id = 'sc-emotes-preview';
+        preview.innerHTML = '<span class="sc-emotes-spinner" aria-hidden="true"></span><img alt="" aria-hidden="true">' +
+            '<span id="sc-emotes-preview-name"></span>';
+        // The <img> is reused across every hover (never recreated), so its
+        // load/error listeners are wired once here rather than per-show --
+        // each src change re-fires 'load'/'error' on its own.
+        const img = preview.querySelector('img');
+        const onDone = () => preview.classList.add('sc-emotes-preview-loaded');
+        img.addEventListener('load', onDone);
+        img.addEventListener('error', onDone);
+        document.body.appendChild(preview);
+        return preview;
+    }
+
+    // Anchored beside #sc-emotes-panel (right edge if there's room,
+    // otherwise the left edge) rather than beside the tile itself, so it
+    // never covers other tiles while browsing -- vertically it's centered
+    // on the hovered tile, clamped to stay fully on-screen. The preview
+    // box's img is a fixed 176x176 (see CSS), so its size is stable even
+    // before the (already-loaded, same-URL) image reflows.
+    function positionEmotePreview(preview, tile) {
+        const panel = document.getElementById('sc-emotes-panel');
+        if (!panel) return;
+        const panelRect = panel.getBoundingClientRect();
+        const tileRect = tile.getBoundingClientRect();
+        const pw = preview.offsetWidth, ph = preview.offsetHeight;
+        const gap = 8;
+        let left = panelRect.right + gap;
+        if (left + pw > window.innerWidth) left = panelRect.left - gap - pw;
+        left = Math.max(4, Math.min(left, window.innerWidth - pw - 4));
+        let top = tileRect.top + tileRect.height / 2 - ph / 2;
+        top = Math.max(4, Math.min(top, window.innerHeight - ph - 4));
+        preview.style.setProperty('left', left + 'px', 'important');
+        preview.style.setProperty('top', top + 'px', 'important');
+    }
+
+    function showEmotePreview(tile) {
+        const img = tile.querySelector('img');
+        if (!img || !isGifImageUrl(img.src)) return;
+        const preview = ensureEmotePreviewEl();
+        const previewImg = preview.querySelector('img');
+        // Only reset the loaded/fade state when the src is actually
+        // changing -- re-entering the same still-cached tile shouldn't
+        // re-hide an already-loaded preview.
+        if (previewImg.src !== img.src) {
+            preview.classList.remove('sc-emotes-preview-loaded');
+            previewImg.src = img.src;
+        }
+        const nameEl = preview.querySelector('#sc-emotes-preview-name');
+        if (nameEl) nameEl.textContent = tile.dataset.emoteName || ''; // textContent -- never innerHTML, name is untrusted
+        preview.style.setProperty('display', 'block', 'important');
+        positionEmotePreview(preview, tile);
+    }
+
+    function hideEmotePreview() {
+        const preview = document.getElementById('sc-emotes-preview');
+        if (preview) preview.style.setProperty('display', 'none', 'important');
+    }
+
+    function teardownEmotePreview() {
+        _scEmotePreviewTile = null;
+        const preview = document.getElementById('sc-emotes-preview');
+        if (preview) preview.remove();
+    }
+
+    // Tracks the currently-previewed tile so delegated mouseover/mouseout
+    // (mouseenter/mouseleave don't bubble, so can't be delegated the way
+    // the click/keydown listeners above are) don't redundantly reshow/
+    // reposition on every bubble from a tile's own descendants (img, star,
+    // spinner).
+    let _scEmotePreviewTile = null;
+    function wireEmotePreviewDelegation(body) {
+        body.addEventListener('mouseover', (e) => {
+            const tile = e.target.closest('.sc-emotes-tile');
+            if (!tile || tile === _scEmotePreviewTile) return;
+            _scEmotePreviewTile = tile;
+            showEmotePreview(tile);
+        });
+        body.addEventListener('mouseout', (e) => {
+            const tile = e.target.closest('.sc-emotes-tile');
+            if (!tile || tile !== _scEmotePreviewTile) return;
+            if (tile.contains(e.relatedTarget)) return; // still inside the same tile
+            _scEmotePreviewTile = null;
+            hideEmotePreview();
+        });
+    }
+
+    /* ==========================================================
+       OPEN / CLOSE / TOGGLE — toggleEmotesPanel is what core's
+       relocateEmoteButton() (11-chat-input-and-emotes.js) calls.
+    ========================================================== */
+    function openEmotesPanel() {
+        if (document.getElementById('sc-emotes-panel')) return;
+        injectEmotesPanelCss();
+        // Read on every open so star states / the active tab reflect
+        // whatever was last saved (see PERSISTED FAVORITES / PERSISTED
+        // ACTIVE TAB above).
+        _scEmoteFavorites = loadFavorites();
+        _scEmoteActiveTab = getSavedActiveTab();
+        // allowForceRender=true: only here, in direct response to the user
+        // opening the panel, is the disruptive native-popup click-dance
+        // permitted (see computeEmoteList()/scrapeEmotesFallback() above).
+        if (!_scEmoteData.length) refreshEmoteData(true); // also warms the favorite image cache, see below
+        else warmFavoriteBlobUrls(); // refreshEmoteData() didn't run above, so warm it here instead (fire-and-forget)
+
+        const panel = document.createElement('div');
+        panel.id = 'sc-emotes-panel';
+        panel.innerHTML = `
+            <div id="sc-emotes-head">
+                <span>Emotes</span>
+                <button id="sc-emotes-close" type="button">✕</button>
+            </div>
+            <div id="sc-emotes-body">
+                <div id="sc-emotes-tabs" role="tablist">
+                    <button type="button" class="sc-emotes-tab" data-tab="all" role="tab">All</button>
+                    <button type="button" class="sc-emotes-tab" data-tab="favorites" role="tab">Favorites</button>
+                </div>
+                <input type="text" id="sc-emotes-search" class="sc-emotes-search" placeholder="Search emotes…" autocomplete="off" inputmode="none">
+                <div id="sc-emotes-grid" class="sc-emotes-grid"></div>
+            </div>`;
+        document.body.appendChild(panel);
+
+        const body = panel.querySelector('#sc-emotes-body');
+        const search = panel.querySelector('#sc-emotes-search');
+        const tabs = panel.querySelector('#sc-emotes-tabs');
+        const grid = panel.querySelector('#sc-emotes-grid');
+
+        // Reflects _scEmoteActiveTab onto the tab buttons' active class/
+        // aria-selected -- called on open and on every tab switch below.
+        const updateTabButtonStates = () => {
+            tabs.querySelectorAll('.sc-emotes-tab').forEach(btn => {
+                const active = btn.dataset.tab === _scEmoteActiveTab;
+                btn.classList.toggle('sc-emotes-tab-active', active);
+                btn.setAttribute('aria-selected', active ? 'true' : 'false');
+            });
+        };
+        updateTabButtonStates();
+        renderActiveTabGrid(grid, '');
+
+        tabs.addEventListener('click', (e) => {
+            const btn = e.target.closest('.sc-emotes-tab');
+            if (!btn || btn.dataset.tab === _scEmoteActiveTab) return;
+            _scEmoteActiveTab = btn.dataset.tab;
+            saveActiveTab(_scEmoteActiveTab);
+            updateTabButtonStates();
+            // Keep whatever's typed in search -- just re-filter it against
+            // the newly-active tab's list.
+            renderActiveTabGrid(grid, search.value);
+        });
+
+        search.addEventListener('input', () => {
+            renderActiveTabGrid(grid, search.value);
+        });
+
+        // Delegated at the body level so one pair of listeners covers the
+        // grid regardless of which tab is currently rendered into it.
+        // Star clicks are checked first and stopPropagation()'d so they
+        // never also match .sc-emotes-tile and trigger an insert+close.
+        body.addEventListener('click', (e) => {
+            const star = e.target.closest('.sc-emotes-star');
+            if (star) {
+                e.stopPropagation();
+                toggleFavorite(star.dataset.emoteName);
+                return;
+            }
+            const tile = e.target.closest('.sc-emotes-tile');
+            if (!tile) return;
+            insertEmoteIntoChat(tile.dataset.emoteName);
+            closeEmotesPanel();
+        });
+        // Keyboard equivalent for the star (a <span role="button">, not a
+        // real <button>, so Enter/Space activation isn't native).
+        body.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            const star = e.target.closest('.sc-emotes-star');
+            if (!star) return;
+            e.preventDefault();
+            e.stopPropagation();
+            toggleFavorite(star.dataset.emoteName);
+        });
+
+        wireEmotePreviewDelegation(body);
+
+        panel.querySelector('#sc-emotes-close').addEventListener('click', closeEmotesPanel);
+
+        // Core's document-level keydown listener (12-playback-sync-and-
+        // seek.js, ~line 229) only bails out for TEXTAREA/INPUT/
+        // contenteditable targets -- a focused emote tile or star
+        // (<button>/<span role="button">) isn't excluded, so without this
+        // it preventDefault()'s Space before the tile's own click/
+        // activation happens (no insert, plus a desync-catchup seek) and
+        // preventDefault()'s ArrowLeft/ArrowRight anywhere in the panel
+        // for its YouTube-style seek, which also kills the browser's
+        // native arrow-key focus movement between grid tiles. Capturing
+        // at the panel level (not just #sc-emotes-body) covers the
+        // header/close button too. stopPropagation() only -- never
+        // preventDefault() -- so native behavior (button activation,
+        // focus movement, typing/spacebar in #sc-emotes-search) is left
+        // completely alone; this only keeps the event from bubbling up
+        // to core's document listener. Same pattern as gifmaker's
+        // overviewTrack keydown guard (src/pc/modules/gifmaker/index.js
+        // ~line 1748).
+        // Deliberately excludes 'Escape': core's handler never preventDefault()s
+        // or seeks on it, so suppressing it here isn't needed -- and doing so
+        // would silently break other modules' own document-level Escape-to-close
+        // handlers (movie-title-links' Now Playing card, imdb-trivia's Trivia
+        // card) whenever their overlay is open while this panel is too.
+        const CORE_SEEK_KEYS = new Set(['ArrowLeft', 'ArrowRight', ' ', 'Spacebar']);
+        panel.addEventListener('keydown', (e) => {
+            if (CORE_SEEK_KEYS.has(e.key)) e.stopPropagation();
+        });
+
+        // Apply a saved drag position (clamped against the panel's actual
+        // rendered size, in case the viewport shrank since it was saved).
+        // Otherwise leave the orientation-aware CSS bottom/right default
+        // from injectEmotesPanelCss() alone.
+        const saved = getSavedEmotePanelPos();
+        if (saved) {
+            const rect = panel.getBoundingClientRect();
+            const { x, y } = clampPanelPos(saved.left, saved.top, rect.width, rect.height);
+            panel.style.setProperty('left', x + 'px', 'important');
+            panel.style.setProperty('top', y + 'px', 'important');
+            panel.style.setProperty('right', 'auto', 'important');
+            panel.style.setProperty('bottom', 'auto', 'important');
+        }
+
+        makePanelDraggable(panel, panel.querySelector('#sc-emotes-head'), 'sc-emotes-dragging', (left, top) => {
+            saveEmotePanelPos(left, top);
+        });
+    }
+
+    function closeEmotesPanel() {
+        teardownEmotePreview();
+        const panel = document.getElementById('sc-emotes-panel');
+        if (panel) panel.remove();
+    }
+
+    function toggleEmotesPanel() {
+        if (document.getElementById('sc-emotes-panel')) closeEmotesPanel();
+        else openEmotesPanel();
+    }
     /* ==========================================================
        CHAT IMAGES — auto-embed for direct image links in chat, with
        hover filenames and a per-image ban/unban. Originally a
@@ -4775,6 +6498,389 @@ injectCSS('grammar-check', `            /* ===== REVIEW MODAL ===== */
         setInterval(updateTriggerButtonState, 800);
     }
     subtitlesBoot();
+    /* ==========================================================
+       UP NEXT — small top-bar button that reveals the channel's
+       "CyTube Schedule & Queue" dashboard (bot.420grindhouseserver.com),
+       a community-run bot that is NOT part of this script and not
+       something this repo controls. The button lives in the same
+       floating top-bar row as #sc-trivia-btn/#sc-poster-toggle
+       (movie-title-links/tonights-lineup modules) rather than the
+       chat-header icon row -- see POSITIONING below for why. The
+       panel-toggle/outside-click-to-close shell mirrors
+       initPollWatcher/initUserCount (core/14-chat-panel-chrome.js).
+
+       This module originally surfaced CyTube's own native #queue list,
+       gated on the seeplaylist channel permission. Live testing showed
+       the channel's real "upcoming queue" feature is this bot dashboard
+       instead -- it shows real scheduled clock times (not just relative
+       durations) and, unlike CyTube's native queue, isn't gated behind
+       any CyTube rank/permission. So the panel embeds the bot's own
+       page directly via iframe rather than scraping CyTube's DOM.
+
+       REACHABILITY: originally this tried a GM_xmlhttpRequest probe
+       before ever showing the button, to hide it when the bot's "off".
+       Live testing found that fundamentally doesn't work here: a
+       cross-origin fetch() from cytu.be to the bot 404s/fails outright
+       (confirmed live -- "Failed to fetch"), and GM_xmlhttpRequest fared
+       no better even with a browser User-Agent and retries -- whatever's
+       fronting the bot (Cloudflare, confirmed via its /cdn-cgi/rum
+       beacon) rejects cross-origin *scripted* requests to it, unrelated
+       to whether the bot itself is actually up. Loading the SAME url in
+       an <iframe> works fine, because a frame navigation isn't a
+       scripted cross-origin request the way fetch/XHR is -- so this
+       module can't reliably know "is it on" *before* trying to show it;
+       it can only find out by trying, the same way a plain iframe embed
+       always has. The button is therefore shown unconditionally, and
+       "off" is instead handled inside the panel: ensureFrame() races the
+       iframe's load event against a timeout and shows a fallback message
+       if neither a real load nor content shows up in time.
+
+       WAKE/IDLE-DIM: this button IS in core's getDimEls() idle-fade
+       group (14-chat-panel-chrome.js), same as #sc-trivia-btn -- it fades
+       to opacity:0/pointer-events:none 3.5s after the last qualifying
+       mousemove. Confirmed live that a plain hover-then-pause-then-click
+       reliably lands on an already-dimmed, unclickable button (neither
+       this module nor imdb-trivia previously integrated with the
+       _topBarIsOpen/_topBarWake guard tonights-lineup's full-screen
+       overlay uses to stay visible while in use). Two things prevent
+       that here:
+       - While the panel is open, _topBarIsOpen is held true, which
+         short-circuits dim() entirely (14-chat-panel-chrome.js's own
+         `if (_topBarIsOpen || !playing) return;`). This matters even
+         more than it does for tonights-lineup's overlay: most of this
+         panel's area is the bot's cross-origin iframe, whose mouse
+         activity our page's mousemove listener can never see at all, so
+         the normal "activity keeps it awake" mechanism wouldn't apply
+         even while someone's actively reading the schedule inside it.
+       - While merely hovering the (still closed) button -- deciding
+         whether to click -- a periodic _topBarWake() ping keeps it from
+         fading out mid-decision, since a stationary hover fires no
+         further mousemove events for the document-level listener to
+         react to.
+       Like tonights-lineup's own _topBarIsOpen = false on close, this
+       doesn't reference-count against other _topBarIsOpen users -- if
+       tonights-lineup's screen were somehow also open when this panel
+       closes, this would clear its protection too. Same limitation
+       tonights-lineup itself already has in reverse; not solved here.
+
+       POSITIONING: #sc-trivia-btn (movie-title-links/index.js) is
+       removed and re-created on every media change, present only when
+       the current video has a matched IMDb id -- there's no persistent
+       "trivia is off" state to read, just its live DOM presence. Rather
+       than duplicate movie-title-links' title-change lifecycle, this
+       module just watches for #sc-trivia-btn's presence directly:
+       - No trivia button: up-next's default CSS position (style.css)
+         deliberately duplicates trivia's own base slot
+         (calc(var(--sc-chat-w) + 1vw + 150px) horizontal / 150px
+         vertical, see imdb-trivia/style.css's #sc-trivia-btn rule) so
+         it takes that exact spot with no gap.
+       - Trivia button present: its live measured position (viewport
+         px, not a formula) is used to slide up-next just outside it --
+         a real layout measurement is robust across horizontal/vertical
+         layouts and any future trivia-button width change, where a
+         second hardcoded formula would drift out of sync with the
+         first.
+    ========================================================== */
+
+    const UPNEXT_BOT_URL = 'https://bot.420grindhouseserver.com';
+    const UPNEXT_TRIVIA_GAP_PX = 6;
+    const UPNEXT_LOAD_TIMEOUT_MS = 10000;
+    const UPNEXT_HOVER_WAKE_INTERVAL_MS = 1500; // well under the 3.5s dim delay
+
+    function initUpNext() {
+        // document.body always exists by the time init functions run
+        // (scRegisterInit callbacks fire from waitForBody's 'load' handler,
+        // core/16-boot.js) -- no element-wait needed here, unlike the old
+        // #sc-chat-header/#queue version this replaced.
+        _initUpNext();
+    }
+
+    function _initUpNext() {
+        const btn = document.createElement('button');
+        btn.id = 'sc-upnext-btn';
+        btn.title = 'Upcoming queue';
+        btn.textContent = 'UP NEXT';
+        document.body.appendChild(btn);
+
+        // Head bar (title + close button) matches #sc-trivia-head/
+        // #sc-trivia-close's exact shape (imdb-trivia/index.js) -- it's a
+        // same-page DOM element sitting above the iframe, so it receives
+        // clicks normally; the iframe's cross-origin content has no bearing
+        // on that, only stacking/layout on our own page does.
+        const panel = document.createElement('div');
+        panel.id = 'sc-upnext-panel';
+        panel.style.display = 'none';
+        panel.innerHTML = `
+            <div id="sc-upnext-head">
+                <span id="sc-upnext-title">Up Next</span>
+                <button id="sc-upnext-close" type="button">✕</button>
+            </div>
+            <div id="sc-upnext-body"><div class="sc-upnext-loading">Loading…</div></div>`;
+        document.body.appendChild(panel);
+
+        const frameHost = panel.querySelector('#sc-upnext-body');
+
+        let panelOpen = false;
+        let frameCreated = false;
+
+        // Lazy-create the iframe on first open rather than eagerly at init,
+        // so a viewer who never opens the panel never pays for a background
+        // iframe load. See REACHABILITY above for why this races load
+        // against a timeout instead of trusting a pre-flight check.
+        const ensureFrame = () => {
+            if (frameCreated) return;
+            frameCreated = true;
+
+            const iframe = document.createElement('iframe');
+            iframe.id = 'sc-upnext-frame';
+            iframe.title = 'Upcoming queue';
+            iframe.style.display = 'none';
+
+            let settled = false;
+            const showFrame = () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timeoutId);
+                frameHost.querySelector('.sc-upnext-loading')?.remove();
+                iframe.style.display = 'block';
+            };
+            const showError = () => {
+                if (settled) return;
+                settled = true;
+                frameHost.innerHTML = '<div class="sc-upnext-error">Schedule unavailable right now.</div>';
+            };
+            iframe.addEventListener('load', showFrame);
+            iframe.addEventListener('error', showError);
+            const timeoutId = setTimeout(showError, UPNEXT_LOAD_TIMEOUT_MS);
+
+            iframe.src = UPNEXT_BOT_URL;
+            frameHost.appendChild(iframe);
+        };
+
+        // Sit just outside #sc-trivia-btn when it exists (measured live, not
+        // formula-matched -- see POSITIONING above); otherwise fall back to
+        // the CSS default, which deliberately mirrors trivia's own base slot.
+        const positionNearTrivia = () => {
+            const trivia = document.getElementById('sc-trivia-btn');
+            if (trivia) {
+                const rightPx = window.innerWidth - trivia.getBoundingClientRect().left + UPNEXT_TRIVIA_GAP_PX;
+                btn.style.right = rightPx + 'px';
+            } else {
+                btn.style.right = ''; // CSS default (trivia's own slot)
+            }
+            panel.style.right = btn.style.right;
+        };
+
+        const closePanel = () => {
+            panel.style.display = 'none';
+            panelOpen = false;
+            btn.classList.remove('sc-upnext-btn-active');
+            _topBarIsOpen = false; // see WAKE/IDLE-DIM above
+        };
+
+        btn.addEventListener('click', () => {
+            panelOpen = !panelOpen;
+            if (panelOpen) {
+                ensureFrame();
+                panel.style.display = 'flex';
+                btn.classList.add('sc-upnext-btn-active');
+                _topBarIsOpen = true; // see WAKE/IDLE-DIM above
+                if (_topBarWake) _topBarWake();
+            } else {
+                closePanel();
+            }
+        });
+
+        panel.querySelector('#sc-upnext-close').addEventListener('click', closePanel);
+
+        // Keep the button awake while the user is hovering it deciding
+        // whether to click -- see WAKE/IDLE-DIM above for why a stationary
+        // hover alone doesn't already do this.
+        let hoverWakeTimer = null;
+        btn.addEventListener('mouseenter', () => {
+            if (_topBarWake) _topBarWake();
+            if (hoverWakeTimer) return;
+            hoverWakeTimer = setInterval(() => { if (_topBarWake) _topBarWake(); }, UPNEXT_HOVER_WAKE_INTERVAL_MS);
+        });
+        btn.addEventListener('mouseleave', () => {
+            clearInterval(hoverWakeTimer);
+            hoverWakeTimer = null;
+        });
+
+        // Close on outside click
+        document.addEventListener('click', e => {
+            if (panelOpen && !btn.contains(e.target) && !panel.contains(e.target)) closePanel();
+        });
+
+        // #sc-trivia-btn is removed/recreated by movie-title-links on every
+        // media change, always as a direct document.body.appendChild (same
+        // as every other floating top-bar button here, never nested) -- so
+        // childList on body alone catches it without subtree:true, which
+        // would otherwise re-fire (and force a layout read in
+        // positionNearTrivia) on every chat message and userlist update.
+        positionNearTrivia();
+        new MutationObserver(positionNearTrivia)
+            .observe(document.body, { childList: true });
+    } // end _initUpNext
+
+    scRegisterInit(initUpNext);
+injectCSS('up-next', `            /* ===== UP NEXT (QUEUE) BUTTON + PANEL =====
+               Lives in the same floating top-bar row as #sc-trivia-btn
+               (imdb-trivia/style.css) rather than #sc-chat-header --
+               styling is a deliberate near-duplicate of #sc-trivia-btn's
+               own rule, not a copy of #sc-usercount-btn/#sc-poll-btn like
+               this module used before. The base \`right\` value here is
+               also a deliberate duplicate of #sc-trivia-btn's own slot
+               (both the horizontal calc() and the vertical 150px) -- see
+               index.js's POSITIONING comment for why: when trivia isn't
+               present, up-next should sit exactly where trivia would
+               have, not leave a gap. When trivia IS present, index.js
+               overrides \`right\` inline with a live-measured position, so
+               these values only matter for the "no trivia" case.
+               \`right\` is deliberately NOT !important (everything else
+               here is, matching this codebase's convention) -- a plain
+               inline style.right set from JS cannot beat an !important
+               stylesheet rule, so this property has to stay overridable
+               or index.js's live positioning would always lose to this
+               default and the button would never actually move.
+
+               IS in core's getDimEls() idle-fade group, like
+               #sc-trivia-btn/#sc-poster-toggle -- but unlike either of
+               those, index.js actively drives _topBarIsOpen/_topBarWake
+               (the guard tonights-lineup's full-screen overlay uses, that
+               imdb-trivia never bothered with) so the button can't fade
+               out from under a user who's hovering it deciding whether to
+               click, or vanish while the panel is open. See index.js's
+               WAKE/WAKE-ON-HOVER comment for the mechanics -- confirmed
+               live that a plain hover-then-pause-then-click reliably
+               missed an already-dimmed button before this was added. */
+            #sc-upnext-btn {
+                position: fixed !important;
+                z-index: 10003 !important;
+                top: 0 !important;
+                right: calc(var(--sc-chat-w) + 1vw + 150px);
+                background: transparent !important;
+                border: none !important;
+                border-radius: 0 !important;
+                color: rgba(255,255,255,0.55) !important;
+                font-size: 10px !important;
+                letter-spacing: 0.06em !important;
+                text-transform: uppercase !important;
+                white-space: nowrap !important;
+                line-height: 1 !important;
+                cursor: pointer !important;
+                padding: 2px 8px !important;
+                height: 20px !important;
+                display: flex !important;
+                align-items: center !important;
+                transition: opacity 1.5s ease, color 0.2s ease !important;
+                opacity: 1 !important;
+                pointer-events: auto !important;
+            }
+            #sc-upnext-btn.sc-bar-dim { opacity: 0 !important; pointer-events: none !important; }
+            #sc-upnext-btn:hover { color: rgba(255,255,255,0.9) !important; }
+            #sc-upnext-btn.sc-upnext-btn-active { color: white !important; }
+            body.sc-vertical #sc-upnext-btn { right: 150px; top: 0 !important; }
+
+            /* Queue panel — drops from the button (top:22px, matching
+               #sc-trivia-panel's own offset for a 20px-tall button plus a
+               couple px of clearance). Fixed width (not tied to
+               --sc-chat-w) since the embedded page has its own
+               multi-column table that a narrow chat panel would crush;
+               capped to the viewport so it never overflows on small
+               screens. index.js sets \`right\` inline to track the button's
+               own live position (see POSITIONING in index.js); this rule
+               is only the fallback default. */
+            #sc-upnext-panel {
+                position: fixed !important;
+                top: 22px !important;
+                right: calc(var(--sc-chat-w) + 1vw + 150px); /* not !important -- see #sc-upnext-btn's comment above */
+                width: min(760px, calc(100vw - 10px)) !important;
+                height: 70vh !important;
+                z-index: 19000 !important;
+                background: rgba(10,10,20,0.95) !important;
+                border: 1px solid #aaaaaa !important;
+                border-radius: 8px !important;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.7) !important;
+                overflow: hidden !important;
+                padding: 0 !important;
+                display: none; /* JS sets 'flex' on open -- see flex-direction below */
+                flex-direction: column !important;
+            }
+            body.sc-vertical #sc-upnext-panel {
+                right: 5px !important;
+                left: 5px !important;
+                width: auto !important;
+                height: 50vh !important;
+            }
+
+            /* Head bar (title + close) — same shape as #sc-trivia-head/
+               #sc-trivia-close (imdb-trivia/style.css), so the panel has a
+               real close affordance instead of being a bare edge-to-edge
+               iframe like it was before. */
+            #sc-upnext-head {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: space-between !important;
+                padding: 8px 12px !important;
+                border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+                flex-shrink: 0 !important;
+            }
+            #sc-upnext-title {
+                font-size: 12px !important;
+                font-weight: 700 !important;
+                letter-spacing: 0.04em !important;
+                text-transform: uppercase !important;
+                color: rgba(255,255,255,0.7) !important;
+            }
+            #sc-upnext-close {
+                background: rgba(255,255,255,0.1) !important;
+                border: none !important;
+                color: #fff !important;
+                width: 24px !important;
+                height: 24px !important;
+                border-radius: 50% !important;
+                cursor: pointer !important;
+                font-size: 11px !important;
+                flex-shrink: 0 !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+            }
+            #sc-upnext-close:hover { background: rgba(255,255,255,0.2) !important; }
+
+            /* Iframe host — the remaining panel space below the head bar.
+               min-height:0 is required for a flex child to actually shrink
+               to fit instead of overflowing its column (a plain flex:1
+               alone doesn't override the iframe's intrinsic sizing). */
+            #sc-upnext-body {
+                flex: 1 !important;
+                min-height: 0 !important;
+            }
+            /* Not !important -- index.js toggles the iframe's own
+               style.display between 'none' (while waiting on load/timeout)
+               and 'block' (once it actually loads); an !important rule
+               here would always beat that plain inline style the same way
+               it broke #sc-upnext-btn's positioning earlier (see that
+               comment above), permanently showing a blank frame instead of
+               the loading/error state underneath it. */
+            #sc-upnext-frame {
+                width: 100% !important;
+                height: 100% !important;
+                border: none !important;
+            }
+            .sc-upnext-loading,
+            .sc-upnext-error {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                height: 100% !important;
+                padding: 20px !important;
+                color: rgba(255,255,255,0.5) !important;
+                font-size: 13px !important;
+                text-align: center !important;
+            }
+`);
     /* ==========================================================
        GIF MAKER — scene-to-GIF capture with meme captions and ImgBB
        upload. Originally a standalone companion script
@@ -6814,67 +8920,26 @@ injectCSS('grammar-check', `            /* ===== REVIEW MODAL ===== */
     // gifoptimize=4, lineuptiming=5).
     scRegisterSetting({ id: 'sc-input-gifoptimize', group: 'gif-maker', label: 'Optimize GIFs before upload', note: 'Losslessly shrinks the file with gifsicle before Download/Upload — adds a couple seconds', key: LS_GIF_OPTIMIZE, defaultOn: true, order: 4 });
     /* ==========================================================
-       IMDb GraphQL — parent guide + trivia (free, no API key)
-       Owns all traffic to caching.graphql.imdb.com (hence this
-       module's `connects` grant), including fetchImdbParentalGuide,
-       which movie-title-links calls through a typeof-guard to
-       populate the Now Playing card's/stats bar's parental-guide
-       chips — see movie-title-links/index.js's lookupMovie(). No
-       user-facing on/off toggle exists for this feature in the
+       IMDb TRIVIA
+       Owns only the trivia panel feature: the GraphQL query
+       (fetchImdbTrivia), its floating UI (showTriviaCard /
+       hideTriviaCard / toggleTriviaPanel), CSS, and the 'T' hotkey.
+       The primary title lookup (fetchImdbMovieByTitle) and the
+       parental guide (fetchImdbParentalGuide) live in
+       movie-title-links, which this module hard-depends on
+       (`dependsOn: ["core", "movie-title-links"]` in manifest.json) --
+       trivia inherently needs a movie to already be identified, so
+       forcing that dependency is honest rather than incidental. This
+       module builds on top of movie-title-links' imdbQuery()/
+       imdbGmFetch(), which it does not redeclare.
+
+       No user-facing on/off toggle exists for this feature in the
        original script; it simply runs whenever an IMDb ID is
        available, so this module registers no scRegisterSetting row
        (it's still excludable from a custom build via the customizer's
        module checkboxes — a separate mechanism from an in-script
        settings toggle).
     ========================================================== */
-
-    const IMDB_GQL = 'https://caching.graphql.imdb.com/';
-
-    function imdbGmFetch(url) {
-        return new Promise((resolve, reject) => {
-            GM_xmlhttpRequest({
-                method: 'GET',
-                url,
-                headers: {
-                    'Accept': 'application/graphql+json, application/json',
-                    'Content-Type': 'application/json',
-                    'x-imdb-client-name': 'imdb-web-next-localized',
-                    'x-imdb-user-language': 'en-US',
-                    'x-imdb-user-country': 'US',
-                },
-                onload: r => {
-                    if (r.status >= 200 && r.status < 300) {
-                        try { resolve(JSON.parse(r.responseText)); }
-                        catch (e) { reject(e); }
-                    } else {
-                        reject(new Error(`HTTP ${r.status}`));
-                    }
-                },
-                onerror: reject,
-            });
-        });
-    }
-
-    async function imdbQuery(operationName, query, variables) {
-        const url = IMDB_GQL +
-            '?operationName=' + encodeURIComponent(operationName) +
-            '&query='         + encodeURIComponent(query) +
-            '&variables='     + encodeURIComponent(JSON.stringify(variables));
-        return imdbGmFetch(url);
-    }
-
-    async function fetchImdbParentalGuide(tconst) {
-        if (!tconst) return null;
-        const q = 'query GHGuide($id: ID!){ title(id:$id){ parentsGuide{ categories{ category{ text } severity{ text } } } } }';
-        try {
-            const data = await imdbQuery('GHGuide', q, { id: tconst });
-            const cats = data?.data?.title?.parentsGuide?.categories;
-            if (!cats) return null;
-            return cats
-                .map(c => ({ category: c.category?.text, severity: c.severity?.text }))
-                .filter(c => c.category && c.severity);
-        } catch (e) { return null; }
-    }
 
     const _triviaCache = {};
     async function fetchImdbTrivia(tconst) {
@@ -7824,6 +9889,7 @@ injectCSS('imdb-trivia', `            /* ===== TRIVIA BUTTON ===== */
             parentalGuide: info.parentalGuide || null,
             killCount: info.killCount ?? null,
             imdbId: info.imdbId || null,
+            links: info.links || {},
         };
     }
 
@@ -7838,10 +9904,11 @@ injectCSS('imdb-trivia', `            /* ===== TRIVIA BUTTON ===== */
         if (lastMovieTitle) {
             const { title, year } = parseMovieFilename(lastMovieTitle);
             const info = await lookupMovie(title, year);
-            // Skip likely bumpers/shorts: if TMDB is configured and confidently found
-            // nothing for this exact title, it's probably not a real feature. Without a
-            // TMDB key at all there's no way to tell, so default to showing it.
-            if (!hasKey(LS_TMDB) || info.cleanTitle) {
+            // Skip likely bumpers/shorts: lookupMovie's `resolved` flag is IMDb's
+            // confident "did we find this as a real title" signal (IMDb is a hard,
+            // always-on dependency of lookupMovie now, unlike the old TMDB-key-gated
+            // check this replaced) -- if it's false, this probably isn't a feature.
+            if (info.resolved) {
                 items.push({ ...lineupBuildItem(info, title, year), isNowPlaying: true, etaLabel: '' });
             }
         }
@@ -8240,7 +10307,7 @@ injectCSS('imdb-trivia', `            /* ===== TRIVIA BUTTON ===== */
     // because this toggle is opt-in (LS_LINEUP_TIMING defaults off -- see
     // lineupTimingEnabled() in core/02-keys-and-helpers.js), unlike the other rows'
     // opt-out default.
-    scRegisterSetting({ id: 'sc-input-lineuptiming', group: 'tonights-lineup', label: 'Coming Attractions live timing (Experimental)', note: 'Shows NOW PLAYING and estimated start times in Tonight\'s Lineup. Needs TMDB above for movie runtimes — without it, estimates can\'t guess well. Off by default, still being tuned.', key: LS_LINEUP_TIMING, defaultOn: false, order: 5 });
+    scRegisterSetting({ id: 'sc-input-lineuptiming', group: 'tonights-lineup', label: 'Coming Attractions live timing (Experimental)', note: 'Shows NOW PLAYING and estimated start times in Tonight\'s Lineup. Runtimes come from IMDb, no key needed; TMDB above only improves poster/backdrop image quality. Off by default, still being tuned.', key: LS_LINEUP_TIMING, defaultOn: false, order: 5 });
 injectCSS('tonights-lineup', `            /* ===== TONIGHT'S LINEUP SCREEN ===== */
             #sc-lineup-screen {
                 position: fixed !important; inset: 0 !important;

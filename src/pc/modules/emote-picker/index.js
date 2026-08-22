@@ -119,6 +119,7 @@
             console.warn('[SC][emote-picker] failed to refresh emote data:', e);
             return;
         }
+        warmFavoriteBlobUrls(); // fire-and-forget -- see FAVORITE IMAGE CACHE above
         const grid = document.getElementById('sc-emotes-grid');
         if (!grid) return;
         const search = document.getElementById('sc-emotes-search');
@@ -474,6 +475,108 @@
     function saveFavorites() {
         try { setKey(LS_EMOTE_FAVORITES, JSON.stringify([..._scEmoteFavorites])); } catch (e) {}
     }
+
+    /* ==========================================================
+       FAVORITE IMAGE CACHE — Cache Storage API, keyed by emote image
+       URL. Separate from (and independent of) the browser's own HTTP
+       disk cache: that cache is a shared LRU across everything the
+       page loads, including every gif anyone else posts in chat, so a
+       favorited emote can get silently evicted and re-download even
+       though nothing about it changed. Storing it here means it's
+       only ever evicted by us (see evictFavoriteImage() below) or by
+       the browser's storage eviction under genuine disk-space
+       pressure, which is far rarer than ordinary HTTP cache churn.
+       Cross-origin emote CDNs that don't send CORS headers make
+       fetch() below throw -- caught and swallowed like every other
+       best-effort path in this module, so favoriting still works via
+       saveFavorites() either way; that particular emote just falls
+       back to the old live-URL/browser-cache behavior instead of
+       this extra layer.
+       _scFavoriteBlobUrls (name -> object URL) is populated lazily by
+       cacheFavoriteImage()/warmFavoriteBlobUrls() and read
+       synchronously by renderEmoteTile() below, so no render ever
+       blocks on a cache lookup -- the very first paint after a fresh
+       page load uses the live URL like before, then
+       patchFavoriteTileImage() swaps in the cached one once the
+       lookup resolves. Every panel open after that in the same page
+       session already has the map warm.
+    ========================================================== */
+    const EMOTE_FAVORITES_CACHE = 'sc-emote-favorites-v1';
+
+    function openFavoritesCache() {
+        if (!('caches' in window)) return Promise.resolve(null);
+        return caches.open(EMOTE_FAVORITES_CACHE).catch(() => null);
+    }
+
+    let _scFavoriteBlobUrls = new Map();
+
+    function patchFavoriteTileImage(name, src) {
+        document.querySelectorAll('#sc-emotes-panel .sc-emotes-tile').forEach(tile => {
+            if (tile.dataset.emoteName !== name) return;
+            const img = tile.querySelector('img');
+            if (img && img.src !== src) img.src = src;
+        });
+    }
+
+    function setFavoriteBlobUrl(name, blob) {
+        const objUrl = URL.createObjectURL(blob);
+        const prev = _scFavoriteBlobUrls.get(name);
+        _scFavoriteBlobUrls.set(name, objUrl);
+        if (prev) URL.revokeObjectURL(prev);
+        patchFavoriteTileImage(name, objUrl);
+    }
+
+    // Fetches+persists a favorited emote's actual bytes into the cache the
+    // moment it's starred, rather than only caching whatever the browser
+    // happened to already have loaded (see block comment above).
+    async function cacheFavoriteImage(name, url) {
+        if (!url) return;
+        try {
+            const cache = await openFavoritesCache();
+            if (!cache) return;
+            const res = await fetch(url);
+            if (!res.ok) return;
+            await cache.put(url, res.clone());
+            setFavoriteBlobUrl(name, await res.blob());
+        } catch (e) {} // cross-origin without CORS headers, offline, etc. -- old behavior just continues
+    }
+
+    async function evictFavoriteImage(name, url) {
+        const blobUrl = _scFavoriteBlobUrls.get(name);
+        if (blobUrl) {
+            URL.revokeObjectURL(blobUrl);
+            _scFavoriteBlobUrls.delete(name);
+        }
+        try {
+            const cache = await openFavoritesCache();
+            if (cache && url) await cache.delete(url);
+        } catch (e) {}
+    }
+
+    // Backfills _scFavoriteBlobUrls for every current favorite, resolving
+    // from the cache where possible and, for a favorite the cache doesn't
+    // have yet (favorited before this cache existed, or evicted by the
+    // browser under storage pressure), falling through to
+    // cacheFavoriteImage() to fetch+store it fresh -- so a user never has
+    // to unstar/restar an existing favorite to get it cached; it happens
+    // automatically the first time emote data is available (panel open,
+    // or the background 'emoteList' socket event on page load -- see
+    // refreshEmoteData() above). Called fire-and-forget, never awaited;
+    // already-resolved names are skipped, so repeat calls are cheap.
+    async function warmFavoriteBlobUrls() {
+        if (!_scEmoteFavorites.size || !_scEmoteData.length) return;
+        const cache = await openFavoritesCache();
+        if (!cache) return;
+        for (const e of _scEmoteData) {
+            if (!_scEmoteFavorites.has(e.name) || _scFavoriteBlobUrls.has(e.name)) continue;
+            try {
+                const res = await cache.match(e.image);
+                if (res) setFavoriteBlobUrl(e.name, await res.blob());
+                else await cacheFavoriteImage(e.name, e.image);
+            } catch (err) {}
+        }
+    }
+
     function toggleFavorite(name) {
         if (!name) return;
         const isFav = !_scEmoteFavorites.has(name);
@@ -481,6 +584,10 @@
         else _scEmoteFavorites.delete(name);
         saveFavorites();
         refreshAfterFavoriteToggle(name, isFav);
+        const emote = _scEmoteData.find(em => em.name === name);
+        const image = emote && emote.image;
+        if (isFav) cacheFavoriteImage(name, image);
+        else evictFavoriteImage(name, image);
     }
     // On the All tab, a toggle never changes tile *membership* -- the tile
     // stays right where it is either way -- so its star is just mutated in
@@ -574,9 +681,13 @@
     function renderEmoteTile(e, isFav) {
         const name = _emoteEscHtml(e.name);
         const starLabel = _emoteStarLabel(isFav);
+        // Favorited + already resolved this session -> the Cache Storage-backed
+        // object URL (see FAVORITE IMAGE CACHE above), bypassing the network
+        // entirely. Otherwise the live URL, same as before that cache existed.
+        const src = (isFav && _scFavoriteBlobUrls.has(e.name)) ? _scFavoriteBlobUrls.get(e.name) : e.image;
         return `<button type="button" class="sc-emotes-tile" data-emote-name="${name}">` +
                 `<span class="sc-emotes-spinner" aria-hidden="true"></span>` +
-                `<img src="${_emoteEscHtml(e.image)}" alt="${name}" title="${name}" loading="lazy">` +
+                `<img src="${_emoteEscHtml(src)}" alt="${name}" title="${name}" loading="lazy">` +
                 `<span class="sc-emotes-tile-actions">` +
                     `<span class="sc-emotes-star${isFav ? ' sc-emotes-star-active' : ''}" role="button" tabindex="0" ` +
                         `data-emote-name="${name}" aria-pressed="${isFav ? 'true' : 'false'}" ` +
@@ -759,7 +870,8 @@
         // allowForceRender=true: only here, in direct response to the user
         // opening the panel, is the disruptive native-popup click-dance
         // permitted (see computeEmoteList()/scrapeEmotesFallback() above).
-        if (!_scEmoteData.length) refreshEmoteData(true);
+        if (!_scEmoteData.length) refreshEmoteData(true); // also warms the favorite image cache, see below
+        else warmFavoriteBlobUrls(); // refreshEmoteData() didn't run above, so warm it here instead (fire-and-forget)
 
         const panel = document.createElement('div');
         panel.id = 'sc-emotes-panel';
