@@ -311,12 +311,18 @@
         const cacheKey = title + (year || '');
         if (movieLinkCache[cacheKey] !== undefined) return movieLinkCache[cacheKey];
 
-        // ── TMDB-primary attempt + Wikipedia, in parallel ─────────────────────────
+        // ── TMDB-primary attempt + Wikipedia, kicked off together ─────────────────
         // TMDB-primary doesn't depend on Wikipedia's result (or vice versa), so
-        // both start together rather than waterfalling -- this also preserves
-        // today's latency in the no-key case, where fetchTmdbPrimary (defined in
-        // the optional tmdb module, typeof-guarded here) resolves instantly with
-        // no network call at all.
+        // both start together rather than waterfalling. Only tmdbPrimaryPromise is
+        // awaited here, though -- awaiting Promise.all([tmdbPrimaryPromise,
+        // wikiPromise]) before branching would make the IMDb-fallback branch below
+        // wait on Wikipedia's full round-trip before even starting
+        // fetchImdbMovieByTitle, serializing two calls that ran concurrently
+        // before this change. wikiPromise is instead left running in the
+        // background and only awaited once, right before it's needed to build
+        // `result` -- by then it has been in flight for the same amount of time
+        // either branch took, so this doesn't add latency, it just moves the
+        // await to where it belongs.
         let wikiUrl = null;
 
         const tmdbPrimaryPromise = (typeof fetchTmdbPrimary === 'function')
@@ -341,7 +347,7 @@
             } catch (e) {}
         })();
 
-        const [tmdbPrimary] = await Promise.all([tmdbPrimaryPromise, wikiPromise]);
+        const tmdbPrimary = await tmdbPrimaryPromise;
 
         let imdbResult = null;
         let tmdbSupplemental = null;
@@ -357,9 +363,12 @@
             // ── Exactly today's flow: IMDb (primary) + TMDB supplemental ─────────
             // Reached whenever TMDB-primary didn't run at all (no key configured,
             // or the tmdb module isn't in this build) or came back empty (no
-            // search results, or a match with no linked IMDb id). This branch is
-            // byte-identical to the pre-TMDB-primary lookupMovie(), so the
-            // zero-key / module-absent case keeps working exactly as before.
+            // search results, or a match with no linked IMDb id). fetchImdbMovieByTitle
+            // starts right here, running concurrently with wikiPromise (which has
+            // been in flight since before the tmdbPrimaryPromise await above) --
+            // restoring the original IMDb/Wikipedia parallelism byte-for-byte, just
+            // with fetchTmdbPrimary's near-instant no-key check now also racing
+            // alongside both.
             imdbResult = await fetchImdbMovieByTitle(title, year);
             imdbId = imdbResult?.tconst || null;
             tmdbSupplemental = (typeof fetchTmdbSupplemental === 'function')
@@ -371,6 +380,13 @@
         // directly, same as fetchImdbMovieByTitle above. No TMDB equivalent
         // exists, so this always runs off whichever path resolved imdbId. ───────
         const parentalGuide = await fetchImdbParentalGuide(imdbId);
+
+        // wikiPromise has been running in the background this whole time; awaited
+        // here (rather than up front via Promise.all) so it never blocks the
+        // branch above from starting fetchImdbMovieByTitle. By this point it has
+        // had at least as long to resolve as either branch took, so this rarely
+        // adds any real wait.
+        await wikiPromise;
 
         // `??` is used consistently through this whole merge chain (never mixed
         // with `||`) -- safe here since every source field is either a real
