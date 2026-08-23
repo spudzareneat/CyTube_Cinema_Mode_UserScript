@@ -1,18 +1,21 @@
     /* ==========================================================
-       MOVIE LINKS — IMDb lookup (primary) + optional TMDB supplemental
-       + Wikipedia. Populates the shared `_npData` (declared once in
-       core's 01-movie-identity.js) with everything the Now Playing
-       card and the floating stats bar render.
+       MOVIE LINKS — title/metadata lookup, TMDB-primary when the
+       optional `tmdb` module is present and a key is configured, else
+       IMDb-primary (the always-available fallback) — + Wikipedia.
+       Populates the shared `_npData` (declared once in core's
+       01-movie-identity.js) with everything the Now Playing card and
+       the floating stats bar render.
 
        This module owns its own IMDb GraphQL traffic to
        caching.graphql.imdb.com (free, no API key -- hence the
-       `connects`/`grants` entries on this module in manifest.json) for
-       the primary lookup: title resolution (fetchImdbMovieByTitle, via
-       imdbSearchTitle + fetchImdbTitleFields) and the parental-guide
-       chips (fetchImdbParentalGuide) that the Now Playing card renders
-       unconditionally. Both are plain local functions defined below,
-       not an external dependency, so lookupMovie() calls them directly
-       with no typeof-guard.
+       `connects`/`grants` entries on this module in manifest.json):
+       title resolution (fetchImdbMovieByTitle, via imdbSearchTitle +
+       fetchImdbTitleFields) and the parental-guide chips
+       (fetchImdbParentalGuide) that the Now Playing card renders
+       unconditionally regardless of which lookup path resolved the
+       title. Both are plain local functions defined below, not an
+       external dependency, so lookupMovie() calls them directly with
+       no typeof-guard.
 
        `imdb-trivia` is a separate, optional module for the trivia
        panel feature; it hard-depends on this module (`dependsOn:
@@ -21,11 +24,21 @@
        fetchImdbTrivia() reuses imdbQuery()/imdbGmFetch() defined below
        rather than duplicating them.
 
-       TMDB is optional supplemental data only (poster/backdrop
-       fallback + kill count), supplied by the `tmdb` module's
-       fetchTmdbSupplemental(imdbId) — called through a typeof-guard so
-       a build without it (or before that module exists) still resolves
-       the rest of the lookup, just without TMDB's poster/backdrop/killCount.
+       TMDB now plays a dual role, both supplied by the optional `tmdb`
+       module and both reached through the same typeof-guard pattern so
+       a build without that module (or before it exists) still resolves
+       the rest of the lookup via IMDb alone:
+       - Primary: when a TMDB API key is configured, fetchTmdbPrimary
+         (title, year) is tried first (better title/rating/overview
+         matching than IMDb's GraphQL search); when it finds a
+         confidently-linked match (a real external_ids.imdb_id), its
+         result is used directly and the IMDb-primary lookup is skipped
+         entirely.
+       - Fallback/supplemental: whenever TMDB-primary doesn't run (no
+         key, module absent) or comes back empty (no match, no linked
+         IMDb id), lookupMovie() falls through to exactly the original
+         IMDb-primary flow, with fetchTmdbSupplemental(imdbId) layering
+         TMDB's poster/backdrop/kill-count on top if a key is set.
 
        Same typeof-guard pattern applies to the "Trivia" button's click
        handler (toggleTriviaPanel), since imdb-trivia is a genuinely
@@ -298,16 +311,20 @@
         const cacheKey = title + (year || '');
         if (movieLinkCache[cacheKey] !== undefined) return movieLinkCache[cacheKey];
 
-        // ── IMDb (primary) + Wikipedia in parallel ───────────────────────────────
-        // fetchImdbMovieByTitle is defined above in this same file -- a plain
-        // local call, not an external dependency (unlike the typeof-guarded
-        // optional calls below).
+        // ── TMDB-primary attempt + Wikipedia, in parallel ─────────────────────────
+        // TMDB-primary doesn't depend on Wikipedia's result (or vice versa), so
+        // both start together rather than waterfalling -- this also preserves
+        // today's latency in the no-key case, where fetchTmdbPrimary (defined in
+        // the optional tmdb module, typeof-guarded here) resolves instantly with
+        // no network call at all.
         let wikiUrl = null;
 
-        const imdbPromise = fetchImdbMovieByTitle(title, year);
+        const tmdbPrimaryPromise = (typeof fetchTmdbPrimary === 'function')
+            ? fetchTmdbPrimary(title, year)
+            : Promise.resolve(null);
 
-        // Wikipedia can start immediately with the raw title; we'll use the IMDb
-        // result's title if available, but since it runs in parallel we use the
+        // Wikipedia can start immediately with the raw title; we'll use the
+        // resolved title if available, but since it runs in parallel we use the
         // raw title — good enough for wiki search.
         const wikiPromise = (async () => {
             try {
@@ -324,48 +341,69 @@
             } catch (e) {}
         })();
 
-        const [imdbResult] = await Promise.all([imdbPromise, wikiPromise]);
-        const imdbId = imdbResult?.tconst || null;
+        const [tmdbPrimary] = await Promise.all([tmdbPrimaryPromise, wikiPromise]);
 
-        // ── TMDB supplemental — poster/backdrop fallback + kill count. Defined in
-        // the (optional) tmdb module; typeof-guarded so a build without it (or,
-        // right now, before that module exists at all) still resolves the rest of
-        // this lookup, just without TMDB's poster/backdrop/killCount. ────────────
-        const tmdbSupplemental = (typeof fetchTmdbSupplemental === 'function')
-            ? await fetchTmdbSupplemental(imdbId)
-            : null;
+        let imdbResult = null;
+        let tmdbSupplemental = null;
+        let imdbId;
+
+        if (tmdbPrimary) {
+            // TMDB found a confidently-linked match (a real external_ids.imdb_id)
+            // -- use it directly and skip the IMDb-primary lookup (and its
+            // TMDB-supplemental enrichment, which fetchTmdbPrimary already made
+            // redundant by resolving its own tmdb id) entirely.
+            imdbId = tmdbPrimary.imdbId;
+        } else {
+            // ── Exactly today's flow: IMDb (primary) + TMDB supplemental ─────────
+            // Reached whenever TMDB-primary didn't run at all (no key configured,
+            // or the tmdb module isn't in this build) or came back empty (no
+            // search results, or a match with no linked IMDb id). This branch is
+            // byte-identical to the pre-TMDB-primary lookupMovie(), so the
+            // zero-key / module-absent case keeps working exactly as before.
+            imdbResult = await fetchImdbMovieByTitle(title, year);
+            imdbId = imdbResult?.tconst || null;
+            tmdbSupplemental = (typeof fetchTmdbSupplemental === 'function')
+                ? await fetchTmdbSupplemental(imdbId)
+                : null;
+        }
 
         // ── IMDb Parent Guide — also defined above in this file; called
-        // directly, same as fetchImdbMovieByTitle above. ─────────────────────────
+        // directly, same as fetchImdbMovieByTitle above. No TMDB equivalent
+        // exists, so this always runs off whichever path resolved imdbId. ───────
         const parentalGuide = await fetchImdbParentalGuide(imdbId);
 
+        // `??` is used consistently through this whole merge chain (never mixed
+        // with `||`) -- safe here since every source field is either a real
+        // value or null/undefined (fetchImdbTitleFields already normalizes this
+        // way), and necessary for fields like `rating`, where a legitimate 0.0
+        // must not be treated as "missing" the way `||` would.
         const result = {
             links: {
                 imdb:       imdbId ? `https://www.imdb.com/title/${imdbId}/` : null,
                 // Letterboxd supports an /imdb/<id> redirect (same as its /tmdb/<id>
-                // one), so this keys off imdbId directly -- available whenever the
-                // primary IMDb lookup resolves, unlike tmdbSupplemental which needs
-                // the optional tmdb module *and* a user-supplied TMDB API key.
+                // one), so this keys off imdbId directly -- available whenever
+                // either lookup path resolved one, regardless of which source it
+                // came from.
                 letterboxd: imdbId ? `https://letterboxd.com/imdb/${imdbId}` : null,
                 wiki:       wikiUrl,
             },
-            resolved:      !!imdbResult,
-            killCount:     tmdbSupplemental?.killCount ?? null,
+            resolved:   !!(tmdbPrimary || imdbResult),
+            killCount:  tmdbPrimary?.killCount ?? tmdbSupplemental?.killCount ?? null,
             parentalGuide,
             imdbId,
-            cleanTitle: imdbResult?.title    || null,
-            cleanYear:  imdbResult?.year     || null,
-            rating:     imdbResult?.rating   ?? null,
-            runtime:    imdbResult?.runtime  || null,
-            genres:     imdbResult?.genres   || [],
-            // TMDB's poster/backdrop overlay IMDb's when TMDB supplied one; otherwise
-            // fall back to IMDb's primaryImage (if the lookup found one). IMDb has no
-            // dedicated wide "backdrop" field, so its (usually portrait) primaryImage
-            // is reused for both -- the card's CSS crops it to fill (`background-size:
+            cleanTitle: tmdbPrimary?.title    ?? imdbResult?.title    ?? null,
+            cleanYear:  tmdbPrimary?.year     ?? imdbResult?.year     ?? null,
+            rating:     tmdbPrimary?.rating   ?? imdbResult?.rating   ?? null,
+            runtime:    tmdbPrimary?.runtime  ?? imdbResult?.runtime  ?? null,
+            genres:     tmdbPrimary?.genres   ?? imdbResult?.genres   ?? [],
+            // TMDB's poster/backdrop take priority (from either the primary match
+            // or the supplemental enrichment) over IMDb's; IMDb has no dedicated
+            // wide "backdrop" field, so its (usually portrait) primaryImage is
+            // reused for both -- the card's CSS crops it to fill (`background-size:
             // cover`), same pattern apps use when no dedicated backdrop exists.
-            poster:     tmdbSupplemental?.poster   || imdbResult?.poster || null,
-            backdrop:   tmdbSupplemental?.backdrop || imdbResult?.poster || null,
-            overview:   imdbResult?.overview || null,
+            poster:     tmdbPrimary?.poster   ?? tmdbSupplemental?.poster   ?? imdbResult?.poster ?? null,
+            backdrop:   tmdbPrimary?.backdrop ?? tmdbSupplemental?.backdrop ?? imdbResult?.poster ?? null,
+            overview:   tmdbPrimary?.overview ?? imdbResult?.overview ?? null,
         };
 
         // Only persist a resolved result -- caching an unresolved one (e.g. a
