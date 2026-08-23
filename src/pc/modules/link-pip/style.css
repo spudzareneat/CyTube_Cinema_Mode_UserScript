@@ -3,6 +3,8 @@
                 margin-left: 4px !important;
                 opacity: 0.65 !important;
                 font-size: 12px !important;
+                color: inherit !important;
+                text-decoration: none !important;
             }
             .sc-pip-icon:hover { opacity: 1 !important; }
 

@@ -91,16 +91,20 @@
         a.dataset.scPipChecked = '1';
         const kind = classifyLink(a.href);
         if (!kind) return;
-        const icon = document.createElement('span');
-        icon.className = 'sc-pip-icon';
-        icon.title = kind === 'youtube' ? 'Open in floating player' : 'Open image preview';
-        icon.textContent = '🗗';
-        icon.addEventListener('click', (e) => {
+        a.title = kind === 'youtube' ? 'Click to open in floating player' : 'Click to open image preview';
+        a.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
             openPip(kind, a.href);
         });
-        a.insertAdjacentElement('afterend', icon);
+        const newTabLink = document.createElement('a');
+        newTabLink.className = 'sc-pip-icon';
+        newTabLink.href = a.href;
+        newTabLink.target = '_blank';
+        newTabLink.rel = 'noopener noreferrer';
+        newTabLink.title = 'Open in new tab';
+        newTabLink.textContent = '↗';
+        a.insertAdjacentElement('afterend', newTabLink);
     }
 
     function scanPipLinks(buf) {
