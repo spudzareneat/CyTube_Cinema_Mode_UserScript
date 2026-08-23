@@ -219,6 +219,22 @@
       ]
     },
     {
+      "id": "playback-recovery",
+      "name": "Playback Recovery",
+      "category": "Playback",
+      "locked": false,
+      "defaultOn": true,
+      "files": [
+        "src/pc/modules/playback-recovery/index.js"
+      ],
+      "dependsOn": ["core"],
+      "features": [
+        "Detects a network error killing playback (common right after a page reload) and auto-reloads just the video, resuming from where it was",
+        "Shows a small \"Reconnecting…\" indicator while it retries, up to 3 attempts",
+        "Falls back to a manual click-to-retry indicator if it still can't recover"
+      ]
+    },
+    {
       "id": "subtitles",
       "name": "Subtitle Support",
       "category": "Playback",
