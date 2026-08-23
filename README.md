@@ -157,6 +157,19 @@ Direct image links posted in chat (postimg.cc, imgur, Discord CDN, etc.) show up
 
 ---
 
+### Chat Link Picture-in-Picture
+
+Click the 🗗 icon next to a YouTube link in chat to open it in a small floating, draggable preview window without leaving the page — the main player auto-mutes while it plays and restores its previous mute/volume state when you close it. The same icon shows up next to links to a curated list of image-hosting pages (postimg.cc, ibb.co, prnt.sc) that link directly to a *page about* an image rather than the image itself, resolving and previewing the actual image inline.
+
+> Chat Link Picture-in-Picture is an optional module — check it in the customizer (see Setup below) to include it in your build. Once included, it's governed by the Settings Modal's "Picture-in-picture for chat links" toggle.
+
+- The link itself is left completely alone — it still opens normally in a new tab on click; only the 🗗 icon opens the floating preview
+- One preview window at a time — opening a new one replaces whatever's already open
+- Drag the header to reposition it (remembered for next time) or drag the bottom-right corner to resize
+- Close with the **✕** button, **Escape**, or by clicking outside the panel
+
+---
+
 ### Subtitle Sync
 
 Load a local `.srt` or `.vtt` file and sync it to the currently playing video, with a live offset control for files that aren't quite aligned.

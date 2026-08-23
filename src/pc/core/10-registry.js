@@ -1,4 +1,4 @@
-    console.log('[SC] cytube.pc v4.10.4 loaded');
+    console.log('[SC] cytube.pc v4.10.5 loaded');
 
     /* ==========================================================
        REGISTRY PRIMITIVES — let BOOT and the Settings Modal iterate
