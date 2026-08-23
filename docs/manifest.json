@@ -119,7 +119,7 @@
     },
     {
       "id": "tmdb",
-      "name": "TMDB Supplemental Images",
+      "name": "TMDB Metadata",
       "category": "Movie Info",
       "locked": false,
       "defaultOn": true,
@@ -136,7 +136,7 @@
         "raw.githubusercontent.com"
       ],
       "features": [
-        "Optional free API key upgrades poster/backdrop art quality (IMDb art is the fallback either way)",
+        "Optional free API key makes TMDB the primary source for title/rating/runtime/overview/genres/art (IMDb is the no-key fallback)",
         "Adds a kill-count chip from a community horror database",
         "Live key-validation Test button"
       ]

@@ -249,10 +249,10 @@ The main script is no longer a single file you copy-paste — it's assembled to 
 
 A settings modal will appear automatically the first time you visit the channel. You can re-open it any time via the **⚙** button.
 
-Both keys below are free and optional, but the TMDB key unlocks the movie info features:
+Both keys below are free and optional — the script fully works with neither set:
 
 #### TMDB API Key
-Unlocks IMDb links, Letterboxd links, kill counts, and IMDb Parent's Guide content warnings.
+When set, TMDB becomes the primary source for movie/show metadata (title, rating, runtime, overview, genres, poster/backdrop) — better matching than the built-in fallback. Without a key, the script uses IMDb (no key required) as the primary source instead, with TMDB layered on only for posters/backdrops/kill-counts if you configure a key later.
 
 1. Create a free account at [themoviedb.org](https://www.themoviedb.org/)
 2. Go to **Settings → API**: `https://www.themoviedb.org/settings/api`
@@ -284,7 +284,7 @@ This project was 100% vibe coded using [Claude](https://claude.ai) by Anthropic.
 
 | Service | Purpose | Requires Key |
 |---------|---------|-------------|
-| [TMDB](https://www.themoviedb.org/) | Movie metadata, IMDb ID, Letterboxd ID | Yes (free) |
+| [TMDB](https://www.themoviedb.org/) | Primary movie/show metadata (when key set) or supplemental posters/backdrops/kill-counts (fallback) | Yes (free) |
 | [LanguageTool](https://languagetool.org/) | Grammar and spell check | No |
 | [Wikipedia](https://en.wikipedia.org/) | Movie Wikipedia links | No |
 | [lklynet/Kill-Count](https://github.com/lklynet/Kill-Count) | On-screen kill counts | No |

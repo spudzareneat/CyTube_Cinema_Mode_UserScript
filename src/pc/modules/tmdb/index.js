@@ -1,13 +1,19 @@
     /* ==========================================================
-       TMDB — optional supplemental data for the Now Playing card:
-       poster/backdrop images and kill-count chips. IMDb (imdb-trivia
-       module) is the primary/required lookup now; this module only
-       adds on top of an already-resolved `imdbId`, so movie-title-
-       links calls fetchTmdbSupplemental(imdbId) through a typeof-guard
-       (this module is optional — a build without it still resolves
-       title/rating/runtime/overview/poster from IMDb alone, just
-       without TMDB's backdrop/poster-upgrade/kill-count/Letterboxd
-       link).
+       TMDB — optional, dual-role metadata source for the Now Playing
+       card. When a TMDB API key is configured, this module's
+       fetchTmdbPrimary(title, year) becomes the *primary* movie/show
+       lookup (better title/rating/overview matching than IMDb's
+       GraphQL search) — movie-title-links's lookupMovie() tries it
+       first, through a typeof-guard, and only falls through to its
+       own IMDb-primary flow when no key is set, this module isn't in
+       the build, or fetchTmdbPrimary can't find a confidently-linked
+       match. Without a key, this module's role shrinks back to its
+       original one: fetchTmdbSupplemental(imdbId) layers TMDB's
+       poster/backdrop/kill-count on top of an already-resolved IMDb
+       result. Either way this module is fully optional — a build
+       without it still resolves title/rating/runtime/overview/poster
+       from IMDb alone, just without TMDB's metadata upgrade, backdrop,
+       kill-count, or Letterboxd link.
 
        Owns everything TMDB-related that used to live in core:
        - LS_TMDB key + validateTmdbKey() (moved verbatim from
@@ -19,14 +25,25 @@
        - The kill-count DB (raw.githubusercontent.com JSONL, keyed by
          tmdb_id) — written fresh here; movie-title-links's old copy
          was deleted outright in the prior task, not moved.
+       - fetchTmdbPrimary(title, year): TMDB's /3/search/multi +
+         /3/{movie|tv}/{id} (with external_ids appended) to resolve a
+         title/year straight to full metadata *and* a linked IMDb id.
+         Requires external_ids.imdb_id to be present — every
+         downstream consumer (parental guide, .links.imdb/.links.
+         letterboxd, imdb-trivia) needs a real IMDb id, so a TMDB match
+         with no linked IMDb id is treated as a miss, not a partial
+         success, and this returns null so the caller falls back to
+         IMDb-primary.
        - fetchTmdbSupplemental(imdbId): TMDB's /3/find/{imdb_id}
          endpoint to resolve a TMDB id from the IMDb id movie-title-
-         links already found, then poster_path/backdrop_path (same
-         image.tmdb.org/t/p/w342|w780 URL construction the old TMDB-
-         first lookupMovie() used) plus a kill-count lookup. Returns
-         { tmdbId, poster, backdrop, killCount } — null fields when
-         there's no key set or no TMDB match — exactly the shape
-         movie-title-links's lookupMovie() already destructures.
+         links already found (IMDb-primary path only — fetchTmdbPrimary
+         already has its own tmdb id when it's the one that ran), then
+         poster_path/backdrop_path (same image.tmdb.org/t/p/w342|w780
+         URL construction fetchTmdbPrimary uses) plus a kill-count
+         lookup. Returns { tmdbId, poster, backdrop, killCount } —
+         null fields when there's no key set or no TMDB match — exactly
+         the shape movie-title-links's lookupMovie() already
+         destructures.
     ========================================================== */
 
     const LS_TMDB = 'sc_tmdb_key';
@@ -118,6 +135,113 @@
         }
     }
 
+    // Primary lookup: given a raw title (and optional year), searches TMDB
+    // directly and returns full metadata plus the linked IMDb id. Called by
+    // movie-title-links's lookupMovie() through a typeof-guard, ahead of (and,
+    // when it succeeds, replacing) the IMDb-primary flow -- see this file's
+    // header comment. Mirrors fetchTmdbSupplemental's shape: never throws,
+    // resolves to null on any failure (no key, no title, network error, no
+    // search results, or no linked imdb_id) so the caller can fall straight
+    // through to its existing IMDb-primary path without a try/catch of its own.
+    async function fetchTmdbPrimary(title, year) {
+        // No key configured -- instant, no network. This is what keeps the
+        // zero-key path exactly as fast as it is today.
+        if (!title || !hasKey(LS_TMDB)) return null;
+        try {
+            const apiKey = getKey(LS_TMDB);
+
+            // /search/multi covers both movies and TV shows in one call (mirrors
+            // IMDb's own cross-type mainSearch, which also matches tvEpisode).
+            // TMDB already relevance-ranks server-side, unlike IMDb's GraphQL
+            // search, which needs titlesMatch()/Dice-coefficient scoring
+            // client-side (see movie-title-links/index.js) -- so no client-side
+            // fuzzy matching is needed here.
+            const searchRes = await new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `https://api.themoviedb.org/3/search/multi?query=${encodeURIComponent(title)}` +
+                        `&include_adult=false&api_key=${encodeURIComponent(apiKey)}`,
+                    onload: r => resolve(r),
+                    onerror: reject,
+                });
+            });
+            if (searchRes.status !== 200) return null;
+            const searchData = JSON.parse(searchRes.responseText);
+            const candidates = (searchData?.results || [])
+                .filter(r => r.media_type === 'movie' || r.media_type === 'tv');
+            if (!candidates.length) return null;
+
+            // Year tiebreak: prefer the first candidate whose release/first-air
+            // year matches, if a year was given; otherwise trust TMDB's own
+            // top-ranked (first) result.
+            let best = candidates[0];
+            if (year) {
+                const yearMatch = candidates.find(r => {
+                    const date = r.release_date || r.first_air_date || '';
+                    return date.slice(0, 4) === String(year);
+                });
+                if (yearMatch) best = yearMatch;
+            }
+
+            const mediaType = best.media_type;
+            const detailsRes = await new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `https://api.themoviedb.org/3/${mediaType}/${best.id}` +
+                        `?append_to_response=external_ids&api_key=${encodeURIComponent(apiKey)}`,
+                    onload: r => resolve(r),
+                    onerror: reject,
+                });
+            });
+            if (detailsRes.status !== 200) return null;
+            const d = JSON.parse(detailsRes.responseText);
+
+            // Every downstream consumer (parental guide, .links.imdb/.links.
+            // letterboxd, _currentImdbId, imdb-trivia) depends on an IMDb id --
+            // a TMDB match with no linked one is a miss, not a partial success,
+            // so the caller falls back to IMDb-primary.
+            const imdbId = d.external_ids?.imdb_id || null;
+            if (!imdbId) return null;
+
+            // Reuse the tmdb id already in hand rather than routing through
+            // fetchTmdbSupplemental, which would redundantly re-resolve it from
+            // the imdb id we just got. The kill-count DB is keyed by MOVIE tmdb
+            // ids only (fetchTmdbSupplemental is safe here since it only ever
+            // reads movie_results) -- gate on mediaType === 'movie' so a TV
+            // match's id can't collide with an unrelated movie's id and show
+            // that movie's kill count as if it belonged to the show.
+            let killCount = null;
+            if (mediaType === 'movie' && best.id != null) {
+                const db = await getKillCountDb();
+                const count = db[String(best.id)];
+                if (count !== undefined && count !== null) killCount = count;
+            }
+
+            // rating/runtime units already match IMDb's (both 0-10 scale, both
+            // minutes) -- no conversion needed. TMDB returns 0 (not null) for an
+            // unrated title, unlike IMDb's aggregateRating (already null in that
+            // case) -- use a truthy check so an unrated title maps to null
+            // instead of rendering a literal "⭐ 0" on the stats bar, and round
+            // TMDB's unrounded float (e.g. 6.816) to 1 decimal to match IMDb's
+            // precision.
+            return {
+                imdbId,
+                tmdbId:   best.id ?? null,
+                title:    mediaType === 'movie' ? (d.title ?? null) : (d.name ?? null),
+                year:     (d.release_date || d.first_air_date || '').slice(0, 4) || null,
+                rating:   d.vote_average ? Math.round(d.vote_average * 10) / 10 : null,
+                runtime:  mediaType === 'movie' ? (d.runtime ?? null) : (d.episode_run_time?.[0] ?? null),
+                genres:   (d.genres || []).map(g => g.name).filter(Boolean),
+                overview: d.overview || null,
+                poster:   d.poster_path   ? `https://image.tmdb.org/t/p/w342${d.poster_path}`   : null,
+                backdrop: d.backdrop_path ? `https://image.tmdb.org/t/p/w780${d.backdrop_path}` : null,
+                killCount,
+            };
+        } catch (e) {
+            return null;
+        }
+    }
+
     scRegisterInit(getKillCountDb); // pre-fetch kill count DB
 
     // order: 0 — reproduces the original hardcoded field's position at the
@@ -131,7 +255,7 @@
     scRegisterSetting({
         id: 'sc-input-tmdb', group: 'tmdb', type: 'text',
         label: 'TMDB API key',
-        note: 'Optional — adds movie posters, backdrops, kill-count chips, and a Letterboxd link to the Now Playing card',
+        note: 'Optional — when set, TMDB becomes the primary movie/show lookup (better metadata); without a key the script uses IMDb (no key required)',
         key: LS_TMDB,
         placeholder: 'Paste TMDB v3 key…',
         testHandler: validateTmdbKey,
