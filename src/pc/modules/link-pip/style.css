@@ -39,10 +39,3 @@
             #sc-pip-close:hover { background: rgba(255,255,255,0.2) !important; }
             #sc-pip-body { flex: 1 !important; position: relative !important; overflow: hidden !important; }
             #sc-pip-body .sc-pip-frame { width: 100% !important; height: 100% !important; border: 0 !important; display: block !important; }
-            #sc-pip-body .sc-pip-image-holder {
-                width: 100% !important; height: 100% !important;
-                display: flex !important; align-items: center !important; justify-content: center !important;
-                color: rgba(244,244,242,0.7) !important; font-size: 12px !important; text-align: center !important; padding: 12px !important;
-            }
-            #sc-pip-body .sc-pip-image-holder img { max-width: 100% !important; max-height: 100% !important; display: block !important; }
-            #sc-pip-body .sc-pip-image-holder a { color: #7ec8ff !important; margin-left: 4px !important; }

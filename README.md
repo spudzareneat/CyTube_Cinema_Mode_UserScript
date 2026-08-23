@@ -146,7 +146,7 @@ Capture any scene as an animated GIF, straight from the player — no external t
 
 ### Chat Image Embeds
 
-Direct image links posted in chat (postimg.cc, imgur, Discord CDN, etc.) show up as an inline thumbnail instead of a bare link.
+Direct image links posted in chat (postimg.cc, imgur, Discord CDN, etc.) show up as an inline thumbnail instead of a bare link. Links to a page *about* an image rather than the image itself — postimg.cc, ibb.co, and prnt.sc landing pages — are also auto-embedded, by resolving the actual image from the page; clicking the resulting thumbnail opens that resolved image directly, not the landing page.
 
 > Chat Images is an optional module — check it in the customizer (see Setup below) to include it in your build. Once included, it's governed by the Settings Modal's "Auto-embed image links in chat" toggle.
 
@@ -159,11 +159,10 @@ Direct image links posted in chat (postimg.cc, imgur, Discord CDN, etc.) show up
 
 ### Chat Link Picture-in-Picture
 
-Click the 🗗 icon next to a YouTube link in chat to open it in a small floating, draggable preview window without leaving the page — the main player auto-mutes while it plays and restores its previous mute/volume state when you close it. The same icon shows up next to links to a curated list of image-hosting pages (postimg.cc, ibb.co, prnt.sc) that link directly to a *page about* an image rather than the image itself, resolving and previewing the actual image inline.
+Click a YouTube link in chat to open it in a small floating, draggable preview window without leaving the page, instead of navigating away — the main player auto-mutes while it plays and restores its previous mute/volume state when you close it. A **↗** icon next to the link still opens it normally in a new tab.
 
-> Chat Link Picture-in-Picture is an optional module — check it in the customizer (see Setup below) to include it in your build. Once included, it's governed by the Settings Modal's "Picture-in-picture for chat links" toggle.
+> Chat Link Picture-in-Picture is an optional module — check it in the customizer (see Setup below) to include it in your build. Once included, it's governed by the Settings Modal's "Picture-in-picture for YouTube links in chat" toggle.
 
-- The link itself is left completely alone — it still opens normally in a new tab on click; only the 🗗 icon opens the floating preview
 - One preview window at a time — opening a new one replaces whatever's already open
 - Drag the header to reposition it (remembered for next time) or drag the bottom-right corner to resize
 - Close with the **✕** button, **Escape**, or by clicking outside the panel

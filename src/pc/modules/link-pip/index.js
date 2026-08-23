@@ -1,9 +1,10 @@
     /* ==========================================================
-       CHAT LINK PICTURE-IN-PICTURE — a floating preview window
-       opened by clicking a small icon next to certain chat links:
-       YouTube videos (this task) and image-hosting landing pages
-       like postimg.cc (added in Task 2). getKey/setKey are core's
-       (02-keys-and-helpers.js); getPlayerVideoEl is core's
+       CHAT LINK PICTURE-IN-PICTURE — a floating preview window for
+       YouTube links posted in chat. Image-hosting landing pages
+       (postimg.cc etc.) used to be handled here too via a click, but
+       moved to chatimages' zero-click auto-embed instead -- see that
+       module's IMAGE-HOSTING LANDING PAGES section. getKey/setKey are
+       core's (02-keys-and-helpers.js); getPlayerVideoEl is core's
        (12-playback-sync-and-seek.js) -- this module doesn't
        redeclare either.
     ========================================================== */
@@ -29,44 +30,8 @@
         } catch (e) { return null; }
     }
 
-    const IMAGE_HOST_ALLOWLIST = ['postimg.cc', 'ibb.co', 'prnt.sc'];
-
-    function isImageHostPage(url) {
-        try {
-            const host = new URL(url).hostname.replace(/^www\./, '');
-            return IMAGE_HOST_ALLOWLIST.includes(host);
-        } catch (e) { return false; }
-    }
-
-    function extractOgImage(html) {
-        let m = html.match(/<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
-        if (!m) m = html.match(/<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:image["']/i);
-        return m ? m[1] : null;
-    }
-
-    function resolveOgImage(pageUrl) {
-        return new Promise((resolve) => {
-            GM_xmlhttpRequest({
-                method: 'GET',
-                url: pageUrl,
-                onload: (res) => {
-                    if (res.status < 200 || res.status >= 300) { resolve(null); return; }
-                    const raw = extractOgImage(res.responseText);
-                    if (!raw) { resolve(null); return; }
-                    try { resolve(new URL(raw, pageUrl).href); }
-                    catch (e) { resolve(null); }
-                },
-                onerror: () => resolve(null),
-                ontimeout: () => resolve(null),
-                timeout: 8000,
-            });
-        });
-    }
-
-    function classifyLink(url) {
-        if (extractYouTubeId(url)) return 'youtube';
-        if (isImageHostPage(url)) return 'image-page';
-        return null;
+    function isPipLink(url) {
+        return !!extractYouTubeId(url);
     }
 
     /* ==========================================================
@@ -75,11 +40,10 @@
        (src/pc/modules/chatimages/index.js) -- its own
        MutationObserver on #messagebuffer, idempotent via a dataset
        marker so re-scans from later mutations don't reprocess a
-       link. The `.sc-img-embed` exclusion matches chatimages' own
-       findImageLinks() filter -- defensive, since no current
-       allowlisted image host overlaps a direct-image extension
-       chatimages already embeds, but keeps the two modules from
-       ever double-processing the same link if that changes.
+       link. The `.sc-img-embed` exclusion is defensive -- keeps this
+       module from ever touching a link chatimages has already turned
+       into an embed, even though nothing currently produces that
+       overlap.
     ========================================================== */
     function findQualifyingLinks(msgEl) {
         return [...msgEl.querySelectorAll('a[href]')]
@@ -90,13 +54,12 @@
 
     function renderIcon(a) {
         a.dataset.scPipChecked = '1';
-        const kind = classifyLink(a.href);
-        if (!kind) return;
-        a.title = kind === 'youtube' ? 'Click to open in floating player' : 'Click to open image preview';
+        if (!isPipLink(a.href)) return;
+        a.title = 'Click to open in floating player';
         a.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            openPip(kind, a.href);
+            openPip(a.href);
         });
         const newTabLink = document.createElement('a');
         newTabLink.className = 'sc-pip-icon';
@@ -251,44 +214,14 @@
         try { setKey(LS_PIP_PANEL_POS, JSON.stringify({ left, top })); } catch (e) {}
     }
 
-    function buildPanelBody(kind, url) {
-        if (kind === 'youtube') {
-            const id = extractYouTubeId(url);
-            const iframe = document.createElement('iframe');
-            iframe.src = `https://www.youtube.com/embed/${encodeURIComponent(id)}?autoplay=1`;
-            iframe.allow = 'autoplay; encrypted-media';
-            iframe.className = 'sc-pip-frame';
-            iframe.setAttribute('frameborder', '0');
-            return iframe;
-        }
-        const holder = document.createElement('div');
-        holder.className = 'sc-pip-image-holder';
-        holder.textContent = 'Loading…';
-        const showNoImageFallback = () => {
-            holder.innerHTML = '';
-            holder.append("Couldn't find an image on this page. ");
-            const link = document.createElement('a');
-            link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer';
-            link.textContent = 'Open page';
-            holder.appendChild(link);
-        };
-        resolveOgImage(url).then(imgUrl => {
-            if (!holder.isConnected) return; // panel closed before the fetch finished
-            if (imgUrl) {
-                try {
-                    const proto = new URL(imgUrl).protocol;
-                    if (proto !== 'http:' && proto !== 'https:') imgUrl = null;
-                } catch (e) { imgUrl = null; }
-            }
-            if (!imgUrl) { showNoImageFallback(); return; }
-            holder.innerHTML = '';
-            const img = document.createElement('img');
-            img.referrerPolicy = 'no-referrer';
-            img.onerror = showNoImageFallback;
-            img.src = imgUrl;
-            holder.appendChild(img);
-        });
-        return holder;
+    function buildPanelBody(url) {
+        const id = extractYouTubeId(url);
+        const iframe = document.createElement('iframe');
+        iframe.src = `https://www.youtube.com/embed/${encodeURIComponent(id)}?autoplay=1`;
+        iframe.allow = 'autoplay; encrypted-media';
+        iframe.className = 'sc-pip-frame';
+        iframe.setAttribute('frameborder', '0');
+        return iframe;
     }
 
     let pipPanel = null;
@@ -304,7 +237,7 @@
         if (pipMuteState) { restorePlayer(pipMuteState); pipMuteState = null; }
     }
 
-    function openPip(kind, url) {
+    function openPip(url) {
         closePip(); // one window at a time
         pipPanel = document.createElement('div');
         pipPanel.id = 'sc-pip-panel';
@@ -315,7 +248,7 @@
             </div>
             <div id="sc-pip-body"></div>`;
         document.body.appendChild(pipPanel);
-        pipPanel.querySelector('#sc-pip-body').appendChild(buildPanelBody(kind, url));
+        pipPanel.querySelector('#sc-pip-body').appendChild(buildPanelBody(url));
         pipPanel.querySelector('#sc-pip-close').addEventListener('click', closePip);
 
         const saved = getSavedPipPanelPos();
@@ -334,7 +267,7 @@
         _pipOutsideClick = (e) => { if (pipPanel && !pipPanel.contains(e.target)) closePip(); };
         setTimeout(() => document.addEventListener('click', _pipOutsideClick, true), 0);
 
-        if (kind === 'youtube') pipMuteState = mutePlayer();
+        pipMuteState = mutePlayer();
     }
 
     document.addEventListener('keydown', (e) => {
@@ -353,4 +286,4 @@
     }
     linkPipBoot();
 
-    scRegisterSetting({ id: 'sc-input-pip', group: 'link-pip', label: 'Picture-in-picture for chat links', note: 'Adds a 🗗 icon next to YouTube links and postimg.cc/ibb.co/prnt.sc links in chat to open a floating preview. Auto-mutes the main player while a YouTube PiP plays.', key: LS_PIP_ENABLED, defaultOn: true, order: 8 });
+    scRegisterSetting({ id: 'sc-input-pip', group: 'link-pip', label: 'Picture-in-picture for YouTube links in chat', note: 'Clicking a YouTube link opens it in a floating player instead of a new tab (a ↗ icon still opens it normally). Auto-mutes the main player while it plays.', key: LS_PIP_ENABLED, defaultOn: true, order: 8 });

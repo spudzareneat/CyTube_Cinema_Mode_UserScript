@@ -54,6 +54,71 @@
         if (b && b.scrollHeight - b.scrollTop - b.clientHeight < 60) b.scrollTop = b.scrollHeight;
     }
 
+    /* ==========================================================
+       IMAGE-HOSTING LANDING PAGES
+       Some chat links point at a page *about* an image (postimg.cc,
+       ibb.co, prnt.sc) rather than a direct image URL, so IMAGE_LINK_RE
+       above never matches them. For a small curated host allowlist,
+       fetch the page and read its og:image meta tag instead. Moved
+       here from link-pip (which used to require a click to open these
+       in a floating preview) so they get the exact same zero-click
+       auto-embed, ban/unban, and toggle as direct image links.
+    ========================================================== */
+    const IMAGE_HOST_ALLOWLIST = ['postimg.cc', 'ibb.co', 'prnt.sc'];
+
+    function isImageHostPage(url) {
+        try {
+            const host = new URL(url).hostname.replace(/^www\./, '');
+            return IMAGE_HOST_ALLOWLIST.includes(host);
+        } catch (e) { return false; }
+    }
+
+    function extractOgImage(html) {
+        let m = html.match(/<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
+        if (!m) m = html.match(/<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:image["']/i);
+        return m ? m[1] : null;
+    }
+
+    function resolveOgImage(pageUrl) {
+        return new Promise((resolve) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: pageUrl,
+                onload: (res) => {
+                    if (res.status !== 200) { resolve(null); return; }
+                    const raw = extractOgImage(res.responseText);
+                    if (!raw) { resolve(null); return; }
+                    try { resolve(new URL(raw, pageUrl).href); }
+                    catch (e) { resolve(null); }
+                },
+                onerror: () => resolve(null),
+                ontimeout: () => resolve(null),
+                timeout: 8000,
+            });
+        });
+    }
+
+    // Memoizes the in-flight Promise itself (not just its resolved value) so
+    // two near-simultaneous reposts of the same URL share one fetch instead
+    // of firing two. A failed resolution (null) evicts its own cache entry
+    // once settled, so a later repost gets a fresh attempt instead of being
+    // permanently poisoned by one bad fetch/timeout.
+    const ogImageCache = new Map(); // url -> Promise<string|null>
+    function resolveOgImageCached(url) {
+        if (!ogImageCache.has(url)) {
+            const p = resolveOgImage(url);
+            p.then(result => { if (result === null) ogImageCache.delete(url); });
+            ogImageCache.set(url, p);
+        }
+        return ogImageCache.get(url);
+    }
+
+    function findImageHostPageLinks(msgEl) {
+        return [...msgEl.querySelectorAll('a[href]')]
+            .filter(a => !a.dataset.scEmbedded && !a.closest('.sc-img-embed')
+                && (a.protocol === 'http:' || a.protocol === 'https:') && isImageHostPage(a.href));
+    }
+
     function applyEmbeddedState(a) {
         const msgEl = a.closest('[class*="chat-msg-"]');
         if (!msgEl) return;
@@ -101,6 +166,69 @@
         rescrollChatIfNearBottom();
     }
 
+    // Self-contained (not sharing DOM-building code with applyEmbeddedState
+    // above) -- applyEmbeddedState is proven, shipped code with no automated
+    // test coverage, and this path is new/async/racy enough to want
+    // reviewing and testing in isolation rather than refactoring the one
+    // that already works.
+    function applyResolvedEmbedState(a) {
+        const msgEl = a.closest('[class*="chat-msg-"]');
+        if (!msgEl) return;
+        a.style.display = 'none';
+        const wrap = document.createElement('div');
+        wrap.className = 'sc-img-embed';
+        const link = document.createElement('a');
+        link.href = a.href; // landing page until resolution replaces it below
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        const img = document.createElement('img');
+        img.loading = 'lazy';
+        img.referrerPolicy = 'no-referrer';
+        // No img.src yet -- an empty string is treated by some browsers as a
+        // request to the current page and fires onerror immediately. Left
+        // unset until the fetch resolves.
+        link.appendChild(img);
+        const badge = document.createElement('span');
+        badge.className = 'sc-img-embed-badge';
+        const badgeLabel = document.createElement('span');
+        badgeLabel.textContent = '🖼 loading…';
+        const toggleBtn = document.createElement('span');
+        toggleBtn.className = 'sc-img-embed-toggle';
+        toggleBtn.textContent = '🔗';
+        toggleBtn.title = 'Show link instead of image';
+        toggleBtn.addEventListener('click', () => {
+            const showingImage = link.style.display !== 'none';
+            link.style.display = showingImage ? 'none' : '';
+            a.style.display = showingImage ? '' : 'none';
+            badgeLabel.textContent = showingImage ? '🔗 link only' : '🖼 embedded';
+            toggleBtn.title = showingImage ? 'Show image instead of link' : 'Show link instead of image';
+        });
+        const banBtn = document.createElement('span');
+        banBtn.className = 'sc-img-embed-ban';
+        banBtn.textContent = '🚫';
+        banBtn.title = "Hide this image everywhere and don't embed it again";
+        banBtn.addEventListener('click', () => banUrl(a.href));
+        badge.appendChild(badgeLabel);
+        badge.appendChild(toggleBtn);
+        badge.appendChild(banBtn);
+        wrap.appendChild(link);
+        wrap.appendChild(badge);
+        msgEl.appendChild(wrap);
+        a._scUi = wrap;
+
+        resolveOgImageCached(a.href).then(imgUrl => {
+            if (!wrap.isConnected) return; // removed (banned, toggled, etc.) before the fetch settled
+            if (!imgUrl) { wrap.remove(); a.style.display = ''; if (a._scUi === wrap) a._scUi = null; return; }
+            link.href = imgUrl;
+            img.title = filenameFromUrl(imgUrl);
+            img.onerror = () => { wrap.remove(); a.style.display = ''; };
+            img.onload = rescrollChatIfNearBottom;
+            img.src = imgUrl;
+            badgeLabel.textContent = '🖼 embedded';
+            rescrollChatIfNearBottom();
+        });
+    }
+
     function applyBannedState(a) {
         const msgEl = a.closest('[class*="chat-msg-"]');
         if (!msgEl) return;
@@ -139,7 +267,10 @@
         const set = getBannedUrls();
         set.delete(url);
         saveBannedUrls(set);
-        sweepUrl(url, applyEmbeddedState);
+        // The two URL categories are mutually exclusive by construction
+        // (extension-based direct image vs. bare landing-page hostname), so
+        // this dispatch is unambiguous.
+        sweepUrl(url, isImageHostPage(url) ? applyResolvedEmbedState : applyEmbeddedState);
     }
 
     function renderLink(a) {
@@ -148,10 +279,17 @@
         else applyEmbeddedState(a);
     }
 
+    function renderHostPageLink(a) {
+        a.dataset.scEmbedded = '1';
+        if (isBanned(a.href)) applyBannedState(a);
+        else applyResolvedEmbedState(a);
+    }
+
     function scanImageEmbeds(buf) {
         if (!embeddingEnabled()) return;
         buf.querySelectorAll('[class*="chat-msg-"]').forEach(msgEl => {
             findImageLinks(msgEl).forEach(renderLink);
+            findImageHostPageLinks(msgEl).forEach(renderHostPageLink);
         });
     }
 
@@ -239,4 +377,4 @@
     // this field before rendering. Row relocated here from core per Task 4 of
     // the companion-scripts-to-modules plan (was previously hardcoded in core
     // since this module didn't exist yet).
-    scRegisterSetting({ id: 'sc-input-autoembed', group: 'chat-images', label: 'Auto-embed image links in chat', note: 'Shows a thumbnail preview under messages that link directly to an image, marked "🖼 embedded"', key: LS_AUTOEMBED, defaultOn: true, order: 3 });
+    scRegisterSetting({ id: 'sc-input-autoembed', group: 'chat-images', label: 'Auto-embed image links in chat', note: 'Shows a thumbnail preview under messages that link directly to an image, or to a supported image-hosting page (postimg.cc, ibb.co, prnt.sc), marked "🖼 embedded"', key: LS_AUTOEMBED, defaultOn: true, order: 3 });

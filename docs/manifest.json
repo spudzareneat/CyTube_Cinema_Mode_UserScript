@@ -1,7 +1,7 @@
 {
   "scriptId": "cytube.pc",
   "displayName": "CyTube Fullscreen Video with Overlay Chat",
-  "baseVersion": "4.10.5",
+  "baseVersion": "4.10.6",
   "headerTemplate": "src/pc/header.template.js",
   "match": [
     "https://cytu.be/r/420Grindhouse",
@@ -194,8 +194,19 @@
         "src/pc/modules/chatimages/index.js"
       ],
       "dependsOn": ["core"],
+      "grants": [
+        "GM_xmlhttpRequest"
+      ],
+      "connects": [
+        "postimg.cc",
+        "i.postimg.cc",
+        "ibb.co",
+        "i.ibb.co",
+        "prnt.sc"
+      ],
       "features": [
         "Auto-embeds inline image previews under chat messages linking directly to images",
+        "Also resolves image-hosting landing pages (postimg.cc, ibb.co, prnt.sc) that don't link directly to an image",
         "Per-image toggle between thumbnail/link view",
         "Per-user \"hide\"/\"unban\" mute for specific image URLs",
         "Keeps chat scrolled to bottom as embeds load"
@@ -215,19 +226,8 @@
         "src/pc/modules/link-pip/style.css"
       ],
       "dependsOn": ["core"],
-      "grants": [
-        "GM_xmlhttpRequest"
-      ],
-      "connects": [
-        "postimg.cc",
-        "i.postimg.cc",
-        "ibb.co",
-        "i.ibb.co",
-        "prnt.sc"
-      ],
       "features": [
         "Adds a 🗗 icon next to YouTube links in chat that opens a floating picture-in-picture player",
-        "Also resolves image-hosting landing pages (postimg.cc, ibb.co, prnt.sc) that the auto-embed module can't match directly",
         "Auto-mutes the main player while a YouTube PiP plays, restoring its previous state on close"
       ]
     },
