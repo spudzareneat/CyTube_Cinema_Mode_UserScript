@@ -215,8 +215,19 @@
         "src/pc/modules/link-pip/style.css"
       ],
       "dependsOn": ["core"],
+      "grants": [
+        "GM_xmlhttpRequest"
+      ],
+      "connects": [
+        "postimg.cc",
+        "i.postimg.cc",
+        "ibb.co",
+        "i.ibb.co",
+        "prnt.sc"
+      ],
       "features": [
         "Adds a 🗗 icon next to YouTube links in chat that opens a floating picture-in-picture player",
+        "Also resolves image-hosting landing pages (postimg.cc, ibb.co, prnt.sc) that the auto-embed module can't match directly",
         "Auto-mutes the main player while a YouTube PiP plays, restoring its previous state on close"
       ]
     },

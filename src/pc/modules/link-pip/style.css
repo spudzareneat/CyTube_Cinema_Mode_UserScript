@@ -42,3 +42,5 @@
                 display: flex !important; align-items: center !important; justify-content: center !important;
                 color: rgba(244,244,242,0.7) !important; font-size: 12px !important; text-align: center !important; padding: 12px !important;
             }
+            #sc-pip-body .sc-pip-image-holder img { max-width: 100% !important; max-height: 100% !important; display: block !important; }
+            #sc-pip-body .sc-pip-image-holder a { color: #7ec8ff !important; margin-left: 4px !important; }

@@ -29,8 +29,43 @@
         } catch (e) { return null; }
     }
 
+    const IMAGE_HOST_ALLOWLIST = ['postimg.cc', 'ibb.co', 'prnt.sc'];
+
+    function isImageHostPage(url) {
+        try {
+            const host = new URL(url).hostname.replace(/^www\./, '');
+            return IMAGE_HOST_ALLOWLIST.includes(host);
+        } catch (e) { return false; }
+    }
+
+    function extractOgImage(html) {
+        let m = html.match(/<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
+        if (!m) m = html.match(/<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:image["']/i);
+        return m ? m[1] : null;
+    }
+
+    function resolveOgImage(pageUrl) {
+        return new Promise((resolve) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: pageUrl,
+                onload: (res) => {
+                    if (res.status !== 200) { resolve(null); return; }
+                    const raw = extractOgImage(res.responseText);
+                    if (!raw) { resolve(null); return; }
+                    try { resolve(new URL(raw, pageUrl).href); }
+                    catch (e) { resolve(null); }
+                },
+                onerror: () => resolve(null),
+                ontimeout: () => resolve(null),
+                timeout: 8000,
+            });
+        });
+    }
+
     function classifyLink(url) {
         if (extractYouTubeId(url)) return 'youtube';
+        if (isImageHostPage(url)) return 'image-page';
         return null;
     }
 
@@ -203,7 +238,22 @@
         }
         const holder = document.createElement('div');
         holder.className = 'sc-pip-image-holder';
-        holder.textContent = "Couldn't preview this link.";
+        holder.textContent = 'Loading…';
+        resolveOgImage(url).then(imgUrl => {
+            if (!holder.isConnected) return; // panel closed before the fetch finished
+            holder.innerHTML = '';
+            if (!imgUrl) {
+                holder.append("Couldn't find an image on this page. ");
+                const link = document.createElement('a');
+                link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer';
+                link.textContent = 'Open page';
+                holder.appendChild(link);
+                return;
+            }
+            const img = document.createElement('img');
+            img.src = imgUrl;
+            holder.appendChild(img);
+        });
         return holder;
     }
 
@@ -269,4 +319,4 @@
     }
     linkPipBoot();
 
-    scRegisterSetting({ id: 'sc-input-pip', group: 'link-pip', label: 'Picture-in-picture for chat links', note: 'Adds a 🗗 icon next to YouTube links in chat that opens a floating player. Auto-mutes the main player while it plays.', key: LS_PIP_ENABLED, defaultOn: true, order: 8 });
+    scRegisterSetting({ id: 'sc-input-pip', group: 'link-pip', label: 'Picture-in-picture for chat links', note: 'Adds a 🗗 icon next to YouTube links and postimg.cc/ibb.co/prnt.sc links in chat to open a floating preview. Auto-mutes the main player while a YouTube PiP plays.', key: LS_PIP_ENABLED, defaultOn: true, order: 8 });
