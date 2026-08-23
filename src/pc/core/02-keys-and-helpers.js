@@ -6,7 +6,12 @@
     const LS_CHAT_FONT   = 'sc_chat_fontsize';
     const LS_MOVIE_LINKS = 'sc_movie_links';
     const LS_IMGBB       = 'sc_imgbb_key';
-    const LS_MOVIE_CACHE = 'sc_movie_cache_v3'; // v3: Letterboxd switched from a TMDB-id redirect to an IMDb-id one --
+    const LS_MOVIE_CACHE = 'sc_movie_cache_v4'; // v4: TMDB-primary lookup added -- v3 entries were cached from the
+                                                 // IMDb-only path and would otherwise shadow the new (usually
+                                                 // better-matching) TMDB-sourced result forever for a user who adds
+                                                 // a key after already having a title cached; bump forces a clean
+                                                 // slate so those don't block the improved lookup from ever running.
+                                                 // v3: Letterboxd switched from a TMDB-id redirect to an IMDb-id one --
                                                  // v2 entries can carry a permanently-null `links.letterboxd` from
                                                  // when that required the optional tmdb module/key; bump forces a
                                                  // clean slate so those don't shadow the fixed lookup forever.

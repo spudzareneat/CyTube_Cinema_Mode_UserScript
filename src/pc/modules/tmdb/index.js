@@ -205,22 +205,31 @@
 
             // Reuse the tmdb id already in hand rather than routing through
             // fetchTmdbSupplemental, which would redundantly re-resolve it from
-            // the imdb id we just got.
+            // the imdb id we just got. The kill-count DB is keyed by MOVIE tmdb
+            // ids only (fetchTmdbSupplemental is safe here since it only ever
+            // reads movie_results) -- gate on mediaType === 'movie' so a TV
+            // match's id can't collide with an unrelated movie's id and show
+            // that movie's kill count as if it belonged to the show.
             let killCount = null;
-            if (best.id != null) {
+            if (mediaType === 'movie' && best.id != null) {
                 const db = await getKillCountDb();
                 const count = db[String(best.id)];
                 if (count !== undefined && count !== null) killCount = count;
             }
 
             // rating/runtime units already match IMDb's (both 0-10 scale, both
-            // minutes) -- no conversion needed.
+            // minutes) -- no conversion needed. TMDB returns 0 (not null) for an
+            // unrated title, unlike IMDb's aggregateRating (already null in that
+            // case) -- use a truthy check so an unrated title maps to null
+            // instead of rendering a literal "⭐ 0" on the stats bar, and round
+            // TMDB's unrounded float (e.g. 6.816) to 1 decimal to match IMDb's
+            // precision.
             return {
                 imdbId,
                 tmdbId:   best.id ?? null,
                 title:    mediaType === 'movie' ? (d.title ?? null) : (d.name ?? null),
                 year:     (d.release_date || d.first_air_date || '').slice(0, 4) || null,
-                rating:   d.vote_average ?? null,
+                rating:   d.vote_average ? Math.round(d.vote_average * 10) / 10 : null,
                 runtime:  mediaType === 'movie' ? (d.runtime ?? null) : (d.episode_run_time?.[0] ?? null),
                 genres:   (d.genres || []).map(g => g.name).filter(Boolean),
                 overview: d.overview || null,

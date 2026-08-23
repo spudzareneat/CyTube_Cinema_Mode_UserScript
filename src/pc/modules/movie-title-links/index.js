@@ -347,7 +347,22 @@
             } catch (e) {}
         })();
 
-        const tmdbPrimary = await tmdbPrimaryPromise;
+        // fetchTmdbPrimary trusts TMDB's own server-side relevance ranking with
+        // no client-side fuzzy check of its own (see that function's comment) --
+        // but titlesMatch() exists precisely because "top-ranked result" isn't
+        // the same as "actually the right title" (the IMDb path above hit this
+        // exact bug class: an unrelated popular/plausible-looking title getting
+        // picked when nothing in the fuzzy results truly matched). Since a TMDB
+        // hit now short-circuits the IMDb path entirely whenever it carries a
+        // linked imdb_id, skipping this guard here would mean keyed users lose
+        // the title-match safety net on every lookup, not just the IMDb one --
+        // so re-apply the same already-tuned titlesMatch() (Dice coefficient
+        // >= 0.7) at this call site rather than reimplementing it in the tmdb
+        // module, which only depends on core and has no access to it directly.
+        const rawTmdbPrimary = await tmdbPrimaryPromise;
+        const tmdbPrimary = (rawTmdbPrimary && titlesMatch(rawTmdbPrimary.title, title))
+            ? rawTmdbPrimary
+            : null;
 
         let imdbResult = null;
         let tmdbSupplemental = null;
