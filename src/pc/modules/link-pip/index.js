@@ -84,6 +84,7 @@
     function findQualifyingLinks(msgEl) {
         return [...msgEl.querySelectorAll('a[href]')]
             .filter(a => !a.dataset.scPipChecked && !a.closest('.sc-img-embed')
+                && !a.classList.contains('sc-pip-icon')
                 && (a.protocol === 'http:' || a.protocol === 'https:'));
     }
 
@@ -99,6 +100,7 @@
         });
         const newTabLink = document.createElement('a');
         newTabLink.className = 'sc-pip-icon';
+        newTabLink.dataset.scPipChecked = '1'; // it's an <a href>, would otherwise re-match findQualifyingLinks and cascade
         newTabLink.href = a.href;
         newTabLink.target = '_blank';
         newTabLink.rel = 'noopener noreferrer';
