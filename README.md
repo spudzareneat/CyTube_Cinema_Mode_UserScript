@@ -227,7 +227,7 @@ A settings panel for managing API keys and preferences. It opens automatically o
 - Chat font size slider
 - Toggle for experimental **Coming Attractions live timing** (NOW PLAYING / ETA badges in Tonight's Lineup — requires a TMDB key, off by default, still being tuned)
 
-> Some fields are module-conditional: the ImgBB API key field and "Optimize GIFs before upload" toggle only appear when GIF Maker is included in your build, "Auto-embed image links in chat" only appears when Chat Images is included, and "Movie lead time" only appears when Movie Lead Time is included. Unchecking a module in the customizer removes its fields from the modal entirely, rather than just disabling them.
+> Some fields are module-conditional: the ImgBB API key field and "Optimize GIFs before upload" toggle only appear when GIF Maker is included in your build, "Auto-embed image links in chat" only appears when Chat Images is included, "Movie lead time" only appears when Movie Lead Time is included, and "Picture-in-picture for chat links" only appears when Chat Link Picture-in-Picture is included. Unchecking a module in the customizer removes its fields from the modal entirely, rather than just disabling them.
 
 <img width="357" height="355" alt="Screenshot 2026-05-18 191527" src="https://github.com/user-attachments/assets/69fa3a59-e05d-4237-8ce1-0a93ae9a8407" />
 

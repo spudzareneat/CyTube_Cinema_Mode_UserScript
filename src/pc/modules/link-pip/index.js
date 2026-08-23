@@ -50,7 +50,7 @@
                 method: 'GET',
                 url: pageUrl,
                 onload: (res) => {
-                    if (res.status !== 200) { resolve(null); return; }
+                    if (res.status < 200 || res.status >= 300) { resolve(null); return; }
                     const raw = extractOgImage(res.responseText);
                     if (!raw) { resolve(null); return; }
                     try { resolve(new URL(raw, pageUrl).href); }
@@ -130,9 +130,22 @@
        its <video> lives in a cross-origin iframe (see that file's
        own comment at line ~14-19). Best-effort: a null return
        means PiP still opens/plays, just doesn't mute.
+
+       getPlayerVideoEl() falls back to document.querySelector('video')
+       when #ytapiplayer has no <video>, which can match gifmaker's
+       offscreen preview/scrub <video> clones appended to
+       document.body (src/pc/modules/gifmaker/index.js). Scoped here
+       to #ytapiplayer to exclude those, mirroring the guard in
+       src/pc/modules/playback-recovery/index.js (onNativeError).
     ========================================================== */
-    function mutePlayer() {
+    function getScopedPlayerVideoEl() {
         const v = getPlayerVideoEl();
+        if (v && v.closest && v.closest('#ytapiplayer')) return v;
+        return null;
+    }
+
+    function mutePlayer() {
+        const v = getScopedPlayerVideoEl();
         if (v) {
             const state = { kind: 'video', muted: v.muted, volume: v.volume };
             try { v.muted = true; } catch (e) {}
@@ -152,7 +165,7 @@
     function restorePlayer(state) {
         if (!state) return;
         if (state.kind === 'video') {
-            const v = getPlayerVideoEl();
+            const v = getScopedPlayerVideoEl();
             if (v) { try { v.muted = state.muted; v.volume = state.volume; } catch (e) {} }
             return;
         }
@@ -167,16 +180,22 @@
        Drag/clamp copied locally (not shared), matching this
        codebase's existing per-module convention -- see the
        comment on makePanelDraggable in
-       src/pc/modules/emote-picker/index.js.
+       src/pc/modules/emote-picker/index.js. Named with a Pip-
+       specific suffix (clampPipPanelPos/makePipPanelDraggable)
+       to avoid colliding with emote-picker's own local copies of
+       clampPanelPos/makePanelDraggable -- all modules concatenate
+       into one shared top-level scope at build time (see
+       scripts/assemble.mjs), so identical top-level function
+       names between modules would silently shadow one another.
     ========================================================== */
-    function clampPanelPos(left, top, width, height) {
+    function clampPipPanelPos(left, top, width, height) {
         return {
             x: Math.min(Math.max(left, -(width - 40)), window.innerWidth - 40),
             y: Math.min(Math.max(top, 0), window.innerHeight - 32),
         };
     }
 
-    function makePanelDraggable(panel, head, draggingClass, onDragEnd) {
+    function makePipPanelDraggable(panel, head, draggingClass, onDragEnd) {
         let dragging = false, dragDX = 0, dragDY = 0;
         const setPos = (prop, val) => panel.style.setProperty(prop, val, 'important');
         head.addEventListener('pointerdown', (e) => {
@@ -195,7 +214,7 @@
         head.addEventListener('pointermove', (e) => {
             if (!dragging) return;
             const rect = panel.getBoundingClientRect();
-            const { x, y } = clampPanelPos(e.clientX - dragDX, e.clientY - dragDY, rect.width, rect.height);
+            const { x, y } = clampPipPanelPos(e.clientX - dragDX, e.clientY - dragDY, rect.width, rect.height);
             setPos('left', x + 'px');
             setPos('top', y + 'px');
         });
@@ -230,7 +249,7 @@
         if (kind === 'youtube') {
             const id = extractYouTubeId(url);
             const iframe = document.createElement('iframe');
-            iframe.src = `https://www.youtube.com/embed/${id}?autoplay=1`;
+            iframe.src = `https://www.youtube.com/embed/${encodeURIComponent(id)}?autoplay=1`;
             iframe.allow = 'autoplay; encrypted-media';
             iframe.className = 'sc-pip-frame';
             iframe.setAttribute('frameborder', '0');
@@ -239,18 +258,27 @@
         const holder = document.createElement('div');
         holder.className = 'sc-pip-image-holder';
         holder.textContent = 'Loading…';
+        const showNoImageFallback = () => {
+            holder.innerHTML = '';
+            holder.append("Couldn't find an image on this page. ");
+            const link = document.createElement('a');
+            link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer';
+            link.textContent = 'Open page';
+            holder.appendChild(link);
+        };
         resolveOgImage(url).then(imgUrl => {
             if (!holder.isConnected) return; // panel closed before the fetch finished
-            holder.innerHTML = '';
-            if (!imgUrl) {
-                holder.append("Couldn't find an image on this page. ");
-                const link = document.createElement('a');
-                link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer';
-                link.textContent = 'Open page';
-                holder.appendChild(link);
-                return;
+            if (imgUrl) {
+                try {
+                    const proto = new URL(imgUrl).protocol;
+                    if (proto !== 'http:' && proto !== 'https:') imgUrl = null;
+                } catch (e) { imgUrl = null; }
             }
+            if (!imgUrl) { showNoImageFallback(); return; }
+            holder.innerHTML = '';
             const img = document.createElement('img');
+            img.referrerPolicy = 'no-referrer';
+            img.onerror = showNoImageFallback;
             img.src = imgUrl;
             holder.appendChild(img);
         });
@@ -287,13 +315,13 @@
         const saved = getSavedPipPanelPos();
         if (saved) {
             const rect = pipPanel.getBoundingClientRect();
-            const { x, y } = clampPanelPos(saved.left, saved.top, rect.width, rect.height);
+            const { x, y } = clampPipPanelPos(saved.left, saved.top, rect.width, rect.height);
             pipPanel.style.setProperty('left', x + 'px', 'important');
             pipPanel.style.setProperty('top', y + 'px', 'important');
             pipPanel.style.setProperty('right', 'auto', 'important');
             pipPanel.style.setProperty('bottom', 'auto', 'important');
         }
-        makePanelDraggable(pipPanel, pipPanel.querySelector('#sc-pip-head'), 'sc-pip-dragging', (left, top) => {
+        makePipPanelDraggable(pipPanel, pipPanel.querySelector('#sc-pip-head'), 'sc-pip-dragging', (left, top) => {
             savePipPanelPos(left, top);
         });
 
