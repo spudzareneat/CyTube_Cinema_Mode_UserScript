@@ -203,6 +203,24 @@
       "screenshot": "screenshots/chatimages.png"
     },
     {
+      "id": "link-pip",
+      "name": "Chat Link Picture-in-Picture",
+      "category": "Chat",
+      "locked": false,
+      "defaultOn": true,
+      "files": [
+        "src/pc/modules/link-pip/index.js"
+      ],
+      "cssFiles": [
+        "src/pc/modules/link-pip/style.css"
+      ],
+      "dependsOn": ["core"],
+      "features": [
+        "Adds a 🗗 icon next to YouTube links in chat that opens a floating picture-in-picture player",
+        "Auto-mutes the main player while a YouTube PiP plays, restoring its previous state on close"
+      ]
+    },
+    {
       "id": "movie-lead-time",
       "name": "Movie Sync Adjustment",
       "category": "Playback",
