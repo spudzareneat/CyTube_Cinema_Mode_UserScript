@@ -1,44 +1,44 @@
-.sc-pip-icon {
-    cursor: pointer !important;
-    margin-left: 4px !important;
-    opacity: 0.65 !important;
-    font-size: 12px !important;
-}
-.sc-pip-icon:hover { opacity: 1 !important; }
+            .sc-pip-icon {
+                cursor: pointer !important;
+                margin-left: 4px !important;
+                opacity: 0.65 !important;
+                font-size: 12px !important;
+            }
+            .sc-pip-icon:hover { opacity: 1 !important; }
 
-#sc-pip-panel {
-    position: fixed !important;
-    z-index: 99999 !important;
-    left: auto !important; top: auto !important;
-    right: 16px !important; bottom: 16px !important;
-    width: 340px !important; height: 220px !important;
-    background: rgba(10,10,20,0.95) !important;
-    border-radius: 8px !important;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.7) !important;
-    overflow: hidden !important;
-    resize: both !important;
-    min-width: 240px !important; min-height: 160px !important;
-    display: flex !important; flex-direction: column !important;
-}
-#sc-pip-head {
-    display: flex !important; align-items: center !important; justify-content: space-between !important;
-    padding: 6px 10px !important; cursor: grab !important;
-    background: rgba(255,255,255,0.06) !important;
-    color: rgba(244,244,242,0.85) !important;
-    font-size: 12px !important; flex-shrink: 0 !important;
-}
-#sc-pip-head.sc-pip-dragging { cursor: grabbing !important; }
-#sc-pip-close {
-    background: rgba(255,255,255,0.1) !important; border: none !important; color: #fff !important;
-    width: 20px !important; height: 20px !important; border-radius: 50% !important;
-    cursor: pointer !important; font-size: 11px !important;
-    display: flex !important; align-items: center !important; justify-content: center !important;
-}
-#sc-pip-close:hover { background: rgba(255,255,255,0.2) !important; }
-#sc-pip-body { flex: 1 !important; position: relative !important; overflow: hidden !important; }
-#sc-pip-body .sc-pip-frame { width: 100% !important; height: 100% !important; border: 0 !important; display: block !important; }
-#sc-pip-body .sc-pip-image-holder {
-    width: 100% !important; height: 100% !important;
-    display: flex !important; align-items: center !important; justify-content: center !important;
-    color: rgba(244,244,242,0.7) !important; font-size: 12px !important; text-align: center !important; padding: 12px !important;
-}
+            #sc-pip-panel {
+                position: fixed !important;
+                z-index: 99999 !important;
+                left: auto !important; top: auto !important;
+                right: 16px !important; bottom: 16px !important;
+                width: 340px !important; height: 220px !important;
+                background: rgba(10,10,20,0.95) !important;
+                border-radius: 8px !important;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.7) !important;
+                overflow: hidden !important;
+                resize: both !important;
+                min-width: 240px !important; min-height: 160px !important;
+                display: flex !important; flex-direction: column !important;
+            }
+            #sc-pip-head {
+                display: flex !important; align-items: center !important; justify-content: space-between !important;
+                padding: 6px 10px !important; cursor: grab !important;
+                background: rgba(255,255,255,0.06) !important;
+                color: rgba(244,244,242,0.85) !important;
+                font-size: 12px !important; flex-shrink: 0 !important;
+            }
+            #sc-pip-head.sc-pip-dragging { cursor: grabbing !important; }
+            #sc-pip-close {
+                background: rgba(255,255,255,0.1) !important; border: none !important; color: #fff !important;
+                width: 20px !important; height: 20px !important; border-radius: 50% !important;
+                cursor: pointer !important; font-size: 11px !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
+            }
+            #sc-pip-close:hover { background: rgba(255,255,255,0.2) !important; }
+            #sc-pip-body { flex: 1 !important; position: relative !important; overflow: hidden !important; }
+            #sc-pip-body .sc-pip-frame { width: 100% !important; height: 100% !important; border: 0 !important; display: block !important; }
+            #sc-pip-body .sc-pip-image-holder {
+                width: 100% !important; height: 100% !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
+                color: rgba(244,244,242,0.7) !important; font-size: 12px !important; text-align: center !important; padding: 12px !important;
+            }
