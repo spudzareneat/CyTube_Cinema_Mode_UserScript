@@ -40,6 +40,18 @@
 
     function _escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+    // _episodeTag lives in movie-title-links/index.js (this module hard-depends
+    // on it, so it's always present in any build that includes this file) --
+    // reused here so the trivia panel's header makes clear which episode the
+    // (now episode-specific) trivia below actually belongs to.
+    function _triviaHeaderTitle() {
+        if (!_npData || !_npData.cleanTitle) return 'Trivia';
+        const epTag = _episodeTag(_npData.season, _npData.episode);
+        const epPart = epTag ? ` · ${epTag}` : '';
+        const namePart = _npData.episodeName ? ` — ${_npData.episodeName}` : '';
+        return `${_npData.cleanTitle}${epPart}${namePart} — Trivia`;
+    }
+
     let _triviaOutsideClick = null;
 
     function showTriviaCard() {
@@ -49,7 +61,7 @@
         panel.id = 'sc-trivia-panel';
         panel.innerHTML = `
             <div id="sc-trivia-head">
-                <span id="sc-trivia-title">${_escHtml(_npData && _npData.cleanTitle ? _npData.cleanTitle + ' — Trivia' : 'Trivia')}</span>
+                <span id="sc-trivia-title">${_escHtml(_triviaHeaderTitle())}</span>
                 <button id="sc-trivia-close" type="button">✕</button>
             </div>
             <div id="sc-trivia-list"><div class="sc-trivia-item">Loading…</div></div>`;

@@ -134,6 +134,40 @@
         } catch (e) { return null; }
     }
 
+    // Given a TV series' own tconst plus a season/episode number, resolves
+    // that specific episode's tconst/title/plot/rating/runtime/still image
+    // via IMDb's episodes-by-season connection -- confirmed live against
+    // caching.graphql.imdb.com via schema introspection (open on this
+    // endpoint, same as every other query in this file): EpisodesFilter.
+    // includeSeasons takes [String], and each edge's node is a plain Title
+    // (same shape IMDB_TITLE_FIELDS_QUERY already reads from), just with an
+    // added `series.displayableEpisodeNumber` for matching the episode
+    // number. first:100 covers even long anime seasons in one page. Returns
+    // null on no match (unaired episode, absolute-numbering mismatch, or any
+    // request failure) so callers can just keep whatever series-level data
+    // they already have -- this only ever supplements, never overrides nor
+    // throws.
+    async function fetchImdbEpisodeInfo(seriesTconst, season, episode) {
+        if (!seriesTconst || season == null || episode == null) return null;
+        const q = 'query GHEpisodesBySeason($id: ID!, $season: [String!]!){ title(id:$id){ episodes{ episodes(first: 100, filter: { includeSeasons: $season }){ edges{ node{ id titleText{ text } plot{ plotText{ plainText } } ratingsSummary{ aggregateRating voteCount } runtime{ seconds } primaryImage{ url } series{ displayableEpisodeNumber{ episodeNumber{ episodeNumber } } } } } } } } }';
+        try {
+            const data = await imdbQuery('GHEpisodesBySeason', q, { id: seriesTconst, season: [String(season)] });
+            const edges = data?.data?.title?.episodes?.episodes?.edges || [];
+            const node = edges.find(e =>
+                Number(e?.node?.series?.displayableEpisodeNumber?.episodeNumber?.episodeNumber) === Number(episode)
+            )?.node;
+            if (!node) return null;
+            return {
+                tconst:   node.id,
+                title:    node.titleText?.text ?? null,
+                overview: node.plot?.plotText?.plainText ?? null,
+                rating:   node.ratingsSummary?.aggregateRating ?? null,
+                runtime:  node.runtime?.seconds != null ? Math.round(node.runtime.seconds / 60) : null,
+                image:    node.primaryImage?.url ?? null,
+            };
+        } catch (e) { return null; }
+    }
+
     /* ==========================================================
        PRIMARY LOOKUP — title+year -> tconst, plus rating/runtime/
        overview/poster/genres. Query text/field-paths/disambiguation
@@ -434,6 +468,24 @@
                 : null;
         }
 
+        // ── Episode-specific refinement — resolves this exact episode's own
+        // IMDb tconst/plot/rating/still via the series tconst just resolved
+        // above (whichever path found it), independent of TMDB entirely (see
+        // fetchImdbEpisodeInfo's header comment for the confirmed query
+        // shape). Only overrides fields when a match is actually found — an
+        // unaired/absolute-numbering-mismatched episode just leaves the
+        // series-level data from above untouched, same graceful-fallback
+        // shape as the rest of this function. Switching imdbId to the
+        // episode's own tconst here (before the parental-guide fetch and the
+        // `links`/`resolved` fields below) is what makes the parental guide,
+        // trivia panel (keyed off _currentImdbId, itself set from
+        // result.imdbId), and .links.imdb/.links.letterboxd all become
+        // episode-specific for free — no changes needed in imdb-trivia at all.
+        const episodeInfo = (season != null && episode != null)
+            ? await fetchImdbEpisodeInfo(imdbId, season, episode)
+            : null;
+        if (episodeInfo) imdbId = episodeInfo.tconst;
+
         // ── IMDb Parent Guide — also defined above in this file; called
         // directly, same as fetchImdbMovieByTitle above. No TMDB equivalent
         // exists, so this always runs off whichever path resolved imdbId. ───────
@@ -467,19 +519,29 @@
             killCount:  tmdbPrimary?.killCount ?? tmdbSupplemental?.killCount ?? null,
             parentalGuide,
             imdbId,
+            // episodeName has no series-level equivalent to fall back to -- null
+            // for movies and for episodes fetchImdbEpisodeInfo couldn't match.
+            episodeName: episodeInfo?.title ?? null,
             cleanTitle: tmdbPrimary?.title    ?? imdbResult?.title    ?? null,
             cleanYear:  tmdbPrimary?.year     ?? imdbResult?.year     ?? null,
-            rating:     tmdbPrimary?.rating   ?? imdbResult?.rating   ?? null,
-            runtime:    tmdbPrimary?.runtime  ?? imdbResult?.runtime  ?? null,
+            // Episode-specific rating/runtime/overview take priority over the
+            // show-level values above -- an episode's own rating routinely
+            // differs a lot from the show's aggregate (e.g. a finale vs. a
+            // filler episode), and its plot is the actual episode synopsis
+            // rather than the show's overall premise.
+            rating:     episodeInfo?.rating   ?? tmdbPrimary?.rating   ?? imdbResult?.rating   ?? null,
+            runtime:    episodeInfo?.runtime  ?? tmdbPrimary?.runtime  ?? imdbResult?.runtime  ?? null,
             genres:     tmdbPrimary?.genres   ?? imdbResult?.genres   ?? [],
             // TMDB's poster/backdrop take priority (from either the primary match
             // or the supplemental enrichment) over IMDb's; IMDb has no dedicated
             // wide "backdrop" field, so its (usually portrait) primaryImage is
             // reused for both -- the card's CSS crops it to fill (`background-size:
             // cover`), same pattern apps use when no dedicated backdrop exists.
+            // The episode's own still image (when found) beats all of that --
+            // it's the one image actually specific to what's playing right now.
             poster:     tmdbPrimary?.poster   ?? tmdbSupplemental?.poster   ?? imdbResult?.poster ?? null,
-            backdrop:   tmdbPrimary?.backdrop ?? tmdbSupplemental?.backdrop ?? imdbResult?.poster ?? null,
-            overview:   tmdbPrimary?.overview ?? imdbResult?.overview ?? null,
+            backdrop:   episodeInfo?.image    ?? tmdbPrimary?.backdrop ?? tmdbSupplemental?.backdrop ?? imdbResult?.poster ?? null,
+            overview:   episodeInfo?.overview ?? tmdbPrimary?.overview ?? imdbResult?.overview ?? null,
         };
 
         // Only persist a resolved result -- caching an unresolved one (e.g. a
@@ -513,6 +575,14 @@
         'Frightening & Intense Scenes': 'Frightening',
     };
 
+    // e.g. (1, 10) -> "S01E10"; (null, 5) -> "E05" (bare "Ep. 5" pattern has
+    // no season group); (null, null) -> '' for movies (isEpisode false).
+    function _episodeTag(season, episode) {
+        if (episode == null) return '';
+        const ep = String(episode).padStart(2, '0');
+        return season != null ? `S${String(season).padStart(2, '0')}E${ep}` : `E${ep}`;
+    }
+
     function showNowPlayingCard(data, opts = {}) {
         if (!data || (!data.cleanTitle && !data.backdrop)) return;
         let card = document.getElementById('sc-np-card');
@@ -538,11 +608,13 @@
         }
         const title = data.cleanTitle || '';
         const year  = data.cleanYear ? ` (${data.cleanYear})` : '';
+        const epTag = _episodeTag(data.season, data.episode);
         card.querySelector('#sc-np-backdrop').style.backgroundImage = data.backdrop ? `url(${data.backdrop})` : 'none';
         const poster = card.querySelector('#sc-np-poster');
         if (data.poster) { poster.src = data.poster; poster.style.display = ''; }
         else poster.style.display = 'none';
-        card.querySelector('#sc-np-title').textContent = title + year;
+        card.querySelector('#sc-np-title').textContent = title + year + (epTag ? ` · ${epTag}` : '')
+            + (data.episodeName ? ` — ${data.episodeName}` : '');
         card.querySelector('#sc-np-overview').textContent = data.overview || '';
         const metaParts = [];
         if (data.rating)  metaParts.push(`⭐ ${data.rating}`);
@@ -667,7 +739,7 @@
         if (!title || title.length < 2) return;
 
         const mySeq = ++_titleRequestSeq;
-        lookupMovie(title, year, season, episode).then(({ links, killCount, parentalGuide, imdbId, cleanTitle, cleanYear, rating, runtime, genres, poster, backdrop, overview, season, episode }) => {
+        lookupMovie(title, year, season, episode).then(({ links, killCount, parentalGuide, imdbId, cleanTitle, cleanYear, episodeName, rating, runtime, genres, poster, backdrop, overview, season, episode }) => {
             if (mySeq !== _titleRequestSeq) return; // a newer title lookup has since superseded this one — discard
 
             if (isYt && !cleanTitle) {
@@ -679,11 +751,13 @@
             }
 
             _currentImdbId = imdbId || null;
-            _npData = { cleanTitle, cleanYear, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, killCount, imdbId, links, season, episode };
+            _npData = { cleanTitle, cleanYear, episodeName, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, killCount, imdbId, links, season, episode };
 
             // Update title with clean IMDb title, wrapped in a clickable span
             if (cleanTitle && titleEl) {
-                const newText = cleanTitle + (cleanYear ? ` (${cleanYear})` : '');
+                const epTag = _episodeTag(season, episode);
+                const newText = cleanTitle + (cleanYear ? ` (${cleanYear})` : '') + (epTag ? ` · ${epTag}` : '')
+                    + (episodeName ? ` — ${episodeName}` : '');
                 let span = document.getElementById('sc-title-text');
                 if (!span) {
                     span = document.createElement('span');
