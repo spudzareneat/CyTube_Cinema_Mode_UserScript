@@ -620,6 +620,10 @@
         if (data.rating)  metaParts.push(`⭐ ${data.rating}`);
         if (data.runtime) metaParts.push(`${Math.floor(data.runtime / 60)}h ${data.runtime % 60}m`);
         if (data.genres && data.genres.length) metaParts.push(data.genres.slice(0, 3).join(' · '));
+        if (typeof scGetLastAired === 'function') {
+            const la = scGetLastAired(title, data.cleanYear);
+            if (la) metaParts.push(`📅 Last aired ${la.dateStr}`);
+        }
         card.querySelector('#sc-np-meta').textContent = metaParts.join('     ');
         const chipHtml = [];
         (data.parentalGuide || []).forEach(pg => {
@@ -795,6 +799,10 @@
                     const dot = SEV[severity] || '';
                     if (dot) statParts.push(`${dot} ${category}`);
                 });
+            }
+            if (typeof scGetLastAired === 'function') {
+                const la = scGetLastAired(cleanTitle || title, cleanYear || year);
+                if (la) statParts.push(`📅 Last aired ${la.dateStr}`);
             }
 
             const old = document.getElementById('sc-movie-stats');

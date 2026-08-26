@@ -90,6 +90,28 @@
       "screenshot": "screenshots/imdb-trivia.png"
     },
     {
+      "id": "last-aired",
+      "name": "Last Aired Date",
+      "category": "Movie Info",
+      "locked": false,
+      "defaultOn": true,
+      "phase": 1,
+      "files": [
+        "src/pc/modules/last-aired/index.js"
+      ],
+      "dependsOn": ["core", "movie-title-links"],
+      "grants": [
+        "GM_xmlhttpRequest"
+      ],
+      "connects": [
+        "docs.google.com"
+      ],
+      "features": [
+        "Shows when a movie last aired on the channel, sourced from the host's spreadsheet",
+        "Appears in both the floating stats strip and the full Now Playing card"
+      ]
+    },
+    {
       "id": "tonights-lineup",
       "name": "Weekend Grindhouse Schedule",
       "category": "Movie Info",
