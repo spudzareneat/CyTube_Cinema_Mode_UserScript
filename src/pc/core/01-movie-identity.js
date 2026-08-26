@@ -48,25 +48,34 @@
         // Remove file extension
         let s = raw.replace(/\.(mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts|divx|xvid|ogv)$/i, '');
 
-        // Extract year from brackets or parens: [1984] or (1984)
+        // Locate the year and the season/episode marker (S01E10, Season 1
+        // Episode 20, 1x22, Ep. 5, etc.) against the same untouched string
+        // before cutting anything. Checking one and slicing before checking
+        // the other would silently discard whichever marker comes second --
+        // e.g. "Show Name (1984) S01E05" has the episode marker AFTER the
+        // year bracket, so cutting at the year first (as this used to)
+        // threw the episode marker away before it was ever searched for,
+        // leaving season/episode null even though the marker was right
+        // there in the original string.
         let year = null;
         const yearMatch = s.match(/[\[(](\d{4})[\])]/);
-        if (yearMatch) {
-            year = yearMatch[1];
-            s = s.slice(0, yearMatch.index); // strip everything from year onwards
-        }
+        if (yearMatch) year = yearMatch[1];
 
-        // Extract season/episode (S01E10, Season 1 Episode 20, 1x22, Ep. 5, etc.)
-        // and cut the title at the match, same convention as the year cut above --
-        // keeps the series-name prefix, discards the episode-specific subtitle
-        // scene/upload filenames often append after the marker.
         let season = null, episode = null;
         const epMatch = _matchEpisode(s);
         if (epMatch) {
             season = epMatch.season;
             episode = epMatch.episode;
-            s = s.slice(0, epMatch.match.index);
         }
+
+        // Cut the title at whichever marker starts first -- keeps the
+        // series-name prefix, discards the episode-specific subtitle
+        // scene/upload filenames often append after the marker.
+        const cutIndex = Math.min(
+            yearMatch ? yearMatch.index : Infinity,
+            epMatch ? epMatch.match.index : Infinity
+        );
+        if (cutIndex !== Infinity) s = s.slice(0, cutIndex);
 
         // Acronym-style titles (R.O.T.O.R., S.W.A.T.) use dots as part of the actual
         // name, not as filename word-separators -- protect runs of 2+ single-letter-dot
