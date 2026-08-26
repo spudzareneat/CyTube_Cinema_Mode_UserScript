@@ -96,6 +96,16 @@
     // chronologically latest.
     function buildLastAiredMap(csvText) {
         const map = new Map();
+        // Sheet convention (documented in its own preamble row): "aka's are
+        // before Release Year" -- e.g. "After Death aka Zombie Flesh Eaters 3
+        // (1989)". Neither half alone matches the IMDb-clean title
+        // scGetLastAired() looks up with, so those get indexed too, but only
+        // in a second pass below (after every row's primary title key is
+        // set) so a real, distinct primary-title entry always wins any
+        // collision with an alias segment -- first-write-wins for alias
+        // keys, unlike the latest-date-wins dedup below, which only applies
+        // to true duplicate rows of the same title.
+        const aliasEntries = [];
         const lines = String(csvText || '').split(/\r\n|\n/);
         for (let i = 1; i < lines.length; i++) { // skip header row
             const line = lines[i];
@@ -119,10 +129,28 @@
             if (!existing || date.getTime() > existing._ts) {
                 map.set(key, { dateStr: formatLastAiredDate(date), block, _ts: date.getTime() });
             }
+
+            if (/ aka /i.test(title)) {
+                const parts = title.split(/ aka /i);
+                if (parts.length === 2) {
+                    const dateStr = formatLastAiredDate(date);
+                    for (const part of parts) {
+                        const aliasTitle = part.trim();
+                        if (!aliasTitle) continue;
+                        aliasEntries.push({ key: normalizeKey(aliasTitle, year), dateStr, block });
+                    }
+                }
+            }
         }
         // Strip the internal _ts comparison field -- consumers only need
         // { dateStr, block }.
         for (const [key, val] of map) map.set(key, { dateStr: val.dateStr, block: val.block });
+
+        for (const alias of aliasEntries) {
+            if (!map.has(alias.key)) {
+                map.set(alias.key, { dateStr: alias.dateStr, block: alias.block });
+            }
+        }
         return map;
     }
 
@@ -154,7 +182,16 @@
                     onerror: reject,
                 });
             });
-            lastAiredMap = buildLastAiredMap(csvText);
+            const freshMap = buildLastAiredMap(csvText);
+            // An empty parse (0 rows) means the response wasn't the CSV we
+            // expected -- sheet gone private/deleted, or an HTML login/error
+            // page returned with a 200 status. Treat that as a fetch failure
+            // so it doesn't clobber a good stale map (in memory or in
+            // localStorage) with nothing.
+            if (freshMap.size === 0) {
+                throw new Error('Last Aired sheet returned no parseable rows');
+            }
+            lastAiredMap = freshMap;
             try {
                 localStorage.setItem(LS_LAST_AIRED_CACHE, JSON.stringify({
                     ts: Date.now(),

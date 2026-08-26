@@ -104,7 +104,8 @@
         "GM_xmlhttpRequest"
       ],
       "connects": [
-        "docs.google.com"
+        "docs.google.com",
+        "googleusercontent.com"
       ],
       "features": [
         "Shows when a movie last aired on the channel, sourced from the host's spreadsheet",
