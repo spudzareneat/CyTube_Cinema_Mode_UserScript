@@ -1,0 +1,53 @@
+            /* ===== POP-UP TRIVIA BUBBLE ===== */
+            /* Styled after the classic VH1 Pop-up Video caption bubble:
+               plain white card, thick black outline, bold black text, no
+               close button -- it just times out on its own. */
+            #sc-tp-bubble {
+                position: fixed !important;
+                left: 50% !important;
+                bottom: 22vh !important;
+                z-index: 15500 !important; /* above video chrome (~10001-10004), below dropdowns/modals (~19000/20001) */
+                max-width: min(460px, 88vw) !important;
+                display: flex !important;
+                align-items: center !important;
+                padding: 30px 20px 16px 36px !important;
+                background: #ffffff !important;
+                border: 5px solid #000 !important;
+                border-radius: 20px !important;
+                box-shadow: 0 6px 18px rgba(0,0,0,0.55) !important;
+                font-family: 'Arial Rounded MT Bold','Comic Sans MS',sans-serif !important;
+                opacity: 0 !important;
+                transform: translateX(-50%) scale(0.001) !important;
+                transition: transform 0.28s cubic-bezier(.34,1.56,.64,1), opacity 0.2s ease !important;
+                pointer-events: auto !important;
+                cursor: pointer !important;
+            }
+            /* left/bottom above are just pre-JS fallbacks -- showTriviaBubble()
+               sets both inline (with !important) to a randomized position in
+               the bottom half of the screen each time, including a
+               body.sc-vertical-aware offset so it clears the stacked chat
+               panel in vertical layout. */
+            #sc-tp-bubble.sc-tp-in {
+                opacity: 0.9 !important;
+                transform: translateX(-50%) scale(1) !important;
+            }
+            #sc-tp-bubble.sc-tp-out {
+                opacity: 0 !important;
+                transform: translateX(-50%) scale(0.85) !important;
+                transition-duration: 0.3s !important;
+            }
+            #sc-tp-tail {
+                position: absolute !important;
+                top: -18px !important;
+                left: -22px !important;
+                width: 48px !important;
+                height: 48px !important;
+                overflow: visible !important;
+                filter: drop-shadow(0 2px 3px rgba(0,0,0,0.4)) !important;
+            }
+            #sc-tp-text {
+                color: #0a0a0a !important;
+                font-size: 15px !important;
+                font-weight: 700 !important;
+                line-height: 1.35 !important;
+            }

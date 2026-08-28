@@ -90,6 +90,27 @@
       "screenshot": "screenshots/imdb-trivia.png"
     },
     {
+      "id": "trivia-popup",
+      "name": "Pop-up Trivia Bubbles",
+      "category": "Movie Info",
+      "locked": false,
+      "defaultOn": true,
+      "phase": 1,
+      "files": [
+        "src/pc/modules/trivia-popup/index.js"
+      ],
+      "cssFiles": [
+        "src/pc/modules/trivia-popup/style.css"
+      ],
+      "dependsOn": ["core", "movie-title-links", "imdb-trivia"],
+      "features": [
+        "VH1 Pop-up Video style trivia bubbles auto-appear every few minutes during movie playback",
+        "Reuses the same IMDb trivia already fetched for the Trivia panel — no extra API calls",
+        "Cycles without repeats; stops for the rest of that movie once every fact has been shown",
+        "Off by default — opt in from Settings"
+      ]
+    },
+    {
       "id": "last-aired",
       "name": "Last Aired Date",
       "category": "Movie Info",
