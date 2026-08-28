@@ -28,6 +28,7 @@
     function settingsRowHtml(r) {
         if (r.type === 'text') return textRowHtml(r);
         if (r.type === 'number') return numberRowHtml(r);
+        if (r.type === 'select') return selectRowHtml(r);
         return checkboxRowHtml(r);
     }
 
@@ -93,6 +94,44 @@
                     <input id="${r.id}" class="sc-settings-input" type="number"
                         min="${r.min}" max="${r.max}" step="${r.step ?? 1}" value="${val}" style="width:5em" />
                 </div>`;
+    }
+
+    // Discrete-step slider row, used by any registered type:'select' row --
+    // e.g. the trivia-popup module's frequency tier picker. `r.options` is
+    // an array of {value, label}; the slider itself just tracks an *index*
+    // into that array (a plain <input type="range"> has no notion of
+    // discrete labeled stops), with a live label mirroring the classic
+    // font-size slider above (see wireSelectSliderRow() below for the
+    // input-event wiring, and the Save handler for how the index maps back
+    // to `value` on save). Stored value falls back to `r.defaultValue` when
+    // unset or no longer one of the current options (e.g. a tier removed in
+    // a later version).
+    function selectRowHtml(r) {
+        const stored = getKey(r.key);
+        const storedIdx = r.options.findIndex(o => o.value === stored);
+        const idx = storedIdx !== -1 ? storedIdx : Math.max(0, r.options.findIndex(o => o.value === r.defaultValue));
+        return `
+                <div class="sc-settings-group sc-settings-toggle-group">
+                    <label class="sc-settings-label">
+                        ${r.label}: <span id="${r.id}-val">${r.options[idx].label}</span>
+                        <span class="sc-settings-note">${r.note}</span>
+                    </label>
+                    <input id="${r.id}" class="sc-settings-range" type="range"
+                        min="0" max="${r.options.length - 1}" step="1" value="${idx}" />
+                </div>`;
+    }
+
+    // Live-updates a select-slider row's label as it's dragged, mirroring
+    // the chat-font-size slider's own input listener below.
+    function wireSelectSliderRow(r) {
+        if (r.type !== 'select') return;
+        const input = document.getElementById(r.id);
+        const val = document.getElementById(r.id + '-val');
+        if (!input || !val) return;
+        input.addEventListener('input', () => {
+            const opt = r.options[parseInt(input.value, 10)];
+            if (opt) val.textContent = opt.label;
+        });
     }
 
     // Wires up the Test button for a rendered text row that declared a
@@ -179,8 +218,10 @@
         overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
         document.getElementById('sc-settings-cancel').addEventListener('click', () => overlay.remove());
 
-        // Wire up Test buttons for any registered text rows that declared one.
+        // Wire up Test buttons for any registered text rows that declared one,
+        // and live labels for any registered select-slider rows.
         sortedSettingsRows().forEach(r => wireTextRowTestButton(r));
+        sortedSettingsRows().forEach(r => wireSelectSliderRow(r));
 
         // Font size live preview
         const fontInput  = document.getElementById('sc-input-fontsize');
@@ -205,6 +246,11 @@
                     const fallback = row.defaultValue ?? row.min;
                     const clamped = Math.min(row.max, Math.max(row.min, Number.isFinite(raw) ? raw : fallback));
                     setKey(row.key, String(clamped));
+                } else if (row.type === 'select') {
+                    // el.value is the slider's index, not the option value --
+                    // see selectRowHtml()/wireSelectSliderRow() above.
+                    const opt = row.options[parseInt(el.value, 10)];
+                    setKey(row.key, opt ? opt.value : row.defaultValue);
                 } else {
                     setKey(row.key, el.checked ? 'on' : 'off');
                 }

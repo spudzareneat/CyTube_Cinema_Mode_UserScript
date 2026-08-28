@@ -26,9 +26,20 @@
     const LS_TRIVIA_POPUP_ENABLED = 'sc_trivia_popup_enabled';
     const popupTriviaEnabled = () => getKey(LS_TRIVIA_POPUP_ENABLED) === 'on'; // opt-in, off by default
 
+    const LS_TRIVIA_POPUP_FREQUENCY = 'sc_trivia_popup_frequency';
+    const TP_FREQUENCY_DEFAULT = 'occasional';
+    // Gap-between-pops ranges per tier -- read live (poll-per-use, like
+    // popupTriviaEnabled()) each time a pop is scheduled, so changing the
+    // setting mid-movie takes effect on the very next pop instead of
+    // requiring a reload.
+    const TP_FREQUENCY_TIERS = {
+        frequent:   { min: 45 * 1000,     max: 90 * 1000 },
+        occasional: { min: 3 * 60 * 1000, max: 6 * 60 * 1000 },
+        rare:       { min: 8 * 60 * 1000, max: 15 * 60 * 1000 },
+    };
+    const _tpFrequencyTier = () => TP_FREQUENCY_TIERS[getKey(LS_TRIVIA_POPUP_FREQUENCY)] || TP_FREQUENCY_TIERS[TP_FREQUENCY_DEFAULT];
+
     const TP_POLL_MS     = 3000;            // heartbeat: detect movie change + drive the scheduler
-    const TP_MIN_GAP_MS  = 3 * 60 * 1000;   // min time between pops
-    const TP_MAX_GAP_MS  = 6 * 60 * 1000;   // max time between pops
     const TP_RETRY_MS    = 20 * 1000;       // recheck delay when blocked (paused/YouTube/setting off)
     const TP_VISIBLE_MS  = 20 * 1000;       // how long a bubble stays up before auto-dismissing
     const TP_EXIT_ANIM_MS = 300;             // must match style.css's .sc-tp-out transition-duration
@@ -74,7 +85,8 @@
     function _tpScheduleNextPop() {
         clearTimeout(_tpPopTimer);
         if (_tpExhausted || !_tpQueue.length) { _tpExhausted = true; return; }
-        const gap = TP_MIN_GAP_MS + Math.random() * (TP_MAX_GAP_MS - TP_MIN_GAP_MS);
+        const tier = _tpFrequencyTier();
+        const gap = tier.min + Math.random() * (tier.max - tier.min);
         _tpPopTimer = setTimeout(_tpAttemptPop, gap);
     }
 
@@ -412,9 +424,24 @@
         id: 'sc-input-triviapopup',
         group: 'trivia-popup',
         label: 'Pop-up trivia bubbles during movies (Experimental)',
-        note: 'Every few minutes, shows a small IMDb trivia fact bottom-middle of the screen for about 10 seconds, VH1 Pop-up Video style, then fades out. Off by default. Cycles without repeats and stops once all trivia for the current movie has been shown.',
+        note: 'Every few minutes, shows a small IMDb trivia fact somewhere in the bottom half of the screen for about 20 seconds, VH1 Pop-up Video style, then fades out. Off by default. Cycles without repeats and stops once all trivia for the current movie has been shown.',
         key: LS_TRIVIA_POPUP_ENABLED,
         defaultOn: false,
         order: 9,
+    });
+    scRegisterSetting({
+        id: 'sc-input-triviapopupfreq',
+        type: 'select',
+        group: 'trivia-popup',
+        label: 'Pop-up trivia frequency',
+        note: 'How often a trivia bubble pops up during a movie.',
+        key: LS_TRIVIA_POPUP_FREQUENCY,
+        options: [
+            { value: 'frequent', label: 'Frequent (45s – 90s)' },
+            { value: 'occasional', label: 'Occasional (3 – 6 min, default)' },
+            { value: 'rare', label: 'Rare (8 – 15 min)' },
+        ],
+        defaultValue: TP_FREQUENCY_DEFAULT,
+        order: 10,
     });
     scRegisterInit(triviaPopupBoot);
