@@ -9,7 +9,9 @@
        Rows are `Movie Title & Year, Last Played (M/D/YY), Movie Block`
        (~1470 rows). A handful of titles have more than one row (played
        more than once) -- "last aired" is whichever date is
-       chronologically latest for that title, no past/future filtering.
+       chronologically latest for that title, excluding rows dated today
+       (see isToday() below -- the sheet can get updated early, while a
+       title is still the one currently airing).
 
        The whole sheet is fetched once at script init (scRegisterInit),
        parsed into an in-memory Map, and cached in localStorage for 6h
@@ -91,6 +93,18 @@
         return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     }
 
+    // The sheet can get its "Last Played" cell updated early, while the
+    // movie is still the one currently airing -- so a row dated today
+    // doesn't yet mean it actually finished airing. Skip those rows
+    // entirely rather than showing a same-day "last aired" line; an
+    // earlier, real last-aired date for the same title (if any) still wins.
+    function isToday(date) {
+        const now = new Date();
+        return date.getFullYear() === now.getFullYear() &&
+            date.getMonth() === now.getMonth() &&
+            date.getDate() === now.getDate();
+    }
+
     // Parses the full CSV text into a Map<normalizedKey, { dateStr, block }>.
     // When a title has more than one row, keeps whichever row's date is
     // chronologically latest.
@@ -114,7 +128,7 @@
             const rawTitleYear = (cols[0] || '').trim();
             if (!rawTitleYear) continue;
             const date = parseSheetDate(cols[1]);
-            if (!date) continue;
+            if (!date || isToday(date)) continue;
             const block = (cols[2] || '').trim() || null;
 
             // Sheet's first column is already "Title (Year)" -- split it so
