@@ -37,11 +37,109 @@
     // undefined (not null) so "no movie identified yet" (_currentImdbId === null)
     // still counts as a change exactly once, on the very first tick.
     let _tpLastImdbId = undefined;
-    let _tpQueue = [];       // shuffled remaining trivia strings for the current movie
+    let _tpQueue = [];       // shuffled remaining { text, byline } items for the current movie
     let _tpExhausted = false; // true once _tpQueue has been fully consumed for this movie -- no reshuffle/repeat
     let _tpPopTimer = null;
     let _tpBubbleEl = null;
     let _tpDismissTimer = null;
+
+    const TP_PERSON_TRIVIA_CAP = 3; // per person, after the TP_MAX_FACT_LEN length filter -- keeps 4 people's trivia from drowning out the movie's own facts
+
+    // Session-only, in-memory caches keyed by nconst -- mirrors imdb-trivia's
+    // _triviaCache pattern. Not persisted to localStorage; naturally reused
+    // across movies that share an actor/director within the same page session.
+    const _personTriviaCache = {};
+    const _personKnownForCache = {};
+
+    // Combined cast+director query -- one request per movie instead of two,
+    // confirmed live against caching.graphql.imdb.com: the bare `characters`
+    // field on Credit fails GraphQL validation, it only exists on the `Cast`
+    // interface implementation, hence the inline fragment.
+    async function fetchCastAndDirector(tconst) {
+        if (!tconst) return null;
+        const q = 'query GHCastAndDirector($id: ID!){ title(id:$id){ cast: credits(first: 3, filter: { categories: ["cast"] }) { edges{ node{ name{ id nameText{ text } } ... on Cast { characters{ name } } } } } directors: credits(first: 1, filter: { categories: ["director"] }) { edges{ node{ name{ id nameText{ text } } } } } } }';
+        try {
+            const data = await imdbQuery('GHCastAndDirector', q, { id: tconst });
+            const t = data?.data?.title;
+            if (!t) return null;
+            const cast = (t.cast?.edges || []).map(e => ({
+                nconst: e?.node?.name?.id ?? null,
+                name: e?.node?.name?.nameText?.text ?? null,
+                character: e?.node?.characters?.[0]?.name ?? null,
+                role: 'cast',
+            })).filter(p => p.nconst && p.name);
+            const directors = (t.directors?.edges || []).map(e => ({
+                nconst: e?.node?.name?.id ?? null,
+                name: e?.node?.name?.nameText?.text ?? null,
+                character: null,
+                role: 'director',
+            })).filter(p => p.nconst && p.name);
+            return cast.concat(directors);
+        } catch (e) { return null; }
+    }
+
+    async function fetchPersonTrivia(nconst) {
+        if (!nconst) return [];
+        if (_personTriviaCache[nconst]) return _personTriviaCache[nconst];
+        const q = 'query GHPersonTrivia($id: ID!){ name(id:$id){ trivia(first: 10){ edges{ node{ text{ plainText } } } } } }';
+        try {
+            const data = await imdbQuery('GHPersonTrivia', q, { id: nconst });
+            const edges = data?.data?.name?.trivia?.edges || [];
+            const items = edges.map(e => e?.node?.text?.plainText).filter(Boolean);
+            _personTriviaCache[nconst] = items;
+            return items;
+        } catch (e) { return []; }
+    }
+
+    // Picks the person's highest-vote-count "known for" title other than the
+    // one currently playing, and synthesizes one self-contained fact sentence.
+    async function fetchPersonKnownFor(nconst, excludeTconst) {
+        if (!nconst) return null;
+        if (_personKnownForCache[nconst] !== undefined) return _personKnownForCache[nconst];
+        const q = 'query GHKnownFor($id: ID!){ name(id:$id){ knownFor(first: 6){ edges{ node{ title{ id titleText{ text } releaseYear{ year } ratingsSummary{ voteCount } } } } } } }';
+        try {
+            const data = await imdbQuery('GHKnownFor', q, { id: nconst });
+            const edges = data?.data?.name?.knownFor?.edges || [];
+            const titles = edges
+                .map(e => e?.node?.title)
+                .filter(t => t && t.id && t.id !== excludeTconst && t.titleText?.text);
+            if (!titles.length) { _personKnownForCache[nconst] = null; return null; }
+            titles.sort((a, b) => (b.ratingsSummary?.voteCount ?? 0) - (a.ratingsSummary?.voteCount ?? 0));
+            const best = titles[0];
+            const result = { title: best.titleText.text, year: best.releaseYear?.year ?? null };
+            _personKnownForCache[nconst] = result;
+            return result;
+        } catch (e) { return null; }
+    }
+
+    function _tpKnownForFact(person, knownFor) {
+        if (!knownFor) return null;
+        const titleYear = knownFor.year ? `${knownFor.title} (${knownFor.year})` : knownFor.title;
+        if (person.role === 'director') return `${person.name} is also known for ${titleYear}.`;
+        const charPart = person.character ? ` (${person.character})` : '';
+        return `${person.name}${charPart} also starred in ${titleYear}.`;
+    }
+
+    // Fetches per-person trivia + known-for for cast/director concurrently,
+    // and folds it all into { text, byline } queue items. Never throws --
+    // every fetch it calls already resolves to null/[] on failure.
+    async function _tpBuildCastCrewItems(people, excludeTconst) {
+        const items = [];
+        await Promise.all(people.map(async (person) => {
+            const [trivia, knownFor] = await Promise.all([
+                fetchPersonTrivia(person.nconst),
+                fetchPersonKnownFor(person.nconst, excludeTconst),
+            ]);
+            const byline = `${person.name} — ${person.role === 'director' ? 'Director' : (person.character || 'Cast')}`;
+            trivia
+                .filter(t => t.length <= TP_MAX_FACT_LEN)
+                .slice(0, TP_PERSON_TRIVIA_CAP)
+                .forEach(t => items.push({ text: t, byline }));
+            const knownForFact = _tpKnownForFact(person, knownFor);
+            if (knownForFact) items.push({ text: knownForFact, byline: null });
+        }));
+        return items;
+    }
 
     function _tpShuffle(arr) {
         const a = arr.slice();
@@ -63,10 +161,28 @@
         _tpExhausted = false;
         if (!id) return; // not identified yet; next poll tick will retry
 
-        fetchImdbTrivia(id).then(items => {
+        fetchImdbTrivia(id).then(async items => {
             if (id !== _tpLastImdbId) return; // movie changed again while this was in flight
-            if (!items || !items.length) { _tpExhausted = true; return; }
-            _tpQueue = _tpShuffle(items);
+            const movieItems = (items || []).map(text => ({ text, byline: null }));
+
+            // Cast/crew enrichment is gated on the setting being on *right now*
+            // -- an intentional tradeoff (see module header) that avoids ~9
+            // extra network calls per movie for users who leave this off. The
+            // movie's own trivia above stays unconditional since it's shared
+            // with the T-panel and cheap either way.
+            let castCrewItems = [];
+            if (popupTriviaEnabled()) {
+                const people = await fetchCastAndDirector(id);
+                if (id !== _tpLastImdbId) return; // movie changed again while this was in flight
+                if (people && people.length) {
+                    castCrewItems = await _tpBuildCastCrewItems(people, id);
+                    if (id !== _tpLastImdbId) return; // movie changed again while this was in flight
+                }
+            }
+
+            const combined = movieItems.concat(castCrewItems);
+            if (!combined.length) { _tpExhausted = true; return; }
+            _tpQueue = _tpShuffle(combined);
             _tpScheduleNextPop();
         });
     }
@@ -99,7 +215,7 @@
         let fact = null;
         while (_tpQueue.length) {
             const candidate = _tpQueue.shift();
-            if (candidate.length <= TP_MAX_FACT_LEN) { fact = candidate; break; }
+            if (candidate.text.length <= TP_MAX_FACT_LEN) { fact = candidate; break; }
         }
         if (!fact) { _tpExhausted = true; return; } // ran out (including all-too-long) -- no more for this movie
 
@@ -363,13 +479,14 @@
         _tpBubbleEl = document.createElement('div');
         _tpBubbleEl.id = 'sc-tp-bubble';
         const icon = TP_ICONS[Math.floor(Math.random() * TP_ICONS.length)];
+        const bylineHtml = fact.byline ? `<div id="sc-tp-byline">${_escHtml(fact.byline)}</div>` : '';
         _tpBubbleEl.innerHTML = `
             <svg id="sc-tp-tail" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
                 <circle cx="30" cy="30" r="27" fill="#000"/>
                 <circle cx="30" cy="30" r="27" fill="none" stroke="#c81d25" stroke-width="3"/>
                 ${icon}
             </svg>
-            <div id="sc-tp-text">${_escHtml(fact)}</div>`;
+            <div id="sc-tp-text">${_escHtml(fact.text)}${bylineHtml}</div>`;
 
         // Append first (still invisible -- opacity:0 until .sc-tp-in below)
         // so its real rendered width/height can be measured, then use that
