@@ -73,7 +73,7 @@
     // interface implementation, hence the inline fragment.
     async function fetchCastAndDirector(tconst) {
         if (!tconst) return null;
-        const q = 'query GHCastAndDirector($id: ID!){ title(id:$id){ cast: credits(first: 3, filter: { categories: ["cast"] }) { edges{ node{ name{ id nameText{ text } } ... on Cast { characters{ name } } } } } directors: credits(first: 1, filter: { categories: ["director"] }) { edges{ node{ name{ id nameText{ text } } } } } } }';
+        const q = 'query GHCastAndDirector($id: ID!){ title(id:$id){ series{ series{ id } } cast: credits(first: 3, filter: { categories: ["cast"] }) { edges{ node{ name{ id nameText{ text } } ... on Cast { characters{ name } } } } } directors: credits(first: 1, filter: { categories: ["director"] }) { edges{ node{ name{ id nameText{ text } } } } } } }';
         try {
             const data = await imdbQuery('GHCastAndDirector', q, { id: tconst });
             const t = data?.data?.title;
@@ -90,7 +90,15 @@
                 character: null,
                 role: 'director',
             })).filter(p => p.nconst && p.name);
-            return cast.concat(directors);
+            // Dedup by nconst, keeping the FIRST occurrence -- cast is
+            // concatenated before directors, so an actor-director (credited
+            // as both) keeps their character-name byline instead of being
+            // double-counted under a second, generic "Director" byline.
+            const seen = new Set();
+            return {
+                people: cast.concat(directors).filter(p => !seen.has(p.nconst) && seen.add(p.nconst)),
+                seriesTconst: t.series?.series?.id ?? null,
+            };
         } catch (e) { return null; }
     }
 
@@ -110,15 +118,20 @@
     // Picks the person's highest-vote-count "known for" title other than the
     // one currently playing, and synthesizes one self-contained fact sentence.
     //
-    // Cached per (nconst, excludeTconst) pair, not per-nconst alone: the same
-    // person's "known for" pick depends on which movie is being excluded (the
-    // one currently playing), so a cache keyed only by nconst could serve a
-    // stale pick made under a different exclusion -- one that names the movie
-    // now playing as their "known for" title, which reads as self-referential
-    // nonsense in the popup.
-    async function fetchPersonKnownFor(nconst, excludeTconst) {
+    // Cached per (nconst, excludeTconst, excludeSeriesTconst) triple, not
+    // per-nconst alone: the same person's "known for" pick depends on which
+    // title(s) are being excluded (the one currently playing), so a cache
+    // keyed only by nconst could serve a stale pick made under a different
+    // exclusion -- one that names the movie now playing as their "known for"
+    // title, which reads as self-referential nonsense in the popup. The
+    // series exclusion is a separate parameter (not just excludeTconst)
+    // because for TV content excludeTconst is the EPISODE's own tconst, but
+    // IMDb's knownFor query only ever returns SERIES-level titles -- so
+    // without also excluding the parent series id, a series regular's
+    // "known for" pick could be the very series currently airing.
+    async function fetchPersonKnownFor(nconst, excludeTconst, excludeSeriesTconst) {
         if (!nconst) return null;
-        const cacheKey = `${nconst}|${excludeTconst}`;
+        const cacheKey = `${nconst}|${excludeTconst}|${excludeSeriesTconst || ''}`;
         if (_personKnownForCache[cacheKey] !== undefined) return _personKnownForCache[cacheKey];
         const q = 'query GHKnownFor($id: ID!){ name(id:$id){ knownFor(first: 6){ edges{ node{ title{ id titleText{ text } releaseYear{ year } ratingsSummary{ voteCount } } } } } } }';
         try {
@@ -126,7 +139,7 @@
             const edges = data?.data?.name?.knownFor?.edges || [];
             const titles = edges
                 .map(e => e?.node?.title)
-                .filter(t => t && t.id && t.id !== excludeTconst && t.titleText?.text);
+                .filter(t => t && t.id && t.id !== excludeTconst && t.id !== excludeSeriesTconst && t.titleText?.text);
             if (!titles.length) { _personKnownForCache[cacheKey] = null; return null; }
             titles.sort((a, b) => (b.ratingsSummary?.voteCount ?? 0) - (a.ratingsSummary?.voteCount ?? 0));
             const best = titles[0];
@@ -147,12 +160,12 @@
     // Fetches per-person trivia + known-for for cast/director concurrently,
     // and folds it all into { text, byline } queue items. Never throws --
     // every fetch it calls already resolves to null/[] on failure.
-    async function _tpBuildCastCrewItems(people, excludeTconst) {
+    async function _tpBuildCastCrewItems(people, excludeTconst, excludeSeriesTconst) {
         const items = [];
         await Promise.all(people.map(async (person) => {
             const [trivia, knownFor] = await Promise.all([
                 fetchPersonTrivia(person.nconst),
-                fetchPersonKnownFor(person.nconst, excludeTconst),
+                fetchPersonKnownFor(person.nconst, excludeTconst, excludeSeriesTconst),
             ]);
             const byline = `${person.name} — ${person.role === 'director' ? 'Director' : (person.character || 'Cast')}`;
             trivia
@@ -189,25 +202,38 @@
             if (id !== _tpLastImdbId) return; // movie changed again while this was in flight
             const movieItems = (items || []).map(text => ({ text, byline: null }));
 
-            // Cast/crew enrichment is gated on the setting being on *right now*
-            // -- an intentional tradeoff (see module header) that avoids ~9
-            // extra network calls per movie for users who leave this off. The
-            // movie's own trivia above stays unconditional since it's shared
-            // with the T-panel and cheap either way.
-            let castCrewItems = [];
-            if (popupTriviaEnabled()) {
-                const people = await fetchCastAndDirector(id);
-                if (id !== _tpLastImdbId) return; // movie changed again while this was in flight
-                if (people && people.length) {
-                    castCrewItems = await _tpBuildCastCrewItems(people, id);
-                    if (id !== _tpLastImdbId) return; // movie changed again while this was in flight
-                }
-            }
+            // Queue + schedule off the movie's own trivia immediately -- so a
+            // slow or failed cast/crew enrichment burst below (up to ~9 extra
+            // network calls, no request timeout on imdbGmFetch) can never
+            // block the base feature. Enrichment items, if any land, are
+            // merged into whatever's left in the queue afterward, not waited
+            // on up front.
+            _tpQueue = _tpShuffle(movieItems);
+            _tpScheduleNextPop(); // safe on an empty queue too -- it just marks _tpExhausted
 
-            const combined = movieItems.concat(castCrewItems);
-            if (!combined.length) { _tpExhausted = true; return; }
-            _tpQueue = _tpShuffle(combined);
-            _tpScheduleNextPop();
+            // Cast/crew enrichment is gated on the setting being on *right
+            // now* -- an intentional tradeoff that avoids ~9 extra network
+            // calls per movie for users who leave this off. The movie's own
+            // trivia above stays unconditional since it's shared with the
+            // T-panel and cheap either way.
+            if (!popupTriviaEnabled()) return;
+
+            const result = await fetchCastAndDirector(id);
+            if (id !== _tpLastImdbId) return; // movie changed again while this was in flight
+            if (!result || !result.people.length) return;
+
+            const castCrewItems = await _tpBuildCastCrewItems(result.people, id, result.seriesTconst);
+            if (id !== _tpLastImdbId) return; // movie changed again while this was in flight
+            if (!castCrewItems.length) return;
+
+            // Merge into whatever's left unconsumed (some movie trivia may
+            // already have been popped by now) and reshuffle. If the queue
+            // had already run dry (marked exhausted above, or drained by a
+            // pop while this was in flight), un-exhaust and (re)start
+            // scheduling -- otherwise a pop timer is already ticking and
+            // will simply pick up these items when it fires.
+            _tpQueue = _tpShuffle(_tpQueue.concat(castCrewItems));
+            if (_tpExhausted) { _tpExhausted = false; _tpScheduleNextPop(); }
         });
     }
 
