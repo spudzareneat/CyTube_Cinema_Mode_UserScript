@@ -45,9 +45,14 @@
 
     const TP_PERSON_TRIVIA_CAP = 3; // per person, after the TP_MAX_FACT_LEN length filter -- keeps 4 people's trivia from drowning out the movie's own facts
 
-    // Session-only, in-memory caches keyed by nconst -- mirrors imdb-trivia's
-    // _triviaCache pattern. Not persisted to localStorage; naturally reused
-    // across movies that share an actor/director within the same page session.
+    // Session-only, in-memory caches -- mirrors imdb-trivia's _triviaCache
+    // pattern. Not persisted to localStorage; naturally reused across movies
+    // that share an actor/director within the same page session.
+    // _personTriviaCache is keyed by nconst alone (a person's trivia doesn't
+    // depend on which movie is currently playing). _personKnownForCache is
+    // keyed by `${nconst}|${excludeTconst}` -- the "known for" pick DOES
+    // depend on which title is being excluded, so it must be cached per
+    // exclusion-context, not globally per-person (see fetchPersonKnownFor).
     const _personTriviaCache = {};
     const _personKnownForCache = {};
 
@@ -93,9 +98,17 @@
 
     // Picks the person's highest-vote-count "known for" title other than the
     // one currently playing, and synthesizes one self-contained fact sentence.
+    //
+    // Cached per (nconst, excludeTconst) pair, not per-nconst alone: the same
+    // person's "known for" pick depends on which movie is being excluded (the
+    // one currently playing), so a cache keyed only by nconst could serve a
+    // stale pick made under a different exclusion -- one that names the movie
+    // now playing as their "known for" title, which reads as self-referential
+    // nonsense in the popup.
     async function fetchPersonKnownFor(nconst, excludeTconst) {
         if (!nconst) return null;
-        if (_personKnownForCache[nconst] !== undefined) return _personKnownForCache[nconst];
+        const cacheKey = `${nconst}|${excludeTconst}`;
+        if (_personKnownForCache[cacheKey] !== undefined) return _personKnownForCache[cacheKey];
         const q = 'query GHKnownFor($id: ID!){ name(id:$id){ knownFor(first: 6){ edges{ node{ title{ id titleText{ text } releaseYear{ year } ratingsSummary{ voteCount } } } } } } }';
         try {
             const data = await imdbQuery('GHKnownFor', q, { id: nconst });
@@ -103,11 +116,11 @@
             const titles = edges
                 .map(e => e?.node?.title)
                 .filter(t => t && t.id && t.id !== excludeTconst && t.titleText?.text);
-            if (!titles.length) { _personKnownForCache[nconst] = null; return null; }
+            if (!titles.length) { _personKnownForCache[cacheKey] = null; return null; }
             titles.sort((a, b) => (b.ratingsSummary?.voteCount ?? 0) - (a.ratingsSummary?.voteCount ?? 0));
             const best = titles[0];
             const result = { title: best.titleText.text, year: best.releaseYear?.year ?? null };
-            _personKnownForCache[nconst] = result;
+            _personKnownForCache[cacheKey] = result;
             return result;
         } catch (e) { return null; }
     }
