@@ -124,6 +124,31 @@ Every username in the chat buffer is assigned a consistent, deterministic color 
 
 ---
 
+### Emote Picker
+
+The **▦** floating button opens a redesigned emote panel in place of CyTube's built-in one.
+
+> Emote Picker is an optional module — check it in the customizer (see Setup below) to include it in your build. Without it, the **▦** button falls back to CyTube's native emote popup.
+
+- Draggable panel (position remembered), live search, and an **All / Favorites** tab bar
+- Click the **★** on any tile to favorite it — favorites get their own tab and are cached locally so they load instantly
+- Click a tile to insert that emote into your message
+- **Ban an emote you don't want to see:** right-click it in any chat message and choose **🚫 Ban**. Every copy already in chat collapses to its plain `#name` text, and future posts of it show the same way
+- **Un-ban:** hover the `#name` placeholder and click the **↩**, or right-click it and choose **↩ Un-ban**. You need a message that still shows that emote to reach the control — to clear every ban at once, run `localStorage.removeItem('sc_emote_banned')` in the browser console
+- Bans are personal — stored in your own browser, not shared with the channel
+
+---
+
+### Polls & Announcements
+
+When a channel poll or announcement is open, a **POLL** button appears in the chat header. Click it to open a panel with the question and options.
+
+- Click an option to cast your vote — the panel forwards it to CyTube, so it registers exactly like voting in the normal interface
+- Current vote counts show on each option and update live as people vote (a poll with hidden results shows `?` until it closes)
+- Click the button again, or click away, to dismiss the panel
+
+---
+
 ### GIF Maker
 
 Capture any scene as an animated GIF, straight from the player — no external tools.
@@ -208,7 +233,7 @@ A row of buttons is fixed to the screen at all times, positioned relative to the
 | Button | Function |
 |--------|----------|
 | ⛶ | Toggle browser fullscreen |
-| ▦ | Open the CyTube emote picker |
+| ▦ | Open the emote picker (custom panel with the Emote Picker module, otherwise CyTube's native popup) |
 | ⟳ | Free watch — desync from the group stream, click again to re-sync |
 | ◉ | Open the GIF maker (requires the GIF Maker module) |
 | CC | Open the Subtitles panel (requires the Subtitle Sync module) |

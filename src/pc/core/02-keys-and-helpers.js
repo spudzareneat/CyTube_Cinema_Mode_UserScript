@@ -32,6 +32,7 @@
     const LS_EMOTE_PANEL_POS = 'sc_emote_panel_pos'; // JSON {left, top} -- dragged position of the custom emote picker panel
     const LS_EMOTE_FAVORITES = 'sc_emote_favorites'; // JSON array of favorited emote name strings (custom emote picker panel)
     const LS_EMOTE_ACTIVE_TAB = 'sc_emote_active_tab'; // 'all' | 'favorites' -- last-selected tab in the custom emote picker panel
+    const LS_EMOTE_BANNED = 'sc_emote_banned'; // JSON array of banned emote name strings -- right-click a chat emote to ban it (emote-picker module)
     const getKey   = id => localStorage.getItem(id) || '';
     const setKey   = (id, v) => localStorage.setItem(id, v.trim());
     const hasKey   = id => !!getKey(id);

@@ -224,6 +224,7 @@
         "Redesigned draggable emote panel — position remembered",
         "Live search/filter, star-to-favorite with a pinned favorites row",
         "Larger tiles with per-tile loading spinners, click-to-insert",
+        "Right-click a chat emote to ban it — it shows as its plain #name text instead, personal to your browser",
         "Adapts to vertical/horizontal layout"
       ],
       "screenshot": "screenshots/emote-picker.png"
