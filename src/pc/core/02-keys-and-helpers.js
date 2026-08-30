@@ -27,6 +27,9 @@
     const LS_CHAT_PANEL_H = 'sc_chat_panel_h';   // vh — vertical-layout chat panel height
     const LS_CHAT_TEXTAREA_H = 'sc_chat_textarea_h'; // px — manually resized chat entry height
     const LS_GIF_OPTIMIZE = 'sc_gif_optimize'; // shared with cytube.gifmaker.user.js
+    const LS_GIF_PREFS = 'sc_gif_prefs'; // JSON {color, customColor, topSize, bottomSize, fps, width, aspect} --
+                                          // remembered GIF-maker panel output settings. Caption text, caption
+                                          // positions, trim marks and all Effects are deliberately NOT persisted.
     const LS_AUTOEMBED   = 'sc_autoembed_images';
     const LS_MOVIE_LEAD  = 'sc_movie_lead_sec'; // seconds to run ahead of sync during movies (not YouTube); 0 = off
     const LS_EMOTE_PANEL_POS = 'sc_emote_panel_pos'; // JSON {left, top} -- dragged position of the custom emote picker panel

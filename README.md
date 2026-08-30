@@ -132,9 +132,13 @@ Capture any scene as an animated GIF, straight from the player — no external t
 
 - Click the **◉** floating button to open the GIF maker
 - **Lock in the start and end** of the clip with live preview thumbnails of each frame — use **⤓ Now** to grab the current playback position, or nudge each mark by ±0.5s
+- **✂ Cut middle** drops a second (red) band inside the selection — frames in that band are skipped, turning the clip into a jump cut. Drag its two handles to size the gap; the duration readout shows the reduction
 - Live **duration** readout, plus **FPS** and **Width** controls to balance quality vs. size
 - **Shape** options force a consistent **4:3** output — *Crop* (center-crop) or *Bars* (letterbox), or keep the video's *Native* ratio. The preview thumbnails reframe to show exactly what you'll get
-- **Meme captions** — type separate top and bottom text lines, choose white or yellow lettering (with a bold black outline), and set each line's size as a percentage of the frame. Drag the handle dot on the start/end preview thumbnails to position each caption anywhere on the frame — the preview updates live and matches exactly what gets baked into the final GIF
+- **Meme captions** — type separate top and bottom text lines, choose white, yellow, rainbow, or any custom color, and set each line's size as a percentage of the frame. Drag the handle dot on the start/end preview thumbnails to position each caption anywhere on the frame — the preview updates live and matches exactly what gets baked into the final GIF
+- **Text Style** — pick a font (Impact / Arial Black / Comic Sans / Courier / Serif), an outline (color, width, or none), a gradient fill (gold / fire / chrome / trans), a neon **glow**, a **backlight** plate, and an animation (wiggle / pop-in / throb / angry shake / typewriter)
+- **Effects** — playback (reverse / boomerang / stop), speed, freeze hold, **fade out** (a fade to black over the last N ms of the clip), plus deep-fry, VHS/glitch, zoom/shake and caption drop shadow
+- The color, font, caption sizes, FPS, width and shape are **remembered between sessions** — set them once and every new GIF starts from your last choices
 - Animated spinners while frames are captured and the GIF is encoded (encoding runs in a Web Worker so the page never freezes)
 - When done: **⬇ Download** the GIF, or **☁ Upload** it to [ImgBB](https://imgbb.com/) and get a shareable direct link with a **⧉ Copy link** button — ready to paste into chat
 

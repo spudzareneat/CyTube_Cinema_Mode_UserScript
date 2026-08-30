@@ -159,6 +159,39 @@
                 75%  { translate: 3px 2px; }
                 100% { translate: 0 0; }
             }
+            /* Text Style preview approximations (the encoded GIF does the real render).
+               A plate under gradient-filled text can't be shown here — the gradient
+               needs background-clip:text on the same element — so plate+gradient
+               previews as gradient text only; the encoded GIF renders both. */
+            .sc-gif-cap-plate {
+                background-color: var(--sc-cap-plate, rgba(0,0,0,0.55)) !important;
+                padding: 0.1em 0.45em !important; border-radius: 0.28em !important;
+                width: auto !important; max-width: 92% !important;
+                box-decoration-break: clone !important; -webkit-box-decoration-break: clone !important;
+            }
+            .sc-gif-cap-pop   { animation: sc-gif-cap-pop-cycle 2.2s ease-out infinite !important; }
+            .sc-gif-cap-throb { animation: sc-gif-cap-throb-cycle 0.9s ease-in-out infinite !important; }
+            .sc-gif-cap-shake { animation: sc-gif-cap-shake-cycle 0.28s steps(2, end) infinite !important; }
+            .sc-gif-cap-type  { animation: sc-gif-cap-type-cycle 2.6s steps(20, end) infinite !important; }
+            @keyframes sc-gif-cap-pop-cycle {
+                0%   { scale: 0.2; }
+                18%  { scale: 1.12; }
+                28%  { scale: 1; }
+                100% { scale: 1; }
+            }
+            @keyframes sc-gif-cap-throb-cycle {
+                0%, 100% { scale: 1; }
+                50%      { scale: 1.12; }
+            }
+            @keyframes sc-gif-cap-shake-cycle {
+                0%   { translate: -3px 2px; }
+                50%  { translate: 3px -2px; }
+                100% { translate: -2px -3px; }
+            }
+            @keyframes sc-gif-cap-type-cycle {
+                0%       { clip-path: inset(-40% 100% -40% -12%); }
+                62%, 100%{ clip-path: inset(-40% -12% -40% -12%); }
+            }
             .sc-gif-cap-handle {
                 position: absolute !important; width: 14px !important; height: 14px !important;
                 border-radius: 50% !important; background: rgba(255,176,32,0.9) !important;
@@ -247,6 +280,21 @@
                 background: #ffb020 !important; border: 1px solid #000 !important;
                 box-shadow: 0 0 0 3px rgba(255,176,32,0.15) !important;
             }
+            .sc-gif-filmstrip-cut {
+                position: absolute !important; top: 0 !important; bottom: 0 !important; z-index: 2 !important;
+                background: repeating-linear-gradient(45deg, rgba(255,64,64,0.32) 0 6px, rgba(255,64,64,0.12) 6px 12px) !important;
+                border-left: 2px solid #ff4040 !important; border-right: 2px solid #ff4040 !important;
+                pointer-events: none !important;
+            }
+            .sc-gif-filmstrip-cut-handle {
+                position: absolute !important; top: 0 !important; bottom: 0 !important; width: 14px !important; margin-left: -7px !important;
+                cursor: ew-resize !important; display: flex !important; align-items: center !important; justify-content: center !important;
+                z-index: 4 !important; touch-action: none !important;
+            }
+            .sc-gif-filmstrip-cut-handle .sc-gif-filmstrip-handle-grip {
+                background: #ff4040 !important; box-shadow: 0 0 0 3px rgba(255,64,64,0.18) !important;
+            }
+            .sc-gif-filmstrip-cut[hidden], .sc-gif-filmstrip-cut-handle[hidden] { display: none !important; }
             .sc-gif-captions { display: flex !important; flex-direction: column !important; gap: 8px !important; }
             .sc-gif-tag-input {
                 width: 90px !important; min-width: 0 !important;
@@ -272,6 +320,12 @@
                 color: rgba(244,244,242,0.62) !important; font-size: 12px !important;
             }
             .sc-gif-cap-color label { display: flex !important; align-items: center !important; gap: 4px !important; cursor: pointer !important; }
+            .sc-gif-cap-color input[type=color] {
+                width: 26px !important; height: 18px !important; padding: 0 !important; margin: 0 !important;
+                background: #1f1f22 !important; border: 1px solid rgba(244,244,242,0.14) !important;
+                border-radius: 4px !important; cursor: pointer !important; flex: none !important;
+            }
+            .sc-gif-cap-color input[type=color]:hover { border-color: rgba(255,176,32,0.5) !important; }
             .sc-gif-thumb-loading::after {
                 content: '' !important;
                 position: absolute !important;
@@ -317,6 +371,15 @@
                 text-align: center !important; color: rgba(244,244,242,0.62) !important; font-size: 12px !important;
             }
             #sc-gif-dur-line b { color: #f4f4f2 !important; }
+            #sc-gif-cut-toggle {
+                margin-left: 10px !important; background: transparent !important;
+                color: rgba(244,244,242,0.62) !important; border: 1px solid rgba(244,244,242,0.14) !important;
+                border-radius: 6px !important; padding: 2px 8px !important; font-size: 11px !important; cursor: pointer !important;
+                transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
+            }
+            #sc-gif-cut-toggle:hover { background: rgba(255,64,64,0.14) !important; border-color: #ff4040 !important; color: #f4f4f2 !important; }
+            #sc-gif-cut-toggle.sc-gif-cut-on { border-color: #ff4040 !important; color: #ff8080 !important; }
+            #sc-gif-cut-toggle:disabled { opacity: 0.4 !important; cursor: default !important; }
             .sc-gif-col-right .sc-gif-fx-row { flex-direction: column !important; align-items: stretch !important; gap: 6px !important; }
             #sc-gif-go {
                 background: #ffb020 !important; color: #0c0c0e !important;
@@ -402,6 +465,33 @@
             .sc-gif-fx-filter { display: flex !important; align-items: center !important; gap: 8px !important; }
             .sc-gif-fx-filter label { flex: 0 0 auto !important; white-space: nowrap !important; color: rgba(244,244,242,0.62) !important; font-size: 12px !important; }
             .sc-gif-fx-filter input[type=range] { flex: 1 1 auto !important; min-width: 0 !important; accent-color: #ffb020 !important; }
+            .sc-gif-ts-header {
+                display: flex !important; align-items: center !important; justify-content: space-between !important;
+                background: transparent !important; border: none !important; padding: 0 !important;
+                cursor: pointer !important; width: 100% !important; text-align: left !important;
+                color: rgba(244,244,242,0.62) !important; font-size: 12px !important; font-weight: 500 !important;
+                text-transform: uppercase !important; letter-spacing: 0.06em !important;
+                transition: color 120ms ease !important;
+            }
+            .sc-gif-ts-header:hover { color: #f4f4f2 !important; }
+            .sc-gif-ts-header:hover .sc-gif-ts-toggle { color: #f4f4f2 !important; }
+            .sc-gif-ts-header:focus-visible { outline: 2px solid #ffb020 !important; outline-offset: 1px !important; }
+            .sc-gif-ts-toggle { color: rgba(244,244,242,0.34) !important; font-size: 11px !important; }
+            .sc-gif-ts { display: none !important; flex-direction: column !important; gap: 8px !important; }
+            .sc-gif-ts.sc-gif-ts-open { display: flex !important; }
+            .sc-gif-ts .sc-gif-fx-row select {
+                flex: 1 1 0 !important; min-width: 0 !important;
+                background: #1f1f22 !important; color: #f4f4f2 !important;
+                border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 4px !important;
+                padding: 3px 6px !important; font-size: 12px !important;
+            }
+            .sc-gif-ts .sc-gif-fx-row select:hover, .sc-gif-ts .sc-gif-fx-row select:focus { border-color: rgba(255,176,32,0.5) !important; }
+            .sc-gif-ts input[type=color] {
+                width: 26px !important; height: 18px !important; padding: 0 !important; margin: 0 !important; flex: none !important;
+                background: #1f1f22 !important; border: 1px solid rgba(244,244,242,0.14) !important;
+                border-radius: 4px !important; cursor: pointer !important;
+            }
+            .sc-gif-ts input[type=color]:hover { border-color: rgba(255,176,32,0.5) !important; }
             .sc-test-ok      { color: #7dffa0 !important; }
             .sc-test-bad     { color: #ff8080 !important; }
             .sc-test-pending { color: rgba(244,244,242,0.34) !important; }
@@ -468,11 +558,59 @@
     function _gifEscHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
     /* ==========================================================
+       PANEL PREFS — a small subset of the GIF panel's controls
+       (output color / caption font sizes / FPS / width / shape) is
+       remembered across sessions in one localStorage JSON blob
+       (LS_GIF_PREFS, declared in core's 02-keys-and-helpers.js).
+       Caption text, caption positions, trim marks and every Effects
+       control are deliberately NOT persisted — they reset each open.
+    ========================================================== */
+    // `color` holds either a keyword ('white'|'yellow'|'rainbow') or, when
+    // Custom was picked, the literal #hex — so there is no separate
+    // customColor field to go stale. (Legacy blobs may still carry
+    // color:'custom' + customColor; restoreGifPrefs ignores both.)
+    const GIF_PREFS_FIELDS = ['color', 'font', 'topSize', 'bottomSize', 'fps', 'width', 'aspect'];
+    function readGifPrefs() {
+        try {
+            const raw = localStorage.getItem(LS_GIF_PREFS);
+            if (!raw) return {};
+            const obj = JSON.parse(raw);
+            return (obj && typeof obj === 'object') ? obj : {};
+        } catch (e) { return {}; }
+    }
+    function writeGifPrefs(patch) {
+        try {
+            const next = { ...readGifPrefs(), ...patch };
+            const clean = {};
+            GIF_PREFS_FIELDS.forEach(k => { if (next[k] != null) clean[k] = next[k]; });
+            localStorage.setItem(LS_GIF_PREFS, JSON.stringify(clean));
+        } catch (e) {}
+    }
+
+    /* ==========================================================
        MEME CAPTION RENDERING — shared by the live CSS preview and
        the actual per-frame canvas render, so what you see in the
        panel is what gets baked into the GIF.
     ========================================================== */
     const CAPTION_FONT_STACK = 'Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif';
+    // Font-picker options. Keys match the <select> values in the Text Style panel.
+    const CAPTION_FONT_STACKS = {
+        impact:  CAPTION_FONT_STACK,
+        arial:   '"Arial Black", "Arial Bold Black", "Helvetica Neue", Arial, sans-serif',
+        comic:   '"Comic Sans MS", "Comic Sans", "Chalkboard SE", "Marker Felt", cursive',
+        courier: '"Courier New", Courier, "Lucida Console", monospace',
+        serif:   'Georgia, "Times New Roman", "Playbill", Times, serif',
+    };
+    function captionFontStack(fontId) {
+        return CAPTION_FONT_STACKS[fontId] || CAPTION_FONT_STACK;
+    }
+    // Gradient-fill presets (top→bottom colour stops). 'none' = flat fill.
+    const CAPTION_GRADIENTS = {
+        gold:   ['#fff6c8', '#f4cf5c', '#b07d17', '#f8e79b'],
+        fire:   ['#ffe97a', '#ff8c1a', '#e5271f'],
+        chrome: ['#ffffff', '#9fb4c7', '#f0f6fb', '#5b6b7a', '#c9d6e2'],
+        trans:  ['#5bcefa', '#f5a9b8', '#ffffff', '#f5a9b8', '#5bcefa'],
+    };
     let _captionMeasureCtx = null;
     function getCaptionMeasureCtx() {
         if (!_captionMeasureCtx) {
@@ -481,8 +619,8 @@
         }
         return _captionMeasureCtx;
     }
-    function wrapCaptionAtSize(ctx, text, fontPx, maxWidth) {
-        ctx.font = 'bold ' + fontPx + 'px ' + CAPTION_FONT_STACK;
+    function wrapCaptionAtSize(ctx, text, fontPx, maxWidth, fontStack) {
+        ctx.font = 'bold ' + fontPx + 'px ' + (fontStack || CAPTION_FONT_STACK);
         const words = text.split(/\s+/).filter(Boolean);
         const lines = [];
         let line = '';
@@ -499,80 +637,223 @@
         const widest = lines.reduce((m, l) => Math.max(m, ctx.measureText(l).width), 0);
         return { lines, widest };
     }
-    function applyCaptionCtxStyle(ctx, fontPx, color, progress) {
-        ctx.font = 'bold ' + fontPx + 'px ' + CAPTION_FONT_STACK;
+    function _hexToRgba(hex, alpha) {
+        let h = String(hex || '').replace('#', '');
+        if (h.length === 3) h = h.split('').map(x => x + x).join('');
+        const n = parseInt(h, 16);
+        if (h.length !== 6 || !isFinite(n)) return 'rgba(0,0,0,' + alpha + ')';
+        return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + alpha + ')';
+    }
+    // Normalises the caption payload into one flat style object with defaults.
+    // The "no options set" result reproduces the original look exactly:
+    // selected font, black outline at Math.max(2, fontPx/14), no plate/glow/
+    // gradient, anim 'none'.
+    function resolveCaptionStyle(captions) {
+        const c = captions || {};
+        const fx = c.fx || {};
+        const o = c.outline || {};
+        const glow = fx.glow || {};
+        const plate = fx.plate || {};
+        const anim = fx.anim || {};
+        return {
+            fontStack: captionFontStack(c.font),
+            color: c.color,                                 // 'rainbow' | hex | 'yellow'/'white' (legacy)
+            gradient: c.gradient || 'none',
+            outlineColor: o.color || '#000000',
+            outlineScale: o.scale == null ? 1 : Math.max(0, Math.min(2, o.scale)),
+            glow:  { on: !!glow.enabled,  color: glow.color || '#ffffff', intensity: glow.intensity || 0 },
+            plate: { on: !!plate.enabled, color: plate.color || '#000000', intensity: plate.intensity || 0 },
+            shadow:{ on: !!(fx.shadow && fx.shadow.enabled), intensity: (fx.shadow && fx.shadow.intensity) || 0 },
+            anim:  { kind: anim.kind || 'none', intensity: anim.intensity == null ? 60 : anim.intensity },
+        };
+    }
+    // Returns { dx, dy, scale, reveal } for the chosen caption animation.
+    // progress is 0..1 across the full clip span. frameSeed is a stable
+    // integer per captured frame — fed ONLY to _seededNoise, never
+    // Math.random(), so re-encoding a clip reproduces identical jitter
+    // (same determinism rule the video filters follow).
+    function captionAnimTransform(anim, progress, frameSeed, fontPx) {
+        const kind = (anim && anim.kind) || 'none';
+        const amt = Math.max(0, Math.min(100, (anim && anim.intensity) || 0)) / 100;
+        const p = Math.max(0, Math.min(1, progress || 0));
+        const out = { dx: 0, dy: 0, scale: 1, reveal: 1 };
+        if (kind === 'none' || (kind !== 'type' && amt <= 0)) return out;
+        if (kind === 'wiggle') {
+            // Smooth progress-driven sine wobble (the original "Wiggle"),
+            // different x/y frequencies to avoid a plain circular path.
+            const a = amt * fontPx * 0.35;
+            out.dx = Math.sin(p * Math.PI * 2 * 3) * a;
+            out.dy = Math.sin(p * Math.PI * 2 * 2) * a;
+        } else if (kind === 'pop') {
+            // ease-out-back: scales up past 1 then settles, over the first ~28%.
+            const t = Math.min(1, p / 0.28);
+            if (t >= 1) { out.scale = 1; }
+            else {
+                const s = 1.70158 * (0.6 + amt);
+                const u = t - 1;
+                out.scale = Math.max(0, u * u * ((s + 1) * u + s) + 1);
+            }
+        } else if (kind === 'throb') {
+            out.scale = 1 + Math.sin(p * Math.PI * 2 * 4) * amt * 0.12;
+        } else if (kind === 'shake') {
+            const j = amt * fontPx * 0.5;
+            out.dx = (_seededNoise(frameSeed * 2.7 + 1.3) - 0.5) * 2 * j;
+            out.dy = (_seededNoise(frameSeed * 3.1 + 8.7) - 0.5) * 2 * j;
+        } else if (kind === 'type') {
+            // Finish typing by ~65% of the clip so the full line is readable
+            // for the rest of it (and the last captured frame, whose progress
+            // never quite reaches 1, still shows every character).
+            out.reveal = Math.min(1, p / 0.65);
+        }
+        return out;
+    }
+    // Progressive character reveal for the typewriter animation.
+    function typewriterLines(lines, reveal) {
+        const r = Math.max(0, Math.min(1, reveal == null ? 1 : reveal));
+        if (r >= 1) return lines;
+        const total = lines.reduce((n, l) => n + l.length, 0);
+        let show = Math.round(total * r);
+        return lines.map(l => {
+            if (show <= 0) return '';
+            if (show >= l.length) { show -= l.length; return l; }
+            const s = l.slice(0, show); show = 0; return s;
+        });
+    }
+    function setCaptionFill(ctx, style, progress, blockTop, blockH) {
+        if (style.gradient && style.gradient !== 'none' && CAPTION_GRADIENTS[style.gradient]) {
+            const stops = CAPTION_GRADIENTS[style.gradient];
+            const g = ctx.createLinearGradient(0, blockTop, 0, blockTop + blockH);
+            stops.forEach((s, i) => g.addColorStop(stops.length === 1 ? 0 : i / (stops.length - 1), s));
+            ctx.fillStyle = g;
+            return;
+        }
+        if (style.color === 'rainbow') {
+            ctx.fillStyle = 'hsl(' + Math.round((progress || 0) * 360) + ', 90%, 60%)';
+            return;
+        }
+        const col = style.color;
+        if (typeof col === 'string' && /^#[0-9a-f]{3,8}$/i.test(col)) ctx.fillStyle = col;
+        else ctx.fillStyle = col === 'yellow' ? '#ffe135' : '#ffffff';
+    }
+    function drawCaptionPlate(ctx, cx, cy, blockW, blockH, fontPx, plate) {
+        if (!plate.on) return;
+        const alpha = Math.max(0.06, Math.min(1, (plate.intensity || 0) / 100));
+        const padX = fontPx * 0.5, padY = fontPx * 0.28;
+        const x = cx - blockW / 2 - padX, y = cy - blockH / 2 - padY;
+        const w = blockW + padX * 2, h = blockH + padY * 2;
+        const r = Math.max(0, Math.min(fontPx * 0.35, h / 2, w / 2));
+        ctx.save();
+        ctx.fillStyle = _hexToRgba(plate.color, alpha);
+        ctx.beginPath();
+        if (ctx.roundRect) {
+            ctx.roundRect(x, y, w, h, r);
+        } else {
+            ctx.moveTo(x + r, y);
+            ctx.arcTo(x + w, y, x + w, y + h, r);
+            ctx.arcTo(x + w, y + h, x, y + h, r);
+            ctx.arcTo(x, y + h, x, y, r);
+            ctx.arcTo(x, y, x + w, y, r);
+        }
+        ctx.fill();
+        ctx.restore();
+    }
+    // One caption block. `style` is a resolveCaptionStyle() result (built
+    // once per drawCaptions call and shared by top+bottom). Draw order:
+    // plate → glow halo → outline (which also casts the drop shadow when on)
+    // → fill. With no Text Style options set this collapses to the original
+    // interleaved stroke-then-fill-per-line path.
+    function drawCaptionBlockAdvanced(ctx, w, h, text, sizePct, xPct, yPct, progress, frameSeed, style) {
+        if (!text) return;
+        const fontPx = Math.max(4, Math.round(h * (sizePct || 16) / 100));
+        const fontSpec = 'bold ' + fontPx + 'px ' + style.fontStack;
+        const measure = getCaptionMeasureCtx();
+        measure.font = fontSpec;
+        const { lines, widest } = wrapCaptionAtSize(measure, text.toUpperCase(), fontPx, w * 0.92, style.fontStack);
+        const lineHeight = Math.round(fontPx * 1.15);
+        const blockH = lines.length * lineHeight;
+        const anim = captionAnimTransform(style.anim, progress, frameSeed || 0, fontPx);
+        const drawLines = style.anim.kind === 'type' ? typewriterLines(lines, anim.reveal) : lines;
+
+        ctx.save();
+        ctx.font = fontSpec;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'alphabetic';
         ctx.lineJoin = 'round';
         ctx.miterLimit = 2;
-        if (color === 'rainbow') {
-            ctx.fillStyle = 'hsl(' + Math.round((progress || 0) * 360) + ', 90%, 60%)';
-        } else {
-            ctx.fillStyle = color === 'yellow' ? '#ffe135' : '#ffffff';
+
+        const cx = w * ((xPct == null ? 50 : xPct) / 100) + anim.dx;
+        const cy = h * ((yPct == null ? 50 : yPct) / 100) + anim.dy;
+        if (anim.scale !== 1) {
+            ctx.translate(cx, cy);
+            ctx.scale(anim.scale, anim.scale);
+            ctx.translate(-cx, -cy);
         }
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = Math.max(2, Math.round(fontPx / 14));
-    }
-    // Wiggle offsets the block center with a progress-driven sine wobble
-    // (not per-frame random jitter) because GIF capture runs at low fps
-    // (8-15) — random jitter at that rate reads as flicker, not motion.
-    // Different x/y frequencies avoid a simple circular path.
-    function drawCaptionBlockAdvanced(ctx, w, h, text, color, sizePct, xPct, yPct, progress, fx) {
-        if (!text) return;
-        const fontPx = Math.max(4, Math.round(h * (sizePct || 16) / 100));
-        const { lines } = wrapCaptionAtSize(getCaptionMeasureCtx(), text.toUpperCase(), fontPx, w * 0.92);
-        const lineHeight = Math.round(fontPx * 1.15);
-        ctx.save();
-        applyCaptionCtxStyle(ctx, fontPx, color, progress);
-        let cx = w * ((xPct == null ? 50 : xPct) / 100);
-        let cy = h * ((yPct == null ? 50 : yPct) / 100);
-        if (fx && fx.wiggle && fx.wiggle.enabled) {
-            const amp = Math.max(0, Math.min(100, fx.wiggle.intensity || 0)) / 100 * fontPx * 0.35;
-            cx += Math.sin((progress || 0) * Math.PI * 2 * 3) * amp;
-            cy += Math.sin((progress || 0) * Math.PI * 2 * 2) * amp;
-        }
-        const blockH = lines.length * lineHeight;
         const firstBaselineY = cy - blockH / 2 + fontPx * 0.8;
-        const shadowOn = !!(fx && fx.shadow && fx.shadow.enabled);
-        if (shadowOn) {
-            // Shadow is applied under the stroke pass only, then cleared
-            // before the fill pass — canvas shadow would otherwise render
-            // twice (once per draw call) and look doubled/blurred. This
-            // requires two separate passes (all strokes, then all fills)
-            // instead of the original interleaved per-line loop, so this
-            // split only happens when shadow is actually on — with it off,
-            // the original single interleaved loop runs unchanged, keeping
-            // draw order (and therefore pixel output) identical to before
-            // this feature existed.
-            const amt = Math.max(0, Math.min(100, fx.shadow.intensity || 0)) / 100;
+        const each = fn => drawLines.forEach((ln, i) => fn(ln, firstBaselineY + i * lineHeight));
+
+        const outlinePx = style.outlineScale > 0 ? Math.max(2, Math.round(fontPx / 14)) * style.outlineScale : 0;
+        const shadowOn = style.shadow.on && style.shadow.intensity > 0;
+        const glowOn = style.glow.on && style.glow.intensity > 0;
+
+        // 1. plate
+        drawCaptionPlate(ctx, cx, cy, widest, blockH, fontPx, style.plate);
+
+        // 2. glow halo — repeated colored blurred fills, under the letters
+        if (glowOn) {
+            const ga = Math.max(0, Math.min(100, style.glow.intensity)) / 100;
+            ctx.save();
+            ctx.shadowColor = style.glow.color;
+            ctx.shadowBlur = 4 + ga * 26;
+            ctx.fillStyle = style.glow.color;
+            for (let k = 0; k < 3; k++) each((ln, ly) => ctx.fillText(ln, cx, ly));
+            ctx.restore();
+        }
+
+        const setShadow = () => {
+            const sa = Math.max(0, Math.min(100, style.shadow.intensity)) / 100;
             ctx.shadowColor = 'rgba(0,0,0,0.7)';
-            ctx.shadowBlur = amt * 14;
-            ctx.shadowOffsetX = amt * 5;
-            ctx.shadowOffsetY = amt * 5;
-            lines.forEach((line, i) => {
-                const ly = firstBaselineY + i * lineHeight;
-                ctx.strokeText(line, cx, ly);
-            });
+            ctx.shadowBlur = sa * 14;
+            ctx.shadowOffsetX = sa * 5;
+            ctx.shadowOffsetY = sa * 5;
+        };
+        const clearShadow = () => {
             ctx.shadowColor = 'transparent';
-            lines.forEach((line, i) => {
-                const ly = firstBaselineY + i * lineHeight;
-                ctx.fillText(line, cx, ly);
-            });
+            ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+        };
+
+        if (shadowOn) {
+            // Split passes (all strokes, then all fills) so the canvas shadow
+            // isn't cast once per fillText call — same reason the original did.
+            ctx.save();
+            setShadow();
+            ctx.strokeStyle = style.outlineColor;
+            ctx.lineWidth = outlinePx;
+            if (outlinePx > 0) each((ln, ly) => ctx.strokeText(ln, cx, ly));
+            else each((ln, ly) => ctx.fillText(ln, cx, ly)); // no outline: shadow off the fill
+            clearShadow();
+            ctx.restore();
+            setCaptionFill(ctx, style, progress, cy - blockH / 2, blockH);
+            each((ln, ly) => ctx.fillText(ln, cx, ly));
         } else {
-            lines.forEach((line, i) => {
-                const ly = firstBaselineY + i * lineHeight;
-                ctx.strokeText(line, cx, ly);
-                ctx.fillText(line, cx, ly);
+            // Interleaved stroke-then-fill per line — identical to the
+            // original path when Text Style options are all at defaults.
+            ctx.strokeStyle = style.outlineColor;
+            ctx.lineWidth = outlinePx;
+            setCaptionFill(ctx, style, progress, cy - blockH / 2, blockH);
+            each((ln, ly) => {
+                if (outlinePx > 0) ctx.strokeText(ln, cx, ly);
+                ctx.fillText(ln, cx, ly);
             });
         }
         ctx.restore();
     }
-    function drawCaptions(ctx, w, h, captions, progress) {
+    function drawCaptions(ctx, w, h, captions, progress, frameSeed) {
         if (!captions) return;
+        const style = resolveCaptionStyle(captions);
         ['top', 'bottom'].forEach(key => {
             const line = captions[key];
             if (!line || !line.text) return;
-            drawCaptionBlockAdvanced(ctx, w, h, line.text, captions.color, line.size, line.x, line.y, progress, captions.fx);
+            drawCaptionBlockAdvanced(ctx, w, h, line.text, line.size, line.x, line.y, progress, frameSeed, style);
         });
     }
 
@@ -604,7 +885,7 @@
         return { cw, ch, letterbox: false, src: null, dst: [0, 0, cw, ch] };
     }
 
-    function captureGifFrames({ src, startT, endT, fps, width, aspect, captions }, onProgress) {
+    function captureGifFrames({ src, startT, endT, fps, width, aspect, captions, skip }, onProgress) {
         return new Promise((resolve, reject) => {
             const vid = document.createElement('video');
             vid.crossOrigin = 'anonymous';
@@ -634,14 +915,18 @@
             const onFrame = (now, metadata) => {
                 if (done) return;
                 const t = metadata ? metadata.mediaTime : vid.currentTime;
-                if (t + 1e-4 >= lastCap + frameInterval) {
+                // Interior cut: play through [skip[0], skip[1]) without sampling
+                // so the encoded GIF jump-cuts across it. lastCap is left alone
+                // so the first frame after the gap is captured immediately.
+                const inCut = skip && t >= skip[0] && t < skip[1];
+                if (!inCut && t + 1e-4 >= lastCap + frameInterval) {
                     lastCap = t;
                     if (geom.letterbox) { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h); }
                     if (geom.src) ctx.drawImage(vid, geom.src[0], geom.src[1], geom.src[2], geom.src[3],
                                                      geom.dst[0], geom.dst[1], geom.dst[2], geom.dst[3]);
                     else ctx.drawImage(vid, geom.dst[0], geom.dst[1], geom.dst[2], geom.dst[3]);
                     const capProgress = Math.min(1, Math.max(0, (t - startT) / span));
-                    drawCaptions(ctx, w, h, captions, capProgress);
+                    drawCaptions(ctx, w, h, captions, capProgress, frames.length);
                     frames.push(ctx.getImageData(0, 0, w, h));
                     if (onProgress) onProgress(Math.min(0.999, (t - startT) / span));
                 }
@@ -739,6 +1024,27 @@
 
     function cloneImageData(imageData) {
         return new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+    }
+
+    // Fade-to-black for the tail of a GIF. alpha 0 = untouched, 1 = full
+    // black. Always returns a brand-new ImageData (never mutates the input),
+    // so it's safe to call on a frame that buildPlaybackSequence reused at
+    // multiple positions (boomerang / freeze-hold) — the same source frame
+    // gets a different darkening at each tail position without the earlier
+    // pass bleeding into the later one.
+    function applyFadeToBlack(imageData, alpha) {
+        const a = Math.max(0, Math.min(1, alpha || 0));
+        if (a <= 0) return imageData;
+        const src = imageData.data;
+        const out = new Uint8ClampedArray(src.length);
+        const k = 1 - a;
+        for (let i = 0; i < src.length; i += 4) {
+            out[i]     = src[i]     * k;
+            out[i + 1] = src[i + 1] * k;
+            out[i + 2] = src[i + 2] * k;
+            out[i + 3] = src[i + 3];
+        }
+        return new ImageData(out, imageData.width, imageData.height);
     }
 
     function applyDeepFry(imageData, intensity) {
@@ -929,8 +1235,21 @@
             const repeat = (playback && playback.mode === 'stop') ? -1 : 0;
             const gif = new Ctor({ workers: 2, quality: 10, width: w, height: h, workerScript, repeat });
             const sequence = buildPlaybackSequence(frames.length, playback || {});
+            const fadeOutMs = (playback && playback.fadeOutMs) || 0;
+            const fadeFps = (playback && playback.fps) || (delay ? 1000 / delay : 12);
+            // Fade runs over the LAST N sequence positions — after boomerang,
+            // speed and freeze-hold have already shaped the sequence — so a
+            // freeze-hold then fades out during the hold, which reads right.
+            const fadeFrames = fadeOutMs > 0
+                ? Math.max(1, Math.min(sequence.length, Math.round((fadeOutMs / 1000) * fadeFps)))
+                : 0;
             for (let i = 0; i < sequence.length; i++) {
-                gif.addFrame(renderSequenceFrame(frames, sequence, i, w, h, filters || {}), { delay });
+                let frame = renderSequenceFrame(frames, sequence, i, w, h, filters || {});
+                if (fadeFrames > 0 && i >= sequence.length - fadeFrames) {
+                    const stepsFromEnd = sequence.length - 1 - i; // 0 on the final frame
+                    frame = applyFadeToBlack(frame, (fadeFrames - stepsFromEnd) / fadeFrames);
+                }
+                gif.addFrame(frame, { delay });
             }
             gif.on('progress', p => onProgress && onProgress(p));
             gif.on('finished', blob => resolve(blob));
@@ -1098,6 +1417,7 @@
     ========================================================== */
     const MIN_CLIP_GAP = 0.1;
     const MAX_CLIP_LEN = 10;
+    const MIN_CUT_GAP = 0.1; // min interior-cut width, and min kept segment either side of it
     const FILMSTRIP_MARGIN = 3;
     const FILMSTRIP_MIN_WINDOW = 12;
     const FILMSTRIP_EDGE_PAD = 1;
@@ -1123,6 +1443,7 @@
         const DEFAULT_CLIP_LEN = 2;
         let startT = Math.max(0, now - DEFAULT_CLIP_LEN);
         let endT = Math.min(vidDur, startT + DEFAULT_CLIP_LEN);
+        let cutStart = null, cutEnd = null; // interior exclusion band; null = no cut
         let _filmstripWindow = null; // { windowStart, windowEnd } — sticky across renders
 
         const panel = document.createElement('div');
@@ -1154,6 +1475,9 @@
                         <div class="sc-gif-filmstrip-selection" id="sc-gif-filmstrip-selection"></div>
                         <div class="sc-gif-filmstrip-handle" id="sc-gif-filmstrip-handle-start" data-handle="start" title="Drag: start"><div class="sc-gif-filmstrip-handle-grip"></div></div>
                         <div class="sc-gif-filmstrip-handle" id="sc-gif-filmstrip-handle-end" data-handle="end" title="Drag: end"><div class="sc-gif-filmstrip-handle-grip"></div></div>
+                        <div class="sc-gif-filmstrip-cut" id="sc-gif-filmstrip-cut" hidden></div>
+                        <div class="sc-gif-filmstrip-cut-handle" id="sc-gif-filmstrip-cut-start" data-handle="cut-start" title="Drag: cut start" hidden><div class="sc-gif-filmstrip-handle-grip"></div></div>
+                        <div class="sc-gif-filmstrip-cut-handle" id="sc-gif-filmstrip-cut-end" data-handle="cut-end" title="Drag: cut end" hidden><div class="sc-gif-filmstrip-handle-grip"></div></div>
                     </div>
                 </div>
                 <div class="sc-gif-marks">
@@ -1183,7 +1507,7 @@
                         </div>
                     </div>
                 </div>
-                <div id="sc-gif-dur-line">Duration <b id="sc-gif-dur-val"></b></div>
+                <div id="sc-gif-dur-line">Duration <b id="sc-gif-dur-val"></b><button type="button" id="sc-gif-cut-toggle">✂ Cut middle</button></div>
                 </div>
                 <button type="button" class="sc-gif-mid-header" id="sc-gif-mid-header" aria-expanded="true">
                     <span>Captions &amp; Format</span>
@@ -1198,20 +1522,83 @@
                                 <label><input type="radio" name="sc-gif-cap-color" value="white" checked> White</label>
                                 <label><input type="radio" name="sc-gif-cap-color" value="yellow"> Yellow</label>
                                 <label><input type="radio" name="sc-gif-cap-color" value="rainbow"> Rainbow</label>
+                                <label title="Custom color"><input type="radio" name="sc-gif-cap-color" value="custom"> <input type="color" id="sc-gif-cap-custom" value="#d4b483"></label>
                             </div>
                             <div class="sc-gif-cap-sizes">
                                 <label>Top <input type="number" id="sc-gif-cap-top-size" min="4" max="40" step="1" value="16">%</label>
                                 <label>Bottom <input type="number" id="sc-gif-cap-bottom-size" min="4" max="40" step="1" value="16">%</label>
                             </div>
-                            <div class="sc-gif-fx-filter">
-                                <input type="checkbox" id="sc-gif-fx-shadow-on">
-                                <label for="sc-gif-fx-shadow-on">Drop shadow</label>
-                                <input type="range" id="sc-gif-fx-shadow-amt" min="0" max="100" value="60">
-                            </div>
-                            <div class="sc-gif-fx-filter">
-                                <input type="checkbox" id="sc-gif-fx-wiggle-on">
-                                <label for="sc-gif-fx-wiggle-on">Wiggle</label>
-                                <input type="range" id="sc-gif-fx-wiggle-amt" min="0" max="100" value="60">
+                            <button type="button" class="sc-gif-ts-header" id="sc-gif-ts-header" aria-expanded="false">
+                                <span>Text Style</span>
+                                <span class="sc-gif-ts-toggle" id="sc-gif-ts-toggle">▸</span>
+                            </button>
+                            <div class="sc-gif-ts" id="sc-gif-ts-body">
+                                <div class="sc-gif-fx-row">
+                                    <label for="sc-gif-ts-font">Font</label>
+                                    <select id="sc-gif-ts-font">
+                                        <option value="impact" selected>Impact</option>
+                                        <option value="arial">Arial Black</option>
+                                        <option value="comic">Comic Sans</option>
+                                        <option value="courier">Courier</option>
+                                        <option value="serif">Serif</option>
+                                    </select>
+                                </div>
+                                <div class="sc-gif-fx-row">
+                                    <label for="sc-gif-ts-outline">Outline</label>
+                                    <select id="sc-gif-ts-outline">
+                                        <option value="black" selected>Black</option>
+                                        <option value="white">White</option>
+                                        <option value="custom">Custom</option>
+                                        <option value="none">None</option>
+                                    </select>
+                                    <input type="color" id="sc-gif-ts-outline-color" value="#000000">
+                                </div>
+                                <div class="sc-gif-fx-filter">
+                                    <label for="sc-gif-ts-outline-amt">Outline width</label>
+                                    <input type="range" id="sc-gif-ts-outline-amt" min="0" max="200" value="100">
+                                </div>
+                                <div class="sc-gif-fx-row">
+                                    <label for="sc-gif-ts-gradient">Gradient</label>
+                                    <select id="sc-gif-ts-gradient">
+                                        <option value="none" selected>None</option>
+                                        <option value="gold">Gold</option>
+                                        <option value="fire">Fire</option>
+                                        <option value="chrome">Chrome</option>
+                                        <option value="trans">Trans</option>
+                                    </select>
+                                </div>
+                                <div class="sc-gif-fx-filter">
+                                    <input type="checkbox" id="sc-gif-ts-glow-on">
+                                    <label for="sc-gif-ts-glow-on">Glow</label>
+                                    <input type="range" id="sc-gif-ts-glow-amt" min="0" max="100" value="60">
+                                    <input type="color" id="sc-gif-ts-glow-color" value="#59d9ff">
+                                </div>
+                                <div class="sc-gif-fx-filter">
+                                    <input type="checkbox" id="sc-gif-ts-plate-on">
+                                    <label for="sc-gif-ts-plate-on">Backlight</label>
+                                    <input type="range" id="sc-gif-ts-plate-amt" min="0" max="100" value="55">
+                                    <input type="color" id="sc-gif-ts-plate-color" value="#000000">
+                                </div>
+                                <div class="sc-gif-fx-filter">
+                                    <input type="checkbox" id="sc-gif-fx-shadow-on">
+                                    <label for="sc-gif-fx-shadow-on">Drop shadow</label>
+                                    <input type="range" id="sc-gif-fx-shadow-amt" min="0" max="100" value="60">
+                                </div>
+                                <div class="sc-gif-fx-row">
+                                    <label for="sc-gif-ts-anim">Animation</label>
+                                    <select id="sc-gif-ts-anim">
+                                        <option value="none" selected>None</option>
+                                        <option value="wiggle">Wiggle</option>
+                                        <option value="pop">Pop-in</option>
+                                        <option value="throb">Throb</option>
+                                        <option value="shake">Angry shake</option>
+                                        <option value="type">Typewriter</option>
+                                    </select>
+                                </div>
+                                <div class="sc-gif-fx-filter">
+                                    <label for="sc-gif-ts-anim-amt">Animation strength</label>
+                                    <input type="range" id="sc-gif-ts-anim-amt" min="0" max="100" value="60">
+                                </div>
                             </div>
                             <div class="sc-gif-cap-hint">Drag the dots on the START preview to position each caption.</div>
                         </div>
@@ -1243,6 +1630,11 @@
                             <div class="sc-gif-fx-row">
                                 <label>Freeze hold (ms)
                                     <input type="number" id="sc-gif-fx-freeze" min="0" max="3000" step="100" value="0">
+                                </label>
+                            </div>
+                            <div class="sc-gif-fx-row">
+                                <label>Fade out (ms)
+                                    <input type="number" id="sc-gif-fx-fadeout" min="0" max="3000" step="100" value="0">
                                 </label>
                             </div>
                             <div class="sc-gif-fx-filters">
@@ -1330,6 +1722,15 @@
             sqHeader.setAttribute('aria-expanded', String(open));
         });
 
+        const tsHeader = $('#sc-gif-ts-header');
+        const tsHeaderToggle = $('#sc-gif-ts-toggle');
+        const tsBodyEl = $('#sc-gif-ts-body');
+        tsHeader.addEventListener('click', () => {
+            const open = tsBodyEl.classList.toggle('sc-gif-ts-open');
+            tsHeaderToggle.textContent = open ? '▾' : '▸';
+            tsHeader.setAttribute('aria-expanded', String(open));
+        });
+
         const midHeader = $('#sc-gif-mid-header');
         const midToggle = $('#sc-gif-mid-toggle');
         const midBody = $('#sc-gif-mid-body');
@@ -1389,24 +1790,36 @@
         applyThumbAspect();
 
         const fx = {
-            mode: 'normal', speed: 1, freezeHoldMs: 0,
+            mode: 'normal', speed: 1, freezeHoldMs: 0, fadeOutMs: 0,
             deepFry: { enabled: false, intensity: 60 },
             vhs: { enabled: false, intensity: 60 },
             zoomShake: { enabled: false, mode: 'zoom', intensity: 60 },
             shadow: { enabled: false, intensity: 60 },
-            wiggle: { enabled: false, intensity: 60 },
+            glow: { enabled: false, intensity: 60, color: '#59d9ff' },
+            plate: { enabled: false, intensity: 55, color: '#000000' },
+            anim: { kind: 'none', intensity: 60 },
         };
+        // Caption text-style choices that live outside `fx` (they map to
+        // top-level fields of the captions payload, beside `color`).
+        const ts = { font: 'impact', gradient: 'none', outline: { color: '#000000', scale: 1 } };
         const fxModeSel = $('#sc-gif-fx-mode'), fxSpeedSel = $('#sc-gif-fx-speed'), fxFreezeInput = $('#sc-gif-fx-freeze');
+        const fxFadeOutInput = $('#sc-gif-fx-fadeout');
         const fxDeepFryOn = $('#sc-gif-fx-deepfry-on'), fxDeepFryAmt = $('#sc-gif-fx-deepfry-amt');
         const fxVhsOn = $('#sc-gif-fx-vhs-on'), fxVhsAmt = $('#sc-gif-fx-vhs-amt');
         const fxZsOn = $('#sc-gif-fx-zoomshake-on'), fxZsMode = $('#sc-gif-fx-zoomshake-mode'), fxZsAmt = $('#sc-gif-fx-zoomshake-amt');
         const fxShadowOn = $('#sc-gif-fx-shadow-on'), fxShadowAmt = $('#sc-gif-fx-shadow-amt');
-        const fxWiggleOn = $('#sc-gif-fx-wiggle-on'), fxWiggleAmt = $('#sc-gif-fx-wiggle-amt');
+        const tsFontSel = $('#sc-gif-ts-font');
+        const tsOutlineSel = $('#sc-gif-ts-outline'), tsOutlineColor = $('#sc-gif-ts-outline-color'), tsOutlineAmt = $('#sc-gif-ts-outline-amt');
+        const tsGradientSel = $('#sc-gif-ts-gradient');
+        const tsGlowOn = $('#sc-gif-ts-glow-on'), tsGlowAmt = $('#sc-gif-ts-glow-amt'), tsGlowColor = $('#sc-gif-ts-glow-color');
+        const tsPlateOn = $('#sc-gif-ts-plate-on'), tsPlateAmt = $('#sc-gif-ts-plate-amt'), tsPlateColor = $('#sc-gif-ts-plate-color');
+        const tsAnimSel = $('#sc-gif-ts-anim'), tsAnimAmt = $('#sc-gif-ts-anim-amt');
 
         function syncFxState() {
             fx.mode = fxModeSel.value;
             fx.speed = parseFloat(fxSpeedSel.value) || 1;
             fx.freezeHoldMs = Math.max(0, parseInt(fxFreezeInput.value, 10) || 0);
+            fx.fadeOutMs = Math.max(0, parseInt(fxFadeOutInput.value, 10) || 0);
             fx.deepFry.enabled = fxDeepFryOn.checked;
             fx.deepFry.intensity = parseInt(fxDeepFryAmt.value, 10) || 0;
             fx.vhs.enabled = fxVhsOn.checked;
@@ -1416,19 +1829,42 @@
             fx.zoomShake.intensity = parseInt(fxZsAmt.value, 10) || 0;
             fx.shadow.enabled = fxShadowOn.checked;
             fx.shadow.intensity = parseInt(fxShadowAmt.value, 10) || 0;
-            fx.wiggle.enabled = fxWiggleOn.checked;
-            fx.wiggle.intensity = parseInt(fxWiggleAmt.value, 10) || 0;
+            fx.glow.enabled = tsGlowOn.checked;
+            fx.glow.intensity = parseInt(tsGlowAmt.value, 10) || 0;
+            fx.glow.color = tsGlowColor.value;
+            fx.plate.enabled = tsPlateOn.checked;
+            fx.plate.intensity = parseInt(tsPlateAmt.value, 10) || 0;
+            fx.plate.color = tsPlateColor.value;
+            fx.anim.kind = tsAnimSel.value;
+            fx.anim.intensity = parseInt(tsAnimAmt.value, 10) || 0;
+            ts.font = tsFontSel.value;
+            ts.gradient = tsGradientSel.value;
+            const oMode = tsOutlineSel.value;
+            ts.outline.scale = oMode === 'none' ? 0 : Math.max(0, Math.min(2, (parseInt(tsOutlineAmt.value, 10) || 0) / 100));
+            ts.outline.color = oMode === 'white' ? '#ffffff' : oMode === 'custom' ? tsOutlineColor.value : '#000000';
         }
-        [fxModeSel, fxSpeedSel, fxFreezeInput, fxDeepFryOn, fxDeepFryAmt, fxVhsOn, fxVhsAmt, fxZsOn, fxZsMode, fxZsAmt]
+        [fxModeSel, fxSpeedSel, fxFreezeInput, fxFadeOutInput, fxDeepFryOn, fxDeepFryAmt, fxVhsOn, fxVhsAmt, fxZsOn, fxZsMode, fxZsAmt]
             .forEach(el => el.addEventListener('input', syncFxState));
-        [fxShadowOn, fxShadowAmt, fxWiggleOn, fxWiggleAmt]
+        [fxShadowOn, fxShadowAmt, tsFontSel, tsOutlineSel, tsOutlineColor, tsOutlineAmt, tsGradientSel,
+         tsGlowOn, tsGlowAmt, tsGlowColor, tsPlateOn, tsPlateAmt, tsPlateColor, tsAnimSel, tsAnimAmt]
             .forEach(el => el.addEventListener('input', () => { syncFxState(); renderCaptionPreviews(); }));
+        tsFontSel.addEventListener('change', () => persistGifPrefs());
         syncFxState();
 
         const capTopInput = $('#sc-gif-cap-top');
         const capBottomInput = $('#sc-gif-cap-bottom');
         const capSizeInputs = { top: $('#sc-gif-cap-top-size'), bottom: $('#sc-gif-cap-bottom-size') };
-        const getCapColor = () => (panel.querySelector('input[name="sc-gif-cap-color"]:checked') || {}).value || 'white';
+        const capCustomInput = $('#sc-gif-cap-custom');
+        // The radio's raw value: white | yellow | rainbow | custom — used for persistence.
+        const getCapColorMode = () => (panel.querySelector('input[name="sc-gif-cap-color"]:checked') || {}).value || 'white';
+        // Resolved to what the renderer consumes: 'rainbow', or a #hex string.
+        const getCapColor = () => {
+            const mode = getCapColorMode();
+            if (mode === 'rainbow') return 'rainbow';
+            if (mode === 'custom') return capCustomInput.value || '#ffffff';
+            if (mode === 'yellow') return '#ffe135';
+            return '#ffffff';
+        };
         const getCapSizePct = (key) => Math.max(1, parseFloat(capSizeInputs[key].value) || 16);
         const clampPct = (n) => Math.min(100, Math.max(0, isFinite(n) ? n : 50));
         const capPos = { top: { x: 50, y: 10 }, bottom: { x: 50, y: 90 } };
@@ -1437,30 +1873,154 @@
             const thumb = $('#sc-gif-thumb-' + which);
             const w = thumb.clientWidth, h = thumb.clientHeight;
             const color = getCapColor();
+            const gradId = ts.gradient;
+            const hasGrad = gradId && gradId !== 'none' && !!CAPTION_GRADIENTS[gradId];
+            const isRainbow = !hasGrad && color === 'rainbow';
+            const animKind = fx.anim.kind;
+            const fontStack = captionFontStack(ts.font);
             ['top', 'bottom'].forEach(key => {
                 const el = $('#sc-gif-cap-' + key + '-' + which);
                 const text = (key === 'top' ? capTopInput : capBottomInput).value.trim();
                 const pos = capPos[key];
                 thumb.style.setProperty('--cx-' + key, pos.x + '%');
                 thumb.style.setProperty('--cy-' + key, pos.y + '%');
-                el.classList.toggle('sc-gif-cap-yellow', color === 'yellow');
-                el.classList.toggle('sc-gif-cap-rainbow', color === 'rainbow');
+
+                el.classList.remove('sc-gif-cap-yellow');
+                el.classList.toggle('sc-gif-cap-rainbow', isRainbow);
                 el.classList.toggle('sc-gif-cap-shadow', fx.shadow.enabled);
-                el.classList.toggle('sc-gif-cap-wiggle', fx.wiggle.enabled);
+                el.classList.toggle('sc-gif-cap-wiggle', animKind === 'wiggle');
+                el.classList.toggle('sc-gif-cap-pop', animKind === 'pop');
+                el.classList.toggle('sc-gif-cap-throb', animKind === 'throb');
+                el.classList.toggle('sc-gif-cap-shake', animKind === 'shake');
+                el.classList.toggle('sc-gif-cap-type', animKind === 'type');
+                el.classList.toggle('sc-gif-cap-plate', fx.plate.enabled);
+
+                el.style.setProperty('font-family', fontStack, 'important');
+
+                // outline: -webkit-text-stroke + a 4-corner text-shadow sim, plus glow
+                const oScale = ts.outline.scale;
+                el.style.setProperty('-webkit-text-stroke',
+                    oScale > 0 ? (1.5 * oScale).toFixed(2) + 'px ' + ts.outline.color : '0px transparent', 'important');
+                const shadows = [];
+                if (oScale > 0) {
+                    const o = Math.max(1, Math.round(2 * oScale)), c = ts.outline.color;
+                    shadows.push('-' + o + 'px -' + o + 'px 0 ' + c, o + 'px -' + o + 'px 0 ' + c,
+                                 '-' + o + 'px ' + o + 'px 0 ' + c, o + 'px ' + o + 'px 0 ' + c);
+                }
+                if (fx.glow.enabled) {
+                    const gpx = Math.round(4 + (fx.glow.intensity / 100) * 14);
+                    shadows.push('0 0 ' + gpx + 'px ' + fx.glow.color, '0 0 ' + Math.round(gpx * 1.8) + 'px ' + fx.glow.color);
+                }
+                el.style.setProperty('text-shadow', shadows.length ? shadows.join(', ') : 'none', 'important');
+
+                if (fx.plate.enabled) {
+                    el.style.setProperty('--sc-cap-plate',
+                        _hexToRgba(fx.plate.color, Math.max(0.06, fx.plate.intensity / 100)));
+                } else {
+                    el.style.removeProperty('--sc-cap-plate');
+                }
+
+                // fill: gradient > rainbow > flat hex
+                if (hasGrad) {
+                    el.style.setProperty('background-image',
+                        'linear-gradient(180deg, ' + CAPTION_GRADIENTS[gradId].join(', ') + ')', 'important');
+                    el.style.setProperty('-webkit-background-clip', 'text', 'important');
+                    el.style.setProperty('background-clip', 'text', 'important');
+                    el.style.setProperty('-webkit-text-fill-color', 'transparent', 'important');
+                    el.style.removeProperty('color');
+                } else {
+                    el.style.removeProperty('background-image');
+                    el.style.removeProperty('-webkit-background-clip');
+                    el.style.removeProperty('background-clip');
+                    if (isRainbow) {
+                        el.style.removeProperty('color');
+                        el.style.removeProperty('-webkit-text-fill-color');
+                    } else {
+                        el.style.setProperty('color', color, 'important');
+                        el.style.setProperty('-webkit-text-fill-color', color, 'important');
+                    }
+                }
+
                 if (!text || !w || !h) { el.textContent = ''; return; }
                 const fontPx = Math.max(4, Math.round(h * getCapSizePct(key) / 100));
-                const { lines } = wrapCaptionAtSize(getCaptionMeasureCtx(), text.toUpperCase(), fontPx, w * 0.92);
+                const { lines } = wrapCaptionAtSize(getCaptionMeasureCtx(), text.toUpperCase(), fontPx, w * 0.92, fontStack);
                 el.style.fontSize = fontPx + 'px';
                 el.style.lineHeight = Math.round(fontPx * 1.15) + 'px';
                 el.textContent = lines.join('\n');
             });
         }
         function renderCaptionPreviews() { renderCaptionPreview('start'); renderCaptionPreview('end'); }
+
+        /* --- remembered output settings: restore, then persist on change --- */
+        function persistGifPrefs() {
+            const mode = getCapColorMode();
+            writeGifPrefs({
+                // custom → store the literal hex; otherwise the keyword
+                color: mode === 'custom' ? capCustomInput.value : mode,
+                font: tsFontSel.value,
+                topSize: getCapSizePct('top'),
+                bottomSize: getCapSizePct('bottom'),
+                fps: $('#sc-gif-fps').value,
+                width: $('#sc-gif-width').value,
+                aspect: aspectSel.value,
+            });
+        }
+        (function restoreGifPrefs() {
+            const p = readGifPrefs();
+            // Only known option values are ever written (digits / lowercase
+            // letters), so a plain attribute selector is safe here.
+            const hasOption = (el, val) => !!el && [...el.options].some(o => o.value === String(val));
+            const setSel = (sel, val) => {
+                if (val == null) return;
+                const el = $(sel);
+                if (hasOption(el, val)) el.value = String(val);
+            };
+            setSel('#sc-gif-fps', p.fps);
+            setSel('#sc-gif-width', p.width);
+            setSel('#sc-gif-ts-font', p.font);
+            if (p.aspect != null && hasOption(aspectSel, p.aspect)) {
+                aspectSel.value = String(p.aspect);
+                applyThumbAspect();
+            }
+            if (p.topSize != null && isFinite(p.topSize)) capSizeInputs.top.value = p.topSize;
+            if (p.bottomSize != null && isFinite(p.bottomSize)) capSizeInputs.bottom.value = p.bottomSize;
+            // color: a keyword picks that radio; a #hex means Custom was
+            // chosen last time → load the swatch and select Custom. Anything
+            // else (legacy 'custom' + orphan customColor, garbage) is ignored
+            // so the HTML default swatch stands.
+            const savedColor = p.color;
+            let pickMode = null;
+            if (savedColor === 'white' || savedColor === 'yellow' || savedColor === 'rainbow') {
+                pickMode = savedColor;
+            } else if (typeof savedColor === 'string' && /^#[0-9a-f]{6}$/i.test(savedColor)) {
+                capCustomInput.value = savedColor;
+                pickMode = 'custom';
+            }
+            if (pickMode) {
+                const r = panel.querySelector('input[name="sc-gif-cap-color"][value="' + pickMode + '"]');
+                if (r) r.checked = true;
+            }
+        })();
+        syncFxState(); // re-read after restore so ts.font reflects the restored <select>
+
         capTopInput.addEventListener('input', renderCaptionPreviews);
         capBottomInput.addEventListener('input', renderCaptionPreviews);
         capSizeInputs.top.addEventListener('input', renderCaptionPreviews);
         capSizeInputs.bottom.addEventListener('input', renderCaptionPreviews);
-        panel.querySelectorAll('input[name="sc-gif-cap-color"]').forEach(r => r.addEventListener('change', renderCaptionPreviews));
+        capSizeInputs.top.addEventListener('change', persistGifPrefs);
+        capSizeInputs.bottom.addEventListener('change', persistGifPrefs);
+        panel.querySelectorAll('input[name="sc-gif-cap-color"]').forEach(r => r.addEventListener('change', () => { renderCaptionPreviews(); persistGifPrefs(); }));
+        const checkCustomRadio = () => {
+            const r = panel.querySelector('input[name="sc-gif-cap-color"][value="custom"]');
+            if (r) r.checked = true;
+        };
+        // click covers picking the same color again (no 'input' fires); input
+        // covers an actual color change.
+        capCustomInput.addEventListener('click', () => { checkCustomRadio(); renderCaptionPreviews(); persistGifPrefs(); });
+        capCustomInput.addEventListener('input', () => { checkCustomRadio(); renderCaptionPreviews(); persistGifPrefs(); });
+        $('#sc-gif-fps').addEventListener('change', persistGifPrefs);
+        $('#sc-gif-width').addEventListener('change', persistGifPrefs);
+        aspectSel.addEventListener('change', persistGifPrefs);
 
         function wireCapHandle(handleEl, thumbEl, key) {
             let dragging = false;
@@ -1558,6 +2118,20 @@
             const selection = $('#sc-gif-filmstrip-selection');
             selection.style.left = sp + '%';
             selection.style.width = (ep - sp) + '%';
+
+            const cutBand = $('#sc-gif-filmstrip-cut');
+            const cutH0 = $('#sc-gif-filmstrip-cut-start'), cutH1 = $('#sc-gif-filmstrip-cut-end');
+            if (cutStart != null && cutEnd != null) {
+                const cs = pctFor(cutStart), ce = pctFor(cutEnd);
+                cutBand.style.left = cs + '%';
+                cutBand.style.width = Math.max(0, ce - cs) + '%';
+                cutH0.style.left = cs + '%';
+                cutH1.style.left = ce + '%';
+                cutBand.hidden = cutH0.hidden = cutH1.hidden = false;
+            } else {
+                cutBand.hidden = cutH0.hidden = cutH1.hidden = true;
+            }
+
             $('#sc-gif-filmstrip-range').textContent =
                 _fmtClockTenths(win.windowStart) + ' – ' + _fmtClockTenths(win.windowEnd);
 
@@ -1628,6 +2202,47 @@
         wireFilmstripDrag(filmstripHandleStart, 'start');
         wireFilmstripDrag(filmstripHandleEnd, 'end');
 
+        function wireCutDrag(handleEl, which) {
+            let dragging = false;
+            handleEl.addEventListener('pointerdown', (e) => {
+                if (cutStart == null) return;
+                e.stopPropagation();
+                dragging = true;
+                handleEl.setPointerCapture(e.pointerId);
+            });
+            handleEl.addEventListener('pointermove', (e) => {
+                if (!dragging || !_filmstripWindow || cutStart == null) return;
+                const win = _filmstripWindow;
+                const rect = filmstripStrip.getBoundingClientRect();
+                const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                const t = win.windowStart + pct * (win.windowEnd - win.windowStart);
+                if (which === 'cut-start') cutStart = Math.max(startT + MIN_CUT_GAP, Math.min(t, cutEnd - MIN_CUT_GAP));
+                else cutEnd = Math.min(endT - MIN_CUT_GAP, Math.max(t, cutStart + MIN_CUT_GAP));
+                render('cut');
+            });
+            const endDrag = (e) => {
+                dragging = false;
+                try { handleEl.releasePointerCapture(e.pointerId); } catch (err) {}
+            };
+            handleEl.addEventListener('pointerup', endDrag);
+            handleEl.addEventListener('pointercancel', endDrag);
+        }
+        wireCutDrag($('#sc-gif-filmstrip-cut-start'), 'cut-start');
+        wireCutDrag($('#sc-gif-filmstrip-cut-end'), 'cut-end');
+
+        $('#sc-gif-cut-toggle').addEventListener('click', () => {
+            if (cutStart != null) {
+                cutStart = cutEnd = null;
+            } else {
+                // drop a band across the middle 30% of the current selection
+                const dur = endT - startT;
+                if (dur < MIN_CUT_GAP * 3) return;
+                cutStart = startT + dur * 0.35;
+                cutEnd = startT + dur * 0.65;
+            }
+            render('cut');
+        });
+
         let selectionDragging = false;
         let selectionDragStartX = 0;
         let selectionDragStartT0 = 0; // startT captured at pointerdown
@@ -1637,8 +2252,10 @@
         function selectionShiftTo(newStart) {
             const dur = endT - startT;
             newStart = Math.max(0, Math.min(newStart, Math.max(0, vidDur - dur)));
+            const delta = newStart - startT;
             startT = newStart;
             endT = startT + dur;
+            if (cutStart != null) { cutStart += delta; cutEnd += delta; } // cut travels with the clip
             render('both');
         }
         function stopSelectionAutoScroll() {
@@ -1757,17 +2374,45 @@
             // clip's length, only its position.
             let newStart = startT + step;
             newStart = Math.max(0, Math.min(newStart, Math.max(0, vidDur - dur)));
+            const delta = newStart - startT;
             startT = newStart;
             endT = startT + dur;
+            if (cutStart != null) { cutStart += delta; cutEnd += delta; }
             render('both');
         });
 
+        const cutLen = () => (cutStart != null && cutEnd != null) ? Math.max(0, cutEnd - cutStart) : 0;
+        const effectiveDur = () => Math.max(0, (endT - startT) - cutLen());
+
+        // Pull the interior cut back inside (startT, endT); drop it if a trim
+        // move squeezed it below MIN_CUT_GAP.
+        const clampCut = () => {
+            if (cutStart == null || cutEnd == null) return;
+            cutStart = Math.max(startT + MIN_CUT_GAP, Math.min(cutStart, endT - MIN_CUT_GAP));
+            cutEnd = Math.max(cutStart + MIN_CUT_GAP, Math.min(cutEnd, endT - MIN_CUT_GAP));
+            if (!(cutEnd - cutStart >= MIN_CUT_GAP) || endT - startT < MIN_CUT_GAP * 3) {
+                cutStart = cutEnd = null;
+            }
+        };
+        const updateCutToggle = () => {
+            const btn = $('#sc-gif-cut-toggle');
+            const on = cutStart != null;
+            btn.textContent = on ? '✕ Remove cut' : '✂ Cut middle';
+            btn.classList.toggle('sc-gif-cut-on', on);
+            btn.disabled = isBlob || !src || (!on && endT - startT < MIN_CUT_GAP * 3);
+        };
+
         const render = (changed) => {
+            clampCut();
             $('#sc-gif-time-start').textContent = _fmtClockTenths(startT);
             $('#sc-gif-time-end').textContent = _fmtClockTenths(endT);
-            const dur = Math.max(0, endT - startT);
-            $('#sc-gif-dur-val').textContent = dur.toFixed(1) + 's';
-            goBtn.disabled = isBlob || !src || dur < MIN_CLIP_GAP;
+            const rawDur = Math.max(0, endT - startT);
+            const eff = effectiveDur();
+            $('#sc-gif-dur-val').textContent = cutLen() > 0
+                ? rawDur.toFixed(1) + 's  (−' + cutLen().toFixed(1) + 's → ' + eff.toFixed(1) + 's)'
+                : rawDur.toFixed(1) + 's';
+            goBtn.disabled = isBlob || !src || eff < MIN_CLIP_GAP;
+            updateCutToggle();
             if (changed === 'start' || changed === 'both') refreshThumb('start');
             if (changed === 'end' || changed === 'both') refreshThumb('end');
             scheduleFilmstripRefresh();
@@ -1807,11 +2452,15 @@
             syncFxState();
             const captions = {
                 color: getCapColor(),
+                font: ts.font,
+                gradient: ts.gradient,
+                outline: { color: ts.outline.color, scale: ts.outline.scale },
                 top: { text: capTopInput.value.trim(), size: getCapSizePct('top'), x: capPos.top.x, y: capPos.top.y },
                 bottom: { text: capBottomInput.value.trim(), size: getCapSizePct('bottom'), x: capPos.bottom.x, y: capPos.bottom.y },
-                fx: { shadow: fx.shadow, wiggle: fx.wiggle },
+                fx: { shadow: fx.shadow, glow: fx.glow, plate: fx.plate, anim: fx.anim },
             };
-            if (endT - startT < MIN_CLIP_GAP) { setStatus('End must be after start.'); return; }
+            const cutSpan = (cutStart != null && cutEnd != null) ? [cutStart, cutEnd] : null;
+            if (effectiveDur() < MIN_CLIP_GAP) { setStatus('Clip is too short.'); return; }
             const clipStartForName = startT;
             if (!midBody.classList.contains('sc-gif-mid-collapsed')) {
                 midBody.classList.add('sc-gif-mid-collapsed');
@@ -1827,9 +2476,9 @@
             try {
                 setStatus('');
                 const cap = await captureGifFrames(
-                    { src, startT, endT, fps, width, aspect, captions },
+                    { src, startT, endT, fps, width, aspect, captions, skip: cutSpan },
                     p => setWork('Capturing frames… ' + Math.round(p * 100) + '%'));
-                const playback = { mode: fx.mode, speed: fx.speed, freezeHoldMs: fx.freezeHoldMs, fps };
+                const playback = { mode: fx.mode, speed: fx.speed, freezeHoldMs: fx.freezeHoldMs, fadeOutMs: fx.fadeOutMs, fps };
                 const filters = { deepFry: fx.deepFry, vhs: fx.vhs, zoomShake: fx.zoomShake };
                 setWork('Encoding GIF… (' + cap.frames.length + ' frames)');
                 let blob = await encodeGif({ ...cap, playback, filters }, p => setWork('Encoding GIF… ' + Math.round(p * 100) + '%'));
