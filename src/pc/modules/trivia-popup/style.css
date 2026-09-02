@@ -62,17 +62,16 @@
 
             /* ===== QUICK-TOGGLE BUTTON =====
                Near-duplicate of #sc-trivia-btn (imdb-trivia/style.css), one
-               slot to its left in the floating top-bar row. The fixed offset
-               below is #sc-trivia-btn's own 150px slot plus roughly the
-               rendered width of its "Trivia" label, so the two sit flush;
-               up-next/index.js anchors #sc-upnext-btn off whichever of the
-               two buttons is present, so a few px of slack here only shows
-               as a hairline gap. */
+               slot to its left in the floating top-bar row
+               ([Pop-ups] [Trivia] [UP NEXT] [Coming Attractions]). The fixed
+               offset below is #sc-trivia-btn's own 223px slot plus roughly
+               the rendered width of its "Trivia" label, so the two sit
+               flush. A few px of slack here only shows as a hairline gap. */
             #sc-trivia-popup-btn {
                 position: fixed !important;
                 z-index: 10003 !important;
                 top: 0 !important;
-                right: calc(var(--sc-chat-w) + 1vw + 212px) !important;
+                right: calc(var(--sc-chat-w) + 1vw + 287px) !important;
                 background: transparent !important;
                 border: none !important;
                 border-radius: 0 !important;
@@ -94,4 +93,4 @@
             #sc-trivia-popup-btn.sc-bar-dim { opacity: 0 !important; pointer-events: none !important; }
             #sc-trivia-popup-btn:hover { color: rgba(255,255,255,0.9) !important; }
             #sc-trivia-popup-btn.sc-tp-btn-on { color: rgba(255,255,255,0.9) !important; }
-            body.sc-vertical #sc-trivia-popup-btn { right: 212px !important; top: 0 !important; }
+            body.sc-vertical #sc-trivia-popup-btn { right: 287px !important; top: 0 !important; }

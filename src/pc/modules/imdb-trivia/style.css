@@ -3,7 +3,11 @@
                 position: fixed !important;
                 z-index: 10003 !important;
                 top: 0 !important;
-                right: calc(var(--sc-chat-w) + 1vw + 150px) !important;
+                /* Row L->R: [Pop-ups] [Trivia] [UP NEXT] [Coming Attractions].
+                   Offset = Coming Attractions width + UP NEXT width + gaps,
+                   so Trivia clears UP NEXT (which is live-positioned just
+                   left of Coming Attractions -- see up-next/index.js). */
+                right: calc(var(--sc-chat-w) + 1vw + 223px) !important;
                 background: transparent !important;
                 border: none !important;
                 border-radius: 0 !important;
@@ -24,9 +28,10 @@
             }
             #sc-trivia-btn.sc-bar-dim { opacity: 0 !important; pointer-events: none !important; }
             #sc-trivia-btn:hover { color: rgba(255,255,255,0.9) !important; }
-            /* Sit to the left of the Coming Attractions button (which is at right:0),
-               same top edge, so the two line up instead of overlapping. */
-            body.sc-vertical #sc-trivia-btn { right: 150px !important; top: 0 !important; }
+            /* Vertical layout: Coming Attractions sits at right:0, UP NEXT just
+               left of it, Trivia left of that -- same 223px delta as the
+               horizontal calc() above, same top edge. */
+            body.sc-vertical #sc-trivia-btn { right: 223px !important; top: 0 !important; }
 
             /* ===== TRIVIA DROPDOWN ===== */
             #sc-trivia-panel {
