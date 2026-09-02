@@ -72,7 +72,7 @@
                 position: fixed !important;
                 z-index: 10003 !important;
                 top: 0 !important;
-                right: calc(var(--sc-chat-w) + 1vw + 206px) !important;
+                right: calc(var(--sc-chat-w) + 1vw + 212px) !important;
                 background: transparent !important;
                 border: none !important;
                 border-radius: 0 !important;
@@ -94,4 +94,4 @@
             #sc-trivia-popup-btn.sc-bar-dim { opacity: 0 !important; pointer-events: none !important; }
             #sc-trivia-popup-btn:hover { color: rgba(255,255,255,0.9) !important; }
             #sc-trivia-popup-btn.sc-tp-btn-on { color: rgba(255,255,255,0.9) !important; }
-            body.sc-vertical #sc-trivia-popup-btn { right: 206px !important; top: 0 !important; }
+            body.sc-vertical #sc-trivia-popup-btn { right: 212px !important; top: 0 !important; }

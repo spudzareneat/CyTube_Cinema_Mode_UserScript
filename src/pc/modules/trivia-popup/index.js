@@ -597,10 +597,11 @@
 
     // Live reference to the current button node (recreated per title change),
     // so _tpSetMuted can repaint it. On unmute mid-movie the movie's own
-    // trivia resumes right away; cast/crew enrichment for the *current* movie
-    // is only fetched when the setting is on at movie-change time (see
-    // _tpResetForNewMovie), so those extra facts appear from the next movie
-    // on -- same as the feature already behaves.
+    // trivia resumes right away, but cast/crew enrichment is only fetched
+    // when popupTriviaEnabled() is true at movie-change time (see
+    // _tpResetForNewMovie): a movie that started while muted shows only its
+    // base facts even after unmute, until the next movie -- same as toggling
+    // the Settings checkbox off then on mid-movie already behaves.
     let _tpBtnEl = null;
 
     function _tpPaintPopupBtn() {
