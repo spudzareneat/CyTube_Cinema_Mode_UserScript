@@ -6,8 +6,10 @@
                 /* Row L->R: [Pop-ups] [Trivia] [UP NEXT] [Coming Attractions].
                    Offset = Coming Attractions width + UP NEXT width + gaps,
                    so Trivia clears UP NEXT (which is live-positioned just
-                   left of Coming Attractions -- see up-next/index.js). */
-                right: calc(var(--sc-chat-w) + 1vw + 223px) !important;
+                   left of Coming Attractions -- see up-next/index.js).
+                   Biased a little wide on purpose: a small gap between these
+                   labels is harmless, overlapping text is not. Tune live. */
+                right: calc(var(--sc-chat-w) + 1vw + 232px) !important;
                 background: transparent !important;
                 border: none !important;
                 border-radius: 0 !important;
@@ -29,9 +31,9 @@
             #sc-trivia-btn.sc-bar-dim { opacity: 0 !important; pointer-events: none !important; }
             #sc-trivia-btn:hover { color: rgba(255,255,255,0.9) !important; }
             /* Vertical layout: Coming Attractions sits at right:0, UP NEXT just
-               left of it, Trivia left of that -- same 223px delta as the
+               left of it, Trivia left of that -- same 232px delta as the
                horizontal calc() above, same top edge. */
-            body.sc-vertical #sc-trivia-btn { right: 223px !important; top: 0 !important; }
+            body.sc-vertical #sc-trivia-btn { right: 232px !important; top: 0 !important; }
 
             /* ===== TRIVIA DROPDOWN ===== */
             #sc-trivia-panel {

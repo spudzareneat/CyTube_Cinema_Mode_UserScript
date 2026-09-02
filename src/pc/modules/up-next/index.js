@@ -221,6 +221,19 @@
         positionInRow();
         new MutationObserver(positionInRow)
             .observe(document.body, { childList: true });
+
+        // #sc-poster-toggle's own `right` is calc(var(--sc-chat-w) + 1vw),
+        // which tracks window resize live; our cached inline px `right`
+        // doesn't, so re-measure on resize too (rAF-coalesced so a drag
+        // doesn't thrash layout). Chat-panel drag-resize changes
+        // --sc-chat-w without a resize event -- UP NEXT stays put there
+        // until the next body mutation re-syncs it, same as before.
+        let _rafPending = false;
+        window.addEventListener('resize', () => {
+            if (_rafPending) return;
+            _rafPending = true;
+            requestAnimationFrame(() => { _rafPending = false; positionInRow(); });
+        });
     } // end _initUpNext
 
     scRegisterInit(initUpNext);
