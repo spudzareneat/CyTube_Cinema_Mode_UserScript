@@ -24,7 +24,17 @@
     ========================================================== */
 
     const LS_TRIVIA_POPUP_ENABLED = 'sc_trivia_popup_enabled';
-    const popupTriviaEnabled = () => getKey(LS_TRIVIA_POPUP_ENABLED) === 'on'; // opt-in, off by default
+    // Master opt-in (Settings modal). Ignores the session mute below -- used
+    // for deciding whether the top-bar quick-toggle button should show at all.
+    const popupTriviaConfigured = () => getKey(LS_TRIVIA_POPUP_ENABLED) === 'on'; // opt-in, off by default
+
+    // Session-only quick mute, driven by the #sc-trivia-popup-btn top-bar
+    // button (see scRenderTriviaPopupBtn below). Deliberately NOT persisted:
+    // it's a "not right now" control, so a page reload brings the bubbles
+    // back if the master setting is still on. Folded into the same
+    // poll-per-use gate every pop attempt already re-reads.
+    let _tpMuted = false;
+    const popupTriviaEnabled = () => popupTriviaConfigured() && !_tpMuted;
 
     const LS_TRIVIA_POPUP_FREQUENCY = 'sc_trivia_popup_frequency';
     const TP_FREQUENCY_DEFAULT = 'occasional';
@@ -576,11 +586,64 @@
         setTimeout(() => el.remove(), TP_EXIT_ANIM_MS);
     }
 
+    /* ==========================================================
+       QUICK-TOGGLE BUTTON -- a small top-bar button that mutes/resumes
+       the bubbles for the session without opening Settings. Created by
+       movie-title-links/index.js alongside #sc-trivia-btn (same lifecycle:
+       removed and recreated on every title change, only while a movie with
+       a matched IMDb id is playing). All the DOM/state logic lives here so
+       that module just calls scRenderTriviaPopupBtn().
+    ========================================================== */
+
+    // Live reference to the current button node (recreated per title change),
+    // so _tpSetMuted can repaint it. On unmute mid-movie the movie's own
+    // trivia resumes right away; cast/crew enrichment for the *current* movie
+    // is only fetched when the setting is on at movie-change time (see
+    // _tpResetForNewMovie), so those extra facts appear from the next movie
+    // on -- same as the feature already behaves.
+    let _tpBtnEl = null;
+
+    function _tpPaintPopupBtn() {
+        if (!_tpBtnEl) return;
+        // Filled vs hollow dot -- same glyph width either way, so the button
+        // never changes size (which would leave #sc-upnext-btn's live-measured
+        // position stale until the next title change).
+        _tpBtnEl.textContent = (_tpMuted ? '○' : '●') + ' Pop-ups';
+        _tpBtnEl.title = _tpMuted
+            ? 'Pop-up trivia muted — click to resume'
+            : 'Pop-up trivia on — click to mute';
+        _tpBtnEl.classList.toggle('sc-tp-btn-on', !_tpMuted);
+    }
+
+    function _tpSetMuted(muted) {
+        _tpMuted = !!muted;
+        clearTimeout(_tpPopTimer); _tpPopTimer = null;
+        if (_tpMuted) {
+            _tpDismissBubble(true); // yank any bubble that's currently up
+        } else {
+            // Resume promptly rather than waiting out a full frequency gap.
+            _tpPopTimer = setTimeout(_tpAttemptPop, 1500);
+        }
+        _tpPaintPopupBtn();
+    }
+
+    function scRenderTriviaPopupBtn() {
+        _tpBtnEl = null; // the previous node (if any) is being recreated by the caller
+        if (!popupTriviaConfigured()) return; // feature not opted into -- no button
+        const btn = document.createElement('button');
+        btn.id = 'sc-trivia-popup-btn';
+        btn.addEventListener('click', () => _tpSetMuted(!_tpMuted));
+        _tpBtnEl = btn;
+        _tpPaintPopupBtn();
+        document.body.appendChild(btn);
+        return btn;
+    }
+
     scRegisterSetting({
         id: 'sc-input-triviapopup',
         group: 'trivia-popup',
         label: 'Pop-up trivia bubbles during movies (Experimental)',
-        note: 'Every few minutes, shows a small IMDb trivia fact somewhere in the bottom half of the screen for about 20 seconds, VH1 Pop-up Video style, then fades out. Off by default. Cycles without repeats and stops once all trivia for the current movie has been shown.',
+        note: 'Every few minutes, shows a small IMDb trivia fact somewhere in the bottom half of the screen for about 20 seconds, VH1 Pop-up Video style, then fades out. Off by default. Cycles without repeats and stops once all trivia for the current movie has been shown. While a movie is playing, a "Pop-ups" button in the top bar mutes or resumes the bubbles for the session.',
         key: LS_TRIVIA_POPUP_ENABLED,
         defaultOn: false,
         order: 9,

@@ -157,11 +157,14 @@
             frameHost.appendChild(iframe);
         };
 
-        // Sit just outside #sc-trivia-btn when it exists (measured live, not
-        // formula-matched -- see POSITIONING above); otherwise fall back to
-        // the CSS default, which deliberately mirrors trivia's own base slot.
+        // Sit just outside the trivia cluster when it exists (measured live,
+        // not formula-matched -- see POSITIONING above); otherwise fall back
+        // to the CSS default, which deliberately mirrors trivia's own base
+        // slot. #sc-trivia-popup-btn (trivia-popup module) sits one slot
+        // left of #sc-trivia-btn when present, so anchor off it first.
         const positionNearTrivia = () => {
-            const trivia = document.getElementById('sc-trivia-btn');
+            const trivia = document.getElementById('sc-trivia-popup-btn')
+                        || document.getElementById('sc-trivia-btn');
             if (trivia) {
                 const rightPx = window.innerWidth - trivia.getBoundingClientRect().left + UPNEXT_TRIVIA_GAP_PX;
                 btn.style.right = rightPx + 'px';
