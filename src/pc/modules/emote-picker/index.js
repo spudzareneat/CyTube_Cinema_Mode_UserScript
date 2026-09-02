@@ -1009,3 +1009,232 @@
         if (document.getElementById('sc-emotes-panel')) closeEmotesPanel();
         else openEmotesPanel();
     }
+
+    /* ==========================================================
+       BANNED EMOTES — right-click a channel emote in a chat
+       message to ban it. A banned emote renders as its plain-
+       text name (e.g. "#wow") with an inline ↩ un-ban control,
+       mirroring chatimages' image-embed ban placeholder
+       (src/pc/modules/chatimages/index.js). LS_EMOTE_BANNED is
+       core's (02-keys-and-helpers.js) -- same JSON-array-of-
+       name-strings convention as LS_EMOTE_FAVORITES above.
+
+       CyTube renders channel emotes in chat as
+       <img class="channel-emote" title="#name" src="…">, the
+       same nodes readEmotesFromDom() scrapes out of #emotelist.
+       We hide the <img> and drop a <span class="sc-emote-banned">
+       next to it rather than removing it, so un-ban is a pure
+       DOM restore with no re-fetch.
+    ========================================================== */
+    let _scBannedEmotes = new Set();
+    function loadBannedEmotes() {
+        try {
+            const arr = JSON.parse(getKey(LS_EMOTE_BANNED) || '[]');
+            if (Array.isArray(arr)) return new Set(arr.filter(n => typeof n === 'string' && n));
+        } catch (e) {}
+        return new Set();
+    }
+    function saveBannedEmotes() {
+        try { setKey(LS_EMOTE_BANNED, JSON.stringify([..._scBannedEmotes])); } catch (e) {}
+    }
+
+    // The emote name as CyTube stores it -- `title` first (matches
+    // readEmotesFromDom() and what insertEmoteIntoChat() inserts),
+    // `alt` as a fallback.
+    function emoteNameOf(img) {
+        return (img.getAttribute('title') || img.getAttribute('alt') || '').trim();
+    }
+
+    // Replace a live <img.channel-emote> with the text placeholder.
+    // Idempotent -- an already-processed img carries data-sc-emote-banned.
+    function applyEmoteBanned(img) {
+        if (img.dataset.scEmoteBanned === '1') return;
+        const name = emoteNameOf(img);
+        if (!name) return;
+        img.dataset.scEmoteBanned = '1';
+        img.style.display = 'none';
+        const ph = document.createElement('span');
+        ph.className = 'sc-emote-banned';
+        ph.dataset.emoteName = name;
+        ph.textContent = name + ' ';
+        const unban = document.createElement('span');
+        unban.className = 'sc-emote-unban';
+        unban.textContent = '↩';
+        unban.title = 'Un-ban ' + name;
+        ph.appendChild(unban);
+        img.insertAdjacentElement('afterend', ph);
+        img._scBanPh = ph;
+    }
+
+    // Undo applyEmoteBanned() on one <img>.
+    function restoreEmoteImg(img) {
+        if (img.dataset.scEmoteBanned !== '1') return;
+        delete img.dataset.scEmoteBanned;
+        img.style.display = '';
+        if (img._scBanPh) { img._scBanPh.remove(); img._scBanPh = null; }
+    }
+
+    // Bring every channel emote in scope into line with the current
+    // ban set -- run on each message-buffer mutation (new messages)
+    // and after every ban/un-ban toggle (existing messages), same
+    // idea as chatimages' sweepUrl(). The buffer is capped by CyTube
+    // at a few hundred messages, so a full re-query per tick is cheap.
+    function sweepBannedEmotes(root) {
+        const scope = root || document.getElementById('messagebuffer');
+        if (!scope || scope.nodeType !== 1) return;
+        const imgs = [...scope.querySelectorAll('img.channel-emote')];
+        if (scope.matches && scope.matches('img.channel-emote')) imgs.push(scope);
+        imgs.forEach(img => {
+            const name = emoteNameOf(img);
+            if (name && _scBannedEmotes.has(name)) applyEmoteBanned(img);
+            else restoreEmoteImg(img);
+        });
+    }
+
+    function banEmote(name) {
+        if (!name) return;
+        _scBannedEmotes.add(name);
+        saveBannedEmotes();
+        sweepBannedEmotes();
+    }
+    function unbanEmote(name) {
+        if (!name) return;
+        _scBannedEmotes.delete(name);
+        saveBannedEmotes();
+        sweepBannedEmotes();
+    }
+
+    /* ---- right-click ban menu ----
+       One transient <div>, same lightweight approach as core's
+       chat-seek menu (12-playback-sync-and-seek.js). The
+       contextmenu listener is registered in the capture phase
+       (3rd arg true) and calls stopImmediatePropagation() so
+       core's bubble-phase seek menu never also opens for the
+       same right-click. */
+    let _scEmoteMenuEl = null;
+    function _scEmoteMenuOutside(e) { if (_scEmoteMenuEl && !_scEmoteMenuEl.contains(e.target)) closeEmoteMenu(); }
+    function _scEmoteMenuKey(e) { if (e.key === 'Escape') closeEmoteMenu(); }
+    function closeEmoteMenu() {
+        if (_scEmoteMenuEl) { _scEmoteMenuEl.remove(); _scEmoteMenuEl = null; }
+        document.removeEventListener('mousedown', _scEmoteMenuOutside, true);
+        document.removeEventListener('keydown', _scEmoteMenuKey, true);
+        window.removeEventListener('scroll', closeEmoteMenu, true);
+    }
+    function showEmoteMenu(x, y, name) {
+        closeEmoteMenu();
+        const banned = _scBannedEmotes.has(name);
+        const menu = document.createElement('div');
+        menu.id = 'sc-emote-menu';
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'sc-emote-menu-item';
+        item.textContent = (banned ? '↩ Un-ban ' : '🚫 Ban ') + name;
+        item.addEventListener('click', () => {
+            if (banned) unbanEmote(name); else banEmote(name);
+            closeEmoteMenu();
+        });
+        menu.appendChild(item);
+        document.body.appendChild(menu);
+        _scEmoteMenuEl = menu;
+
+        const r = menu.getBoundingClientRect();
+        menu.style.left = Math.max(4, Math.min(x, window.innerWidth - r.width - 8)) + 'px';
+        menu.style.top  = Math.max(4, Math.min(y, window.innerHeight - r.height - 8)) + 'px';
+
+        setTimeout(() => {
+            document.addEventListener('mousedown', _scEmoteMenuOutside, true);
+            document.addEventListener('keydown', _scEmoteMenuKey, true);
+            window.addEventListener('scroll', closeEmoteMenu, true);
+        }, 0);
+    }
+
+    function injectEmoteBanCss() {
+        if (document.getElementById('sc-emote-ban-style')) return;
+        const style = document.createElement('style');
+        style.id = 'sc-emote-ban-style';
+        style.textContent = `
+            .sc-emote-banned {
+                display: inline-flex !important; align-items: center !important; gap: 3px !important;
+                padding: 0 4px !important;
+                font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace !important;
+                font-size: 0.92em !important;
+                color: rgba(244,244,242,0.55) !important;
+                background: rgba(255,255,255,0.06) !important;
+                border-radius: 4px !important;
+                vertical-align: baseline !important;
+            }
+            .sc-emote-unban {
+                cursor: pointer !important;
+                opacity: 0 !important;
+                transition: opacity 120ms ease !important;
+                font-size: 0.9em !important;
+            }
+            .sc-emote-banned:hover .sc-emote-unban { opacity: 0.8 !important; }
+            .sc-emote-unban:hover { opacity: 1 !important; color: #3ecbff !important; }
+            #sc-emote-menu {
+                position: fixed !important; z-index: 30050 !important;
+                background: #0c0c0e !important;
+                border: 1px solid rgba(244,244,242,0.16) !important;
+                border-radius: 8px !important;
+                box-shadow: 0 10px 34px rgba(0,0,0,0.6) !important;
+                padding: 4px !important; min-width: 140px !important;
+            }
+            .sc-emote-menu-item {
+                display: block !important; width: 100% !important;
+                background: transparent !important; border: none !important;
+                color: #f4f4f2 !important; font-size: 13px !important;
+                font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif !important;
+                text-align: left !important; padding: 7px 10px !important;
+                border-radius: 5px !important; cursor: pointer !important;
+                white-space: nowrap !important;
+            }
+            .sc-emote-menu-item:hover { background: rgba(62,203,255,0.16) !important; }
+        `;
+        (document.head || document.documentElement).appendChild(style);
+    }
+
+    function initEmoteBans() {
+        _scBannedEmotes = loadBannedEmotes();
+        injectEmoteBanCss();
+
+        // Right-click a channel emote (live <img> or our placeholder)
+        // inside a chat message.
+        document.addEventListener('contextmenu', (e) => {
+            const buf = document.getElementById('messagebuffer');
+            if (!buf) return;
+            const t = e.target;
+            if (!t || !t.closest) return;
+            const img = t.closest('img.channel-emote');
+            const ph = t.closest('.sc-emote-banned');
+            let name = '';
+            if (img && buf.contains(img)) name = emoteNameOf(img);
+            else if (ph && buf.contains(ph)) name = ph.dataset.emoteName || '';
+            if (!name) return;
+            e.preventDefault();
+            e.stopImmediatePropagation(); // keep core's chat-seek menu from also opening
+            showEmoteMenu(e.clientX, e.clientY, name);
+        }, true);
+
+        // Inline ↩ un-ban control on a placeholder.
+        document.addEventListener('click', (e) => {
+            const un = e.target && e.target.closest && e.target.closest('.sc-emote-unban');
+            if (!un) return;
+            const ph = un.closest('.sc-emote-banned');
+            if (ph && ph.dataset.emoteName) unbanEmote(ph.dataset.emoteName);
+        });
+
+        // Apply to messages as they arrive (and the backlog on load).
+        const start = () => {
+            const buf = document.getElementById('messagebuffer');
+            if (!buf) { requestAnimationFrame(start); return; }
+            new MutationObserver(() => sweepBannedEmotes(buf)).observe(buf, { childList: true, subtree: true });
+            sweepBannedEmotes(buf);
+        };
+        start();
+    }
+
+    // Boot at module top-level (not via scRegisterInit, which only
+    // drains on 'load') so the MutationObserver is attached before the
+    // message backlog finishes painting -- the pattern the migration
+    // notes call out for early-timing observers.
+    initEmoteBans();

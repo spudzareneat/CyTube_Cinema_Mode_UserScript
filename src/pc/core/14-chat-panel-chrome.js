@@ -159,42 +159,86 @@
 
         let panelOpen = false;
 
+        // Returns the currently-relevant poll well, or null.
+        const currentWell = () => pollwrap.querySelector('.well.active') || pollwrap.querySelector('.well');
+
         const renderPanel = () => {
-            // Clone pollwrap content so we can restyle without affecting original
-            const well = pollwrap.querySelector('.well.active') || pollwrap.querySelector('.well');
+            const well = currentWell();
             if (!well) { panel.innerHTML = ''; return; }
 
             // Extract just the useful parts: heading + options
             const h = well.querySelector('h3')?.textContent?.trim() || '';
-            const opts = [...well.querySelectorAll('.option')].map(o => {
-                // Get text without the vote count button text
-                const btn = o.querySelector('button');
-                const text = o.textContent.replace(btn?.textContent || '', '').trim();
-                // Preserve links
-                const links = [...o.querySelectorAll('a')].map(a =>
-                    `<a href="${a.href}" target="_blank" rel="noopener noreferrer">${a.textContent}</a>`
-                );
-                let html = o.innerHTML.replace(/<button[^>]*>.*?<\/button>/i, '').trim();
-                return `<div class="sc-poll-option">${html}</div>`;
-            });
 
             // Time/author label
             const label = well.querySelector('.label')?.textContent?.trim() || '';
             const author = well.querySelector('.label')?.getAttribute('title') || '';
 
-            panel.innerHTML = `
-                <div class="sc-poll-header">${h}</div>
-                <div class="sc-poll-options">${opts.join('')}</div>
-                ${label ? `<div class="sc-poll-meta">${author ? author + ' · ' : ''}${label}</div>` : ''}
-            `;
+            panel.innerHTML =
+                '<div class="sc-poll-header"></div>' +
+                '<div class="sc-poll-options"></div>' +
+                (label ? '<div class="sc-poll-meta"></div>' : '');
+            panel.querySelector('.sc-poll-header').textContent = h;
+            if (label) panel.querySelector('.sc-poll-meta').textContent = (author ? author + ' · ' : '') + label;
+
+            // Rebuild each option as a real clickable <button>. The vote
+            // count comes straight from CyTube's own option <button> text
+            // (a number, or "?" for a hidden/obscured poll). Clicking an
+            // option forwards to that real button (see the panel click
+            // handler in _initPollWatcher) so CyTube's bound handler emits
+            // the `vote` socket event; the resulting `updatePoll` mutates
+            // #pollwrap and the MutationObserver below re-renders with the
+            // new counts.
+            const optionsWrap = panel.querySelector('.sc-poll-options');
+            [...well.querySelectorAll('.option')].forEach((o, i) => {
+                const voteBtn = o.querySelector('button');
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'sc-poll-option';
+                b.dataset.idx = String(i);
+
+                const countTxt = voteBtn ? voteBtn.textContent.trim() : '';
+                if (countTxt) {
+                    const c = document.createElement('span');
+                    c.className = 'sc-poll-count';
+                    c.textContent = countTxt;
+                    b.appendChild(c);
+                }
+
+                // Label = the option's own nodes minus its leading vote
+                // button, cloned so CyTube-built <a> links are preserved
+                // verbatim (then hardened with target/rel).
+                const lbl = document.createElement('span');
+                lbl.className = 'sc-poll-label';
+                [...o.childNodes].forEach(n => {
+                    if (n === voteBtn) return;
+                    lbl.appendChild(n.cloneNode(true));
+                });
+                lbl.querySelectorAll('a').forEach(a => { a.target = '_blank'; a.rel = 'noopener noreferrer'; });
+                b.appendChild(lbl);
+
+                optionsWrap.appendChild(b);
+            });
         };
 
         const hasPollContent = () => {
             // CyTube marks open polls with .well.active
             // Fall back to any .well with content if no active class
-            const activeWell = pollwrap.querySelector('.well.active') || pollwrap.querySelector('.well');
+            const activeWell = currentWell();
             return !!(activeWell && activeWell.textContent.trim().length > 10);
         };
+
+        // Vote by forwarding the click to CyTube's own option <button> —
+        // its bound handler emits the `vote` socket event. Links inside an
+        // option label open normally instead of voting.
+        panel.addEventListener('click', e => {
+            const optBtn = e.target.closest('.sc-poll-option');
+            if (!optBtn || !panel.contains(optBtn)) return;
+            if (e.target.closest('a')) return;
+            const well = currentWell();
+            if (!well) return;
+            const realBtn = well.querySelectorAll('.option')[Number(optBtn.dataset.idx)]?.querySelector('button');
+            if (realBtn) realBtn.click();
+        });
 
         const updateBtn = () => {
             const hasContent = hasPollContent();
