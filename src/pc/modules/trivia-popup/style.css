@@ -5,7 +5,7 @@
             #sc-tp-bubble {
                 position: fixed !important;
                 left: 50% !important;
-                bottom: 22vh !important;
+                top: 60% !important;
                 z-index: 15500 !important; /* above video chrome (~10001-10004), below dropdowns/modals (~19000/20001) */
                 max-width: min(460px, 88vw) !important;
                 display: flex !important;
@@ -22,11 +22,11 @@
                 pointer-events: auto !important;
                 cursor: pointer !important;
             }
-            /* left/bottom above are just pre-JS fallbacks -- showTriviaBubble()
-               sets both inline (with !important) to a randomized position in
-               the bottom half of the screen each time, including a
-               body.sc-vertical-aware offset so it clears the stacked chat
-               panel in vertical layout. */
+            /* left/top above are just pre-JS fallbacks -- showTriviaBubble()
+               overrides both inline (with !important) every time, to a
+               measured px position picked by _tpRandomPosition(): a letterbox
+               bar or picture corner, biased away from the centre of frame and
+               kept clear of the chat panel. */
             #sc-tp-bubble.sc-tp-in {
                 opacity: 0.9 !important;
                 transform: translateX(-50%) scale(1) !important;

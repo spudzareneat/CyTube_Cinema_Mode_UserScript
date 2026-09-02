@@ -17,10 +17,11 @@
        Settings here are poll-per-use, not event-driven (see
        core/15-settings-modal-shell.js -- Save just writes
        localStorage, nothing notifies running code), so
-       popupTriviaEnabled() and the playback-eligibility check both get
-       re-read every time a pop is attempted, not just once at boot --
-       otherwise turning the toggle off mid-movie wouldn't stop
-       already-scheduled popups.
+       popupTriviaEnabled(), the playback-eligibility check and the
+       window-focus check (document.hasFocus()) are all re-read every
+       time a pop is attempted, not just once at boot -- otherwise
+       turning the toggle off mid-movie wouldn't stop already-scheduled
+       popups, and a pop could fire while the user is in another window.
     ========================================================== */
 
     const LS_TRIVIA_POPUP_ENABLED = 'sc_trivia_popup_enabled';
@@ -264,8 +265,9 @@
     function _tpAttemptPop() {
         if (_currentImdbId !== _tpLastImdbId) return; // stale timer from a since-reset movie
 
-        if (!popupTriviaEnabled() || !_tpMovieIsPlaying()) {
-            // Blocked, not exhausted -- recheck soon without consuming a queue item.
+        if (!popupTriviaEnabled() || !_tpMovieIsPlaying() || !document.hasFocus()) {
+            // Blocked (paused / YouTube / setting off / window not focused),
+            // not exhausted -- recheck soon without consuming a queue item.
             _tpPopTimer = setTimeout(_tpAttemptPop, TP_RETRY_MS);
             return;
         }
@@ -415,47 +417,95 @@
          <polyline points="12,26 18,23" stroke="#e8b923" stroke-width="2.5" stroke-linecap="round"/>`,
     ];
 
-    // Randomizes where the bubble lands, using its own *measured* rendered
-    // size (boxWidthPx/boxHeightPx -- see showTriviaBubble, which appends it
-    // to the DOM invisibly and measures before calling this) so the chosen
-    // spot always keeps the whole box on-screen, never under the chat panel,
-    // and never above the bottom third of the video, regardless of trivia
-    // text length or screen size:
-    //
-    // - Horizontal: "left" is a % of viewport width, and CSS centers the box
-    //   on that point via translateX(-50%) (see style.css), so half the
-    //   box's own width has to fit on each side of the chosen point. The
-    //   right-hand limit also subtracts the *actual* configured chat-panel
-    //   width (getChatPanelWidth(), core's 04-channel-script-autoapprove.js
-    //   -- drag-resizable, 12-34vw, default 19vw) so it can never land under
-    //   the sidebar. In vertical layout the chat panel is stacked at the
-    //   bottom instead of the right, so there's no sidebar to dodge
-    //   horizontally there.
-    // - Vertical: "bottom" is a vh offset; capped so the box's top edge
-    //   never rises above the bottom third of the viewport (100/3 vh),
-    //   however tall a particular trivia fact happens to render.
-    function _tpRandomPosition(boxWidthPx, boxHeightPx) {
+    // The rectangle a bubble is allowed to land in: the viewport inset by a
+    // small edge margin, minus the chat panel. Read live on every pop
+    // (poll-per-use) so a mid-session chat-panel drag or window resize is
+    // always honoured. getChatPanelWidth()/getChatPanelHeight() are core's
+    // (04-channel-script-autoapprove.js -- drag-resizable, default 19vw /
+    // 42vh); in horizontal layout the chat is a right sidebar, in vertical
+    // it's stacked under the video whose wrap is 97vh - --sc-chat-h tall
+    // (css/00-layout-core.css), so the usable floor there is the video-area
+    // bottom, not the viewport bottom.
+    function _tpUsableArea() {
+        const vw = window.innerWidth, vh = window.innerHeight;
+        const m = 14;
+        const topInset = 44; // clear the fixed #videowrap-header title strip
         const vertical = document.body.classList.contains('sc-vertical');
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
-        const marginPx = 14;
-        const chatWidthPx = vertical ? 0 : vw * (typeof getChatPanelWidth === 'function' ? getChatPanelWidth() : 19) / 100;
-        const halfW = boxWidthPx / 2;
+        const chatWpx = vertical ? 0 : vw * (typeof getChatPanelWidth === 'function' ? getChatPanelWidth() : 19) / 100;
+        const chatHpx = !vertical ? 0
+            : vh * 0.03 + vh * (typeof getChatPanelHeight === 'function' ? getChatPanelHeight() : 42) / 100;
+        return { left: m, top: topInset, right: vw - chatWpx - m, bottom: vh - chatHpx - m };
+    }
 
-        let leftMinPct = 100 * (marginPx + halfW) / vw;
-        let leftMaxPct = 100 * (vw - chatWidthPx - marginPx - halfW) / vw;
-        if (leftMaxPct < leftMinPct) { // box wider than the available space -- just center it in what's there
-            const mid = 100 * (vw - chatWidthPx) / (2 * vw);
-            leftMinPct = leftMaxPct = mid;
+    // The on-screen rectangle the actual movie picture occupies, letterbox
+    // bars excluded -- computed from the <video>'s intrinsic size vs. its
+    // rendered box (object-fit: contain). Lets _tpRandomPosition() steer
+    // bubbles into the bars / corners and off the centre of frame. Falls back
+    // to #videowrap, then the usable area, before the intrinsic size is known.
+    function _tpPictureRect(usable) {
+        const v = getPlayerVideoEl();
+        const r = v && v.getBoundingClientRect();
+        if (r && r.width > 0 && r.height > 0 && v.videoWidth > 0 && v.videoHeight > 0) {
+            const scale = Math.min(r.width / v.videoWidth, r.height / v.videoHeight);
+            const picW = v.videoWidth * scale, picH = v.videoHeight * scale;
+            return { left: r.left + (r.width - picW) / 2, top: r.top + (r.height - picH) / 2, width: picW, height: picH };
+        }
+        const wrap = document.getElementById('videowrap');
+        const wr = wrap && wrap.getBoundingClientRect();
+        if (wr && wr.width > 0 && wr.height > 0) return { left: wr.left, top: wr.top, width: wr.width, height: wr.height };
+        return { left: usable.left, top: usable.top, width: usable.right - usable.left, height: usable.bottom - usable.top };
+    }
+
+    // Picks where the bubble lands, using its own *measured* rendered size
+    // (boxW/boxH -- see showTriviaBubble, which appends it invisibly and
+    // measures before calling this). Returns viewport px: centerXPx (CSS
+    // centres the box on it via translateX(-50%), see style.css) and topPx.
+    //
+    // Deliberately biased away from the middle of the movie: candidate zones
+    // are the letterbox bars above / below / beside the picture and its four
+    // corners. Each zone is a rectangle of allowed box-top-left coordinates.
+    // Bar zones only qualify when there's genuinely room for the whole box in
+    // that bar; they carry 3x a corner's weight so the big vertical-layout
+    // bars get used most. The four corner zones always qualify (their ranges
+    // are clamped into the usable area) and are the guaranteed fallback -- a
+    // corner bubble straddles the picture edge, clipping only the corner.
+    function _tpRandomPosition(boxW, boxH) {
+        const U = _tpUsableArea();
+        const P = _tpPictureRect(U);
+        const gap = 12;
+        const pRight = P.left + P.width, pBottom = P.top + P.height;
+
+        const xLo = U.left + gap, xHi = U.right - boxW - gap;
+        const yLo = U.top + gap, yHi = U.bottom - boxH - gap;
+        const xFull = [xLo, xHi], yFull = [yLo, yHi];
+
+        const zones = [];
+        if (P.top - U.top >= boxH + 2 * gap)      zones.push({ w: 3, x: xFull, y: [yLo, P.top - boxH - gap] });
+        if (U.bottom - pBottom >= boxH + 2 * gap) zones.push({ w: 3, x: xFull, y: [pBottom + gap, yHi] });
+        if (P.left - U.left >= boxW + 2 * gap)    zones.push({ w: 3, x: [xLo, P.left - boxW - gap], y: yFull });
+        if (U.right - pRight >= boxW + 2 * gap)   zones.push({ w: 3, x: [pRight + gap, xHi], y: yFull });
+        for (const [cx, cy] of [[P.left, P.top], [pRight, P.top], [P.left, pBottom], [pRight, pBottom]]) {
+            zones.push({ w: 1, x: [cx - boxW * 0.6, cx - boxW * 0.4], y: [cy - boxH * 0.6, cy - boxH * 0.4] });
         }
 
-        const boxHeightVh = (boxHeightPx / vh) * 100;
-        const bottomMin = 3;
-        const bottomMax = Math.max(bottomMin + 2, (100 / 3) - boxHeightVh - 2);
+        // Clamp a range's endpoints into [lo, hi] then pick uniformly within
+        // it; if the box is wider/taller than the usable area (hi < lo), fall
+        // back to the midpoint so it stays centred in whatever space there is.
+        const pick = (range, lo, hi) => {
+            if (hi < lo) return (lo + hi) / 2;
+            const a = Math.min(hi, Math.max(lo, range[0]));
+            const b = Math.min(hi, Math.max(lo, range[1]));
+            return a + Math.random() * (b - a);
+        };
+
+        const totalW = zones.reduce((s, z) => s + z.w, 0);
+        let roll = Math.random() * totalW;
+        let chosen = zones[zones.length - 1];
+        for (const z of zones) { roll -= z.w; if (roll <= 0) { chosen = z; break; } }
 
         return {
-            leftPct: leftMinPct + Math.random() * (leftMaxPct - leftMinPct),
-            bottomVh: bottomMin + Math.random() * (bottomMax - bottomMin),
+            centerXPx: pick(chosen.x, xLo, xHi) + boxW / 2,
+            topPx: pick(chosen.y, yLo, yHi),
         };
     }
 
@@ -556,12 +606,8 @@
         document.body.appendChild(_tpBubbleEl);
 
         const pos = _tpRandomPosition(_tpBubbleEl.offsetWidth, _tpBubbleEl.offsetHeight);
-        _tpBubbleEl.style.setProperty('left', pos.leftPct + '%', 'important');
-        _tpBubbleEl.style.setProperty('bottom',
-            document.body.classList.contains('sc-vertical')
-                ? `calc(var(--sc-chat-h) + ${pos.bottomVh}vh)`
-                : `${pos.bottomVh}vh`,
-            'important');
+        _tpBubbleEl.style.setProperty('left', pos.centerXPx + 'px', 'important');
+        _tpBubbleEl.style.setProperty('top', pos.topPx + 'px', 'important');
 
         requestAnimationFrame(() => _tpBubbleEl && _tpBubbleEl.classList.add('sc-tp-in'));
 
