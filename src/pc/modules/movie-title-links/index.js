@@ -705,8 +705,8 @@
         }
         _currentImdbId = null;
 
-        // Clean up previous links/stats/trivia button
-        ['sc-movie-links', 'sc-movie-stats', 'sc-trivia-btn'].forEach(id => {
+        // Clean up previous links/stats/trivia buttons
+        ['sc-movie-links', 'sc-movie-stats', 'sc-trivia-btn', 'sc-trivia-popup-btn'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.remove();
         });
@@ -786,6 +786,15 @@
                 tb.title = 'IMDb trivia (press T)';
                 tb.addEventListener('click', toggleTriviaPanel);
                 document.body.appendChild(tb);
+            }
+
+            // Pop-up trivia quick mute/resume toggle — sits just left of the
+            // Trivia button. Only rendered when the trivia-popup module is
+            // present AND the user has opted into it in Settings (that gate
+            // lives inside scRenderTriviaPopupBtn). typeof-guarded so a build
+            // without the module just skips it.
+            if (imdbId && typeof scRenderTriviaPopupBtn === 'function') {
+                scRenderTriviaPopupBtn();
             }
 
             // Stats bar — rating, runtime, kill count, DtDD, parent guide

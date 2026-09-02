@@ -3,14 +3,13 @@
                (imdb-trivia/style.css) rather than #sc-chat-header --
                styling is a deliberate near-duplicate of #sc-trivia-btn's
                own rule, not a copy of #sc-usercount-btn/#sc-poll-btn like
-               this module used before. The base `right` value here is
-               also a deliberate duplicate of #sc-trivia-btn's own slot
-               (both the horizontal calc() and the vertical 150px) -- see
-               index.js's POSITIONING comment for why: when trivia isn't
-               present, up-next should sit exactly where trivia would
-               have, not leave a gap. When trivia IS present, index.js
-               overrides `right` inline with a live-measured position, so
-               these values only matter for the "no trivia" case.
+               this module used before. Row order (left to right) is
+               [Pop-ups] [Trivia] [UP NEXT] [Coming Attractions]; index.js
+               normally overrides `right` inline with a position measured
+               live off #sc-poster-toggle ("Coming Attractions"), so this
+               base `right` only matters when that button is absent (a
+               build without tonights-lineup) -- in which case up-next
+               takes the ~150px slot as the row's right end.
                `right` is deliberately NOT !important (everything else
                here is, matching this codebase's convention) -- a plain
                inline style.right set from JS cannot beat an !important

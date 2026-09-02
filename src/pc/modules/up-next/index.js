@@ -63,27 +63,24 @@
        closes, this would clear its protection too. Same limitation
        tonights-lineup itself already has in reverse; not solved here.
 
-       POSITIONING: #sc-trivia-btn (movie-title-links/index.js) is
-       removed and re-created on every media change, present only when
-       the current video has a matched IMDb id -- there's no persistent
-       "trivia is off" state to read, just its live DOM presence. Rather
-       than duplicate movie-title-links' title-change lifecycle, this
-       module just watches for #sc-trivia-btn's presence directly:
-       - No trivia button: up-next's default CSS position (style.css)
-         deliberately duplicates trivia's own base slot
-         (calc(var(--sc-chat-w) + 1vw + 150px) horizontal / 150px
-         vertical, see imdb-trivia/style.css's #sc-trivia-btn rule) so
-         it takes that exact spot with no gap.
-       - Trivia button present: its live measured position (viewport
-         px, not a formula) is used to slide up-next just outside it --
-         a real layout measurement is robust across horizontal/vertical
-         layouts and any future trivia-button width change, where a
-         second hardcoded formula would drift out of sync with the
-         first.
+       POSITIONING: the top-bar row, left to right, is
+       [● Pop-ups] [Trivia] [UP NEXT] [Coming Attractions]. The two
+       trivia buttons (movie-title-links / imdb-trivia / trivia-popup)
+       come and go with the current video's IMDb match; #sc-poster-toggle
+       ("Coming Attractions", tonights-lineup) is effectively always
+       present and is the row's fixed right end. So up-next anchors off
+       #sc-poster-toggle -- its live measured position (viewport px, not
+       a formula) is used to slide up-next just to its left, which is
+       robust across horizontal/vertical layouts and any future width
+       change of that button. #sc-trivia-btn / #sc-trivia-popup-btn then
+       sit further left again via their own fixed offsets (in
+       imdb-trivia / trivia-popup style.css), sized to clear UP NEXT.
+       When #sc-poster-toggle is absent (a build without tonights-lineup)
+       up-next falls back to its default CSS slot.
     ========================================================== */
 
     const UPNEXT_BOT_URL = 'https://bot.420grindhouseserver.com';
-    const UPNEXT_TRIVIA_GAP_PX = 6;
+    const UPNEXT_ROW_GAP_PX = 6;
     const UPNEXT_LOAD_TIMEOUT_MS = 10000;
     const UPNEXT_HOVER_WAKE_INTERVAL_MS = 1500; // well under the 3.5s dim delay
 
@@ -157,16 +154,18 @@
             frameHost.appendChild(iframe);
         };
 
-        // Sit just outside #sc-trivia-btn when it exists (measured live, not
-        // formula-matched -- see POSITIONING above); otherwise fall back to
-        // the CSS default, which deliberately mirrors trivia's own base slot.
-        const positionNearTrivia = () => {
-            const trivia = document.getElementById('sc-trivia-btn');
-            if (trivia) {
-                const rightPx = window.innerWidth - trivia.getBoundingClientRect().left + UPNEXT_TRIVIA_GAP_PX;
+        // Sit just left of #sc-poster-toggle ("Coming Attractions") --
+        // measured live (viewport px, not a formula) so it stays robust
+        // across horizontal/vertical layouts and any future width change of
+        // that button. See POSITIONING above. When it's absent (a build
+        // without tonights-lineup) fall back to the CSS default slot.
+        const positionInRow = () => {
+            const anchor = document.getElementById('sc-poster-toggle');
+            if (anchor) {
+                const rightPx = window.innerWidth - anchor.getBoundingClientRect().left + UPNEXT_ROW_GAP_PX;
                 btn.style.right = rightPx + 'px';
             } else {
-                btn.style.right = ''; // CSS default (trivia's own slot)
+                btn.style.right = ''; // CSS default
             }
             panel.style.right = btn.style.right;
         };
@@ -212,15 +211,29 @@
             if (panelOpen && !btn.contains(e.target) && !panel.contains(e.target)) closePanel();
         });
 
-        // #sc-trivia-btn is removed/recreated by movie-title-links on every
-        // media change, always as a direct document.body.appendChild (same
-        // as every other floating top-bar button here, never nested) -- so
-        // childList on body alone catches it without subtree:true, which
-        // would otherwise re-fire (and force a layout read in
-        // positionNearTrivia) on every chat message and userlist update.
-        positionNearTrivia();
-        new MutationObserver(positionNearTrivia)
+        // #sc-poster-toggle is a direct document.body child (like every
+        // floating top-bar button here, never nested) added once at init --
+        // childList on body alone catches its arrival without subtree:true,
+        // which would otherwise re-fire (and force a layout read in
+        // positionInRow) on every chat message and userlist update. The
+        // trivia buttons appearing/disappearing per media change also fire
+        // this, harmlessly recomputing the same anchor.
+        positionInRow();
+        new MutationObserver(positionInRow)
             .observe(document.body, { childList: true });
+
+        // #sc-poster-toggle's own `right` is calc(var(--sc-chat-w) + 1vw),
+        // which tracks window resize live; our cached inline px `right`
+        // doesn't, so re-measure on resize too (rAF-coalesced so a drag
+        // doesn't thrash layout). Chat-panel drag-resize changes
+        // --sc-chat-w without a resize event -- UP NEXT stays put there
+        // until the next body mutation re-syncs it, same as before.
+        let _rafPending = false;
+        window.addEventListener('resize', () => {
+            if (_rafPending) return;
+            _rafPending = true;
+            requestAnimationFrame(() => { _rafPending = false; positionInRow(); });
+        });
     } // end _initUpNext
 
     scRegisterInit(initUpNext);
