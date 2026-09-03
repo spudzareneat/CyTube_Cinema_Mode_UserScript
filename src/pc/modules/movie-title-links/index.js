@@ -817,6 +817,45 @@
         return season != null ? `S${String(season).padStart(2, '0')}E${ep}` : `E${ep}`;
     }
 
+    /* ==========================================================
+       "MATCHED AS" PURE HELPERS (Layer 3a) — no DOM, no network,
+       no globals, so scripts/test-fix-match-helpers.mjs can slice
+       this block out between the markers and eval it directly.
+
+       _fixMatchDetectTconst: given whatever the user typed into the
+       Fix-match search box, returns a bare tt-id when the input is an
+       IMDb title id or a full imdb.com/title/ URL, else null (meaning
+       "treat this as a free-text search term").
+
+       _fixRuntimeIndicator: the third clause of the card's second
+       "Matched as" line. Inputs are result.runtimeDelta (whole-minute
+       |runtime - knownDuration| gap, or null), the resolved title's
+       runtime in minutes (or null), and the playing file's duration in
+       whole minutes (or null). 15% tolerance mirrors demoteByRuntime().
+       Returns '' when there's no runtime to talk about at all, so the
+       caller omits the clause entirely rather than printing an empty
+       separator.
+    ========================================================== */
+    // ── test marker: fix-match helpers slice start ──
+    function _fixMatchDetectTconst(input) {
+        const m = String(input == null ? '' : input).match(/(?:imdb\.com\/title\/)?(tt\d{6,})/i);
+        return m ? m[1].toLowerCase() : null;
+    }
+
+    function _fixRuntimeIndicator(runtimeDelta, runtimeMin, knownMin) {
+        // Nothing to say if the resolved title has no runtime at all.
+        if (runtimeMin == null) return '';
+        // Have a runtime but can't compare it (no reported file duration, or
+        // the delta was never computed) -> flag it as unverified rather than
+        // silently implying a match.
+        if (knownMin == null || knownMin <= 0 || runtimeDelta == null) return 'runtime unknown';
+        const within = (runtimeDelta / knownMin) <= 0.15;
+        return within
+            ? `runtime ✓ ${runtimeMin}m≈${knownMin}m`
+            : `runtime ✗ ${runtimeMin}m vs ${knownMin}m`;
+    }
+    // ── test marker: fix-match helpers slice end ──
+
     function showNowPlayingCard(data, opts = {}) {
         if (!data || (!data.cleanTitle && !data.backdrop)) return;
         let card = document.getElementById('sc-np-card');
@@ -832,13 +871,24 @@
                         <div id="sc-np-eyebrow">Now Playing</div>
                         <div id="sc-np-title"></div>
                         <div id="sc-np-meta"></div>
+                        <div id="sc-np-match"></div>
                         <div id="sc-np-overview"></div>
                         <div id="sc-np-chips"></div>
                         <div id="sc-np-links"></div>
                     </div>
-                </div>`;
+                </div>
+                <button id="sc-np-fix" type="button" title="Fix match">✎</button>`;
             document.body.appendChild(card);
             card.addEventListener('click', hideNowPlayingCard);
+            // The pencil lives inside the card, whose click closes it -- so the
+            // handler must stopPropagation. Attached once; it reads the live
+            // _npData (every call site passes exactly that object as `data`).
+            card.querySelector('#sc-np-fix').addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (_npData && _npData.rawFilename && _npData.parsedTitle) {
+                    openFixMatchModal(_npData.rawFilename, _npData.parsedTitle, _npData.parsedYear);
+                }
+            });
         }
         const title = data.cleanTitle || '';
         const year  = data.cleanYear ? ` (${data.cleanYear})` : '';
@@ -859,6 +909,41 @@
             if (la) metaParts.push(`📅 Last aired ${la.dateStr}`);
         }
         card.querySelector('#sc-np-meta').textContent = metaParts.join('     ');
+
+        // ── "Matched as" diagnostic + Fix-match pencil (Layer 3a) ────────────
+        // Shown only for a real parsed movie match: hidden entirely for YouTube
+        // clips (parsedTitle null) and while a card still lacks parse data. The
+        // dim block itself additionally needs a resolved imdbId; the pencil
+        // shows without one so a total match failure can still be corrected.
+        const fixBtn  = card.querySelector('#sc-np-fix');
+        const matchEl = card.querySelector('#sc-np-match');
+        fixBtn.style.display = (data.rawFilename && data.parsedTitle) ? '' : 'none';
+        if (data.imdbId && data.parsedTitle) {
+            const SRC_LABEL = { tmdb: 'TMDB', imdb: 'IMDb search', pinned: 'pinned' };
+            const srcLabel = SRC_LABEL[data.matchSource] || '';
+            let line1 = `Matched: ${title}${data.cleanYear ? ` (${data.cleanYear})` : ''} · ${data.imdbId}`;
+            if (srcLabel) line1 += ` — ${srcLabel}`;
+            const knownMin = (typeof getCurrentMediaSeconds === 'function' && getCurrentMediaSeconds() > 0)
+                ? Math.round(getCurrentMediaSeconds() / 60)
+                : null;
+            let line2 = `parsed "${data.parsedTitle}"` +
+                (data.parsedYear ? `, year ${data.parsedYear}` : ', no year');
+            const rt = _fixRuntimeIndicator(data.runtimeDelta, data.runtime, knownMin);
+            if (rt) line2 += ` · ${rt}`;
+            matchEl.textContent = '';
+            const d1 = document.createElement('div');
+            d1.textContent = line1;
+            const d2 = document.createElement('div');
+            d2.className = 'sc-np-match-parsed';
+            d2.textContent = line2;
+            matchEl.appendChild(d1);
+            matchEl.appendChild(d2);
+            matchEl.style.display = '';
+        } else {
+            matchEl.textContent = '';
+            matchEl.style.display = 'none';
+        }
+
         const chipHtml = [];
         (data.parentalGuide || []).forEach(pg => {
             const sev = String(pg.severity || '').toLowerCase();
@@ -966,6 +1051,11 @@
                             overview: info.author_name ? `Uploaded by ${info.author_name}` : null,
                             rating: null, runtime: null, genres: [], parentalGuide: null,
                             killCount: null, imdbId: null, links: {}, season: null, episode: null,
+                            // Symmetry with the real-match _npData below. A YT clip has
+                            // no IMDb/parsed match, so the "Matched as" line and the
+                            // pencil both stay hidden (gated on imdbId / parsedTitle).
+                            parsedTitle: null, parsedYear: null, runtimeDelta: null,
+                            rawFilename: rawTitle, matchSource: null,
                         };
                     });
                 }
@@ -984,7 +1074,7 @@
         // rawTitle (the exact, unparsed #currenttitle text) is threaded as the
         // 6th arg so lookupMovie can consult the per-filename match-override
         // store. Every other caller omits it -> no-op.
-        lookupMovie(title, year, season, episode, knownSeconds > 0 ? knownSeconds : undefined, rawTitle).then(({ links, killCount, parentalGuide, imdbId, cleanTitle, cleanYear, episodeName, rating, runtime, genres, poster, backdrop, overview, matchSource, season, episode }) => {
+        lookupMovie(title, year, season, episode, knownSeconds > 0 ? knownSeconds : undefined, rawTitle).then(({ links, killCount, parentalGuide, imdbId, cleanTitle, cleanYear, episodeName, rating, runtime, genres, poster, backdrop, overview, matchSource, runtimeDelta, season, episode }) => {
             if (mySeq !== _titleRequestSeq) return; // a newer title lookup has since superseded this one — discard
 
             if (isYt && !cleanTitle) {
@@ -996,7 +1086,12 @@
             }
 
             _currentImdbId = imdbId || null;
-            _npData = { cleanTitle, cleanYear, episodeName, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, killCount, imdbId, links, matchSource, season, episode };
+            // parsedTitle/parsedYear/runtimeDelta/rawFilename feed Task 5's
+            // "Matched as" diagnostic line + the "Fix match" pencil on the card.
+            // title/year here are the outer parseMovieFilename() values (the
+            // .then destructure shadows only season/episode, never title/year).
+            _npData = { cleanTitle, cleanYear, episodeName, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, killCount, imdbId, links, matchSource, season, episode,
+                        parsedTitle: title, parsedYear: year, runtimeDelta, rawFilename: rawTitle };
 
             // Update title with clean IMDb title, wrapped in a clickable span
             if (cleanTitle && titleEl) {
@@ -1157,6 +1252,237 @@
         clearMovieOverride(rawFilename);
         _dropCachedEntriesFor(rawFilename);
         rerenderCurrentTitle(rawFilename);
+    }
+
+    /* ==========================================================
+       "FIX MATCH" MODAL (Layers 3b / 3e) — search-and-pin UI.
+
+       Opened from the pencil button on the Now Playing card. Lets the
+       user search IMDb (by title, or by pasting a tt-id / imdb.com/title
+       URL) and pin the correct entry for THIS exact raw filename via
+       applyMovieOverride() -- or, when a pin already exists, drop it with
+       removeMovieOverride(). Both of those trigger their own re-render
+       (rerenderCurrentTitle), so this function never calls it directly.
+
+       Structure cribbed from grammar-check's showReviewModal: an
+       #sc-fix-overlay fixed full-screen dim, one #sc-fix-modal panel,
+       outside-click + Escape close, and a MutationObserver that
+       disconnects the keydown listener if the overlay is removed by any
+       other path. Strictly inline UI -- no alert/confirm/prompt anywhere.
+
+       Multi-result search: IMDB_MAIN_SEARCH_QUERY already returns the top
+       20 edges with id/titleText/releaseYear/titleType/voteCount/runtime
+       -- everything a result row needs except the poster -- so this
+       reuses it verbatim rather than defining a second query, then lazily
+       fetches posters for the visible rows via fetchImdbTitleFields
+       (cached per-tconst for the session). TMDB search is deliberately
+       NOT wired in: LS_TMDB / the TMDB search endpoint live in the
+       optional `tmdb` module's scope, not reachable cleanly from here,
+       and IMDb search alone already resolves the pin.
+    ========================================================== */
+    const IMDB_FIX_ROW_LIMIT = 8;
+    let _fixMatchPosterCache = {};
+
+    async function _fixMatchSearch(term) {
+        try {
+            const data = await imdbQuery('MainSearch', IMDB_MAIN_SEARCH_QUERY, { term });
+            const edges = data?.data?.mainSearch?.edges || [];
+            return edges
+                .map(e => e?.node?.entity)
+                .filter(r => r && r.id && r.titleText?.text)
+                .slice(0, IMDB_FIX_ROW_LIMIT)
+                .map(r => ({
+                    tconst:  r.id,
+                    title:   r.titleText.text,
+                    year:    r.releaseYear?.year ?? null,
+                    type:    r.titleType?.text ?? null,
+                    votes:   r.ratingsSummary?.voteCount ?? null,
+                    runtime: r.runtime?.seconds != null ? Math.round(r.runtime.seconds / 60) : null,
+                    poster:  null,
+                }));
+        } catch (e) { return []; }
+    }
+
+    function openFixMatchModal(rawFilename, seedTitle, seedYear) {
+        const old = document.getElementById('sc-fix-overlay');
+        if (old) old.remove();
+
+        const esc = s => String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+
+        const overlay = document.createElement('div');
+        overlay.id = 'sc-fix-overlay';
+        overlay.innerHTML = `
+            <div id="sc-fix-modal">
+                <div id="sc-fix-header">Fix match — <span id="sc-fix-file"></span></div>
+                <input id="sc-fix-search" type="text" autocomplete="off" spellcheck="false"
+                       placeholder="Search a title, or paste an IMDb link / tt-id" />
+                <div id="sc-fix-results"></div>
+                <div id="sc-fix-foot"></div>
+                <div id="sc-fix-actions"></div>
+            </div>`;
+        document.body.appendChild(overlay);
+        overlay.querySelector('#sc-fix-file').textContent = rawFilename || '(unknown file)';
+
+        const input     = overlay.querySelector('#sc-fix-search');
+        const resultsEl = overlay.querySelector('#sc-fix-results');
+        const footEl    = overlay.querySelector('#sc-fix-foot');
+        const actionsEl = overlay.querySelector('#sc-fix-actions');
+        input.value = seedTitle || '';
+
+        let rows = [];          // current candidate list: [{ tconst, title, ... }]
+        let selIdx = -1;        // highlighted row index, -1 = none
+        let searchSeq = 0;      // guards against an older search resolving last
+        let debounceTimer = null;
+
+        function close() {
+            clearTimeout(debounceTimer);
+            overlay.removeEventListener('keydown', keyHandler);
+            cleanupObserver.disconnect();
+            overlay.remove();
+        }
+
+        // Pin the chosen tconst for this exact filename, then close. The card
+        // sitting behind the modal still shows the OLD match; applyMovieOverride
+        // kicks off an async re-render that updates _npData / the title bar but
+        // not the already-open card, so hide it -- the user reopens with `I` to
+        // see the corrected card.
+        function confirmTconst(tconst) {
+            if (!tconst) return;
+            applyMovieOverride(rawFilename, { imdbId: tconst, tmdbId: null });
+            hideNowPlayingCard();
+            close();
+        }
+
+        function renderRows() {
+            resultsEl.innerHTML = '';
+            rows.forEach((r, i) => {
+                const row = document.createElement('div');
+                row.className = 'sc-fix-row' + (i === selIdx ? ' sel' : '');
+                row.dataset.tconst = r.tconst;
+                const metaBits = [
+                    r.year || null,
+                    r.type || null,
+                    r.runtime ? `${r.runtime}m` : null,
+                    (r.votes != null) ? `${r.votes.toLocaleString()} votes` : null,
+                ].filter(Boolean);
+                row.innerHTML = `
+                    <div class="sc-fix-thumb"${r.poster ? ` style="background-image:url(${esc(r.poster)})"` : ''}></div>
+                    <div class="sc-fix-rowtext">
+                        <div class="sc-fix-rowtitle">${esc(r.title)}</div>
+                        <div class="sc-fix-rowmeta">${esc(metaBits.join(' · '))}${metaBits.length ? ' · ' : ''}${esc(r.tconst)}</div>
+                    </div>`;
+                row.addEventListener('click', () => confirmTconst(r.tconst));
+                resultsEl.appendChild(row);
+            });
+            const sel = resultsEl.querySelector('.sc-fix-row.sel');
+            if (sel) sel.scrollIntoView({ block: 'nearest' });
+        }
+
+        function runSearch() {
+            const raw = input.value.trim();
+
+            // Pasted a tt-id / IMDb URL -> a single confirm row, no search.
+            const pastedTconst = _fixMatchDetectTconst(raw);
+            if (pastedTconst) {
+                rows = [{ tconst: pastedTconst, title: `Use ${pastedTconst}`, year: null,
+                          type: null, votes: null, runtime: null, poster: null }];
+                selIdx = 0;
+                renderRows();
+                footEl.textContent = 'Press Enter (or click) to pin this IMDb id.';
+                return;
+            }
+
+            if (raw.length < 2) {
+                rows = []; selIdx = -1; renderRows();
+                footEl.textContent = '';
+                return;
+            }
+
+            const mySeq = ++searchSeq;
+            footEl.textContent = 'Searching…';
+            _fixMatchSearch(raw).then(res => {
+                if (mySeq !== searchSeq) return;   // a newer keystroke already superseded this
+                rows = res;
+                selIdx = res.length ? 0 : -1;
+                renderRows();
+                footEl.textContent = res.length ? '' : 'No matches — try a different spelling, or paste a tt-id.';
+
+                // Lazy poster fetch for the visible rows. Cached per tconst so
+                // re-searching the same term is free; each patch guards on the
+                // search seq so a stale result can't paint over a newer list.
+                res.forEach(r => {
+                    if (_fixMatchPosterCache[r.tconst] !== undefined) {
+                        r.poster = _fixMatchPosterCache[r.tconst];
+                        if (r.poster) _patchThumb(r.tconst, r.poster);
+                        return;
+                    }
+                    fetchImdbTitleFields(r.tconst).then(f => {
+                        const p = (f && f.poster) || null;
+                        _fixMatchPosterCache[r.tconst] = p;
+                        if (mySeq !== searchSeq) return;
+                        r.poster = p;
+                        if (p) _patchThumb(r.tconst, p);
+                    });
+                });
+            });
+        }
+
+        function _patchThumb(tconst, url) {
+            const el = resultsEl.querySelector(`.sc-fix-row[data-tconst="${tconst}"] .sc-fix-thumb`);
+            if (el) el.style.backgroundImage = `url(${url})`;
+        }
+
+        function keyHandler(e) {
+            if (e.key === 'Escape') {
+                e.preventDefault(); e.stopPropagation();
+                close();
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (rows.length) { selIdx = (selIdx + 1) % rows.length; renderRows(); }
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (rows.length) { selIdx = (selIdx - 1 + rows.length) % rows.length; renderRows(); }
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (selIdx >= 0 && rows[selIdx]) confirmTconst(rows[selIdx].tconst);
+            }
+        }
+
+        input.addEventListener('input', () => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(runSearch, 350);
+        });
+        overlay.addEventListener('keydown', keyHandler);
+        overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+
+        // Disconnect the keydown listener if the overlay leaves the DOM by any
+        // path other than close() (mirrors grammar-check's cleanup observer).
+        const cleanupObserver = new MutationObserver(() => {
+            if (!document.getElementById('sc-fix-overlay')) {
+                overlay.removeEventListener('keydown', keyHandler);
+                cleanupObserver.disconnect();
+            }
+        });
+        cleanupObserver.observe(document.body, { childList: true });
+
+        // "Reset to automatic match" -- only when a pin currently exists.
+        if (getMovieOverride(rawFilename)) {
+            const resetBtn = document.createElement('button');
+            resetBtn.id = 'sc-fix-reset';
+            resetBtn.type = 'button';
+            resetBtn.textContent = 'Reset to automatic match';
+            resetBtn.addEventListener('click', () => {
+                removeMovieOverride(rawFilename);
+                hideNowPlayingCard();
+                close();
+            });
+            actionsEl.appendChild(resetBtn);
+        }
+
+        setTimeout(() => { input.focus(); input.select(); }, 0);
+        if (input.value.trim()) runSearch();
     }
 
     let _titleObsAttached = false;
