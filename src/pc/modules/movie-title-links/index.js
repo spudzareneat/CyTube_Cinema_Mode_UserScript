@@ -345,8 +345,13 @@
 
     async function imdbSearchTitle(title, year, knownSeconds) {
         if (!title) return null;
-        try {
-            const data = await imdbQuery('MainSearch', IMDB_MAIN_SEARCH_QUERY, { term: title });
+        // One MainSearch for `term`, then the titleType tier walk, returning
+        // the candidates whose own title actually resembles `term`. Factored
+        // out of the body below so the bare-year recovery pass can re-run the
+        // identical selection against a second search term without
+        // duplicating (and drifting from) the tier logic.
+        const searchAndMatch = async (term) => {
+            const data = await imdbQuery('MainSearch', IMDB_MAIN_SEARCH_QUERY, { term });
             const edges = data?.data?.mainSearch?.edges || [];
             const results = edges.map(e => e?.node?.entity).filter(Boolean);
             const movies = results.filter(r => r.titleType?.id === 'movie');
@@ -367,11 +372,37 @@
             // 'movie' entry must not block the loop from ever reaching the
             // tier that actually holds the real title.
             const tiers = [movies, tvEpisodes, nonPodcast, results];
-            let titleMatches = [];
             for (const tier of tiers) {
-                titleMatches = tier.filter(r => titlesMatch(r.titleText?.text, title));
-                if (titleMatches.length) break;
+                const matches = tier.filter(r => titlesMatch(r.titleText?.text, term));
+                if (matches.length) return matches;
             }
+            return [];
+        };
+        try {
+            let titleMatches = await searchAndMatch(title);
+
+            // ── Bare-year recovery ───────────────────────────────────────────
+            // parseMovieFilename's bare-year fallback correctly reads the
+            // trailing year off "Blade.Runner.1982" -- but it can't know that
+            // for a title which legitimately ENDS in a year ("Class of 1984",
+            // "Airport 1975", "Death Race 2000", "Summer of 1984" -- staples
+            // on this channel) that trailing number is part of the name. Those
+            // parse to { title: "Class of", year: "1984" }, and titlesMatch
+            // then rejects IMDb's real "Class of 1984" against the truncated
+            // query: tokens {class, 1984} vs {class} (`of` is a stopword) =
+            // 0.667, under the 0.7 Dice floor -- every tier misses and the
+            // whole lookup returns null.
+            //
+            // So when the tier walk found nothing at all AND we have a year,
+            // fold the year back into the term and search once more:
+            // "Class of 1984" vs "Class of 1984" scores 1.0. Strictly a
+            // recovery step -- gated on an empty match set, so the happy paths
+            // (Blade Runner, Collision Course) issue zero extra requests, and
+            // gated on `year`, so a yearless parse can't double-search either.
+            if (!titleMatches.length && year) {
+                titleMatches = await searchAndMatch(`${title} ${year}`);
+            }
+
             if (!titleMatches.length) return null;
             const yearMatches = year ? titleMatches.filter(r => String(r.releaseYear?.year) === String(year)) : [];
             const candidates = yearMatches.length ? yearMatches : titleMatches;
@@ -783,7 +814,21 @@
         // lookups for this title, the same trap the old TMDB-absent case fell
         // into pre-upgrade. An unresolved result still gets returned to the
         // caller this time, just not cached.
-        if (result.resolved) {
+        //
+        // The `!(override && !imdbResult)` half closes the same hole on the
+        // PINNED fork. There, resolved is forced true by `(override && imdbId)`
+        // above -- deliberately, so the card shows the user's pin instantly --
+        // which means a pin whose fetchImdbTitleFields() came back null
+        // (network blip, IMDb 5xx, dead tconst) would otherwise persist a
+        // sparse entry under `override:<rawFilename>`: no poster, rating,
+        // runtime or genres, and cleanTitle degraded to the parsed garbage
+        // title. Being cached, it would then be served forever -- only
+        // re-pinning or a full Settings->Save cache wipe could dislodge it.
+        // So such a result is shown once but NOT written; the next play of the
+        // file retries the enrichment fetch. A pin whose fetch SUCCEEDED has a
+        // truthy imdbResult -> caches normally, and the auto path has a null
+        // override -> `!(null && ...)` -> true, so it is untouched.
+        if (result.resolved && !(override && !imdbResult)) {
             movieLinkCache[cacheKey] = result;
             try { localStorage.setItem(LS_MOVIE_CACHE, JSON.stringify(movieLinkCache)); }
             catch (e) { /* storage full/unavailable -- in-memory cache for this session still works */ }
@@ -917,7 +962,21 @@
         // shows without one so a total match failure can still be corrected.
         const fixBtn  = card.querySelector('#sc-np-fix');
         const matchEl = card.querySelector('#sc-np-match');
-        fixBtn.style.display = (data.rawFilename && data.parsedTitle) ? '' : 'none';
+        // setProperty(..., 'important') -- NOT a plain `.style.display =`. The
+        // #sc-np-fix rule in style.css declares `display: flex !important`
+        // (every rule in this module is !important to survive CyTube's own
+        // sheets), and a normal inline declaration LOSES to an author
+        // !important one. So a plain assignment of 'none' here was a silent
+        // no-op and the pencil rendered on every card -- including YouTube
+        // clips (where it's a dead no-op) and tonights-lineup's per-item
+        // cards (where clicking it opened the fix modal keyed to the wrong
+        // file). An important inline declaration outranks the sheet, so both
+        // the show and the hide branch now actually take effect; 'flex' (not
+        // '') is restored on the show branch since '' would drop back to the
+        // sheet's value and we no longer rely on the cascade for it.
+        // Gate is deliberately rawFilename && parsedTitle, NOT imdbId -- a
+        // total match failure is exactly when the user most needs the pencil.
+        fixBtn.style.setProperty('display', (data.rawFilename && data.parsedTitle) ? 'flex' : 'none', 'important');
         if (data.imdbId && data.parsedTitle) {
             const SRC_LABEL = { tmdb: 'TMDB', imdb: 'IMDb search', pinned: 'pinned' };
             const srcLabel = SRC_LABEL[data.matchSource] || '';
@@ -995,6 +1054,15 @@
     // more-recently-started lookup already applied.
     let _titleRequestSeq = 0;
 
+    // The exact string this module last wrote into #sc-title-text. The header
+    // MutationObserver watches characterData, so every one of our own title
+    // rewrites bounces straight back as a triggerTitleInject() -> a SECOND,
+    // redundant lookup, this time keyed by the CLEANED title rather than the
+    // raw filename. That was always wasteful; with match-overrides it is also
+    // destructive (see the guard in injectMovieLinks below). Recording what we
+    // wrote lets the reaction to our own write be recognised and dropped.
+    let _lastInjectedTitleText = '';
+
     // overrideRawTitle, when given, is trusted verbatim instead of re-deriving
     // the title from titleEl's live text -- used by the changeMedia socket
     // handler below, which has an authoritative title straight from the
@@ -1011,6 +1079,23 @@
         // any lookup; don't touch lastMovieTitle so a later real title never gets
         // deduped against this placeholder.
         if (/^nothing\s+playing$/i.test(rawTitle)) return;
+
+        // Don't react to our own title rewrite. When this runs off the header
+        // MutationObserver (overrideRawTitle undefined -> the title came from
+        // the DOM) and the text we just read is verbatim the text we ourselves
+        // last wrote into #sc-title-text, there is nothing new to look up: the
+        // lookup that produced that text already completed. Without this the
+        // observer fires a full second lookup for every title change, keyed by
+        // the cleaned display title ("Class of 1984 (1984)") instead of the raw
+        // filename -- which for a PINNED file overwrites _npData with a plain
+        // auto-match (matchSource 'pinned' -> 'imdb', rawFilename becoming the
+        // clean title), so the pencil then targets a nonexistent override key
+        // and "Reset to automatic match" is never offered for the real pin.
+        // watchMovieTitle's ~1.5s poll re-triggers for ~21s after a cold load,
+        // so a cold load of a pinned file hit this too, well after any lock
+        // window expired. Only DOM-sourced calls bail: an explicit
+        // injectMovieLinks(el, rawFilename) always proceeds.
+        if (overrideRawTitle === undefined && _lastInjectedTitleText && rawTitle === _lastInjectedTitleText) return;
 
         if (!rawTitle || rawTitle === lastMovieTitle || rawTitle.length < 2) return;
         lastMovieTitle = rawTitle;
@@ -1110,6 +1195,10 @@
                     else titleEl.insertBefore(span, titleEl.firstChild);
                 }
                 span.textContent = newText;
+                // Remember exactly what we wrote so the header
+                // MutationObserver's echo of this very mutation is recognised
+                // and dropped by the guard at the top of this function.
+                _lastInjectedTitleText = newText;
             }
 
             // Trivia button — only when we have an IMDb ID and the imdb-trivia module is
@@ -1232,10 +1321,22 @@
     // and the override consult the exact filename the pin is keyed by. Mirrors
     // triggerTitleInject minus the _socketTitleLockUntil gate -- an explicit
     // user action should always re-render, even inside the post-changeMedia
-    // lock window.
+    // lock window. It does not READ that lock, but it does SET it (below).
     function rerenderCurrentTitle(rawFilename) {
         lastMovieTitle = '';        // clear the dedup guard (injectMovieLinks)
         _titleRequestSeq++;         // invalidate any in-flight lookup's .then
+        // An explicit user re-render must not be clobbered by the DOM mutation
+        // it itself causes: the lookup below rewrites #sc-title-text, the
+        // header MutationObserver sees that characterData change and calls
+        // triggerTitleInject(), which would run a fresh NON-override lookup on
+        // the cleaned title and overwrite _npData -- turning the just-pinned
+        // match back into a plain auto-match. Take the same 8s lock the
+        // changeMedia handler uses so DOM-triggered injects stay suppressed
+        // while this pin's lookup and its .then complete. (injectMovieLinks'
+        // _lastInjectedTitleText guard covers the same echo and outlives this
+        // window; the lock additionally covers the flicker/poll traffic that
+        // is not our own text.)
+        _socketTitleLockUntil = Date.now() + 8000;
         const el = findTitleEl();
         if (el) injectMovieLinks(el, rawFilename);
     }

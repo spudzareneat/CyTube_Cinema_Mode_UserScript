@@ -110,6 +110,11 @@
                 letter-spacing: 0.01em !important;
             }
             #sc-np-match .sc-np-match-parsed { color: rgba(255,255,255,0.38) !important; }
+            /* NOTE: `display: flex !important` below is the DEFAULT/shown state
+               only. showNowPlayingCard() hides the pencil per-card and must
+               therefore use style.setProperty('display', ..., 'important') --
+               a plain inline `.style.display = 'none'` loses to this
+               !important rule and silently does nothing. */
             #sc-np-fix {
                 position: absolute !important; top: 18px !important; right: 20px !important;
                 width: 34px !important; height: 34px !important;

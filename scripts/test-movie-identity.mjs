@@ -52,6 +52,25 @@ const cases = [
     // implausible far-future 4-digit run is not a year
     { in: 'Area.5150.mkv', title: 'Area 5150', year: null },
 
+    // --- titles that legitimately END in a year ---------------------------
+    // These pin the parse as the bare-year fallback actually produces it: the
+    // trailing year is indistinguishable from a release-year tag at the
+    // filename level, so "Class of 1984" parses to the TRUNCATED title
+    // "Class of" plus year "1984". That is the intended parse -- reverting it
+    // would break "Blade.Runner.1982" and friends above, which are far more
+    // common. What makes these still resolve is a recovery step one layer up,
+    // in the SEARCH: imdbSearchTitle() re-runs MainSearch once with the year
+    // folded back onto the term (`${title} ${year}`) whenever the tier walk
+    // finds no title-matching candidate at all, so IMDb's "Class of 1984" is
+    // compared against "Class of 1984" (Dice 1.0) instead of against
+    // "Class of" (0.667, under the 0.7 floor -> total match failure). That
+    // retry lives in movie-title-links/index.js and is not covered here --
+    // this file only exercises the pure parser.
+    { in: 'Class.of.1984.mkv',   title: 'Class of',   year: '1984' },
+    { in: 'Airport.1975.mkv',    title: 'Airport',    year: '1975' },
+    { in: 'Death.Race.2000.mkv', title: 'Death Race', year: '2000' },
+    { in: 'Summer.of.1984.mkv',  title: 'Summer of',  year: '1984' },
+
     // --- quality/codec token strip (no year to cut at) ---
     { in: 'The.Thing.720p.x264.mkv', title: 'The Thing', year: null },
     { in: 'Robo.Vampire.WEB-DL.h265.HEVC.mkv', title: 'Robo Vampire', year: null },
