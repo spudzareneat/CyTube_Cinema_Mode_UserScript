@@ -851,8 +851,8 @@
         if (knownMin == null || knownMin <= 0 || runtimeDelta == null) return 'runtime unknown';
         const within = (runtimeDelta / knownMin) <= 0.15;
         return within
-            ? `runtime ✓ ${runtimeMin}m≈${knownMin}m`
-            : `runtime ✗ ${runtimeMin}m vs ${knownMin}m`;
+            ? `runtime ✓ IMDb ${runtimeMin}m ≈ file ${knownMin}m`
+            : `runtime ✗ IMDb ${runtimeMin}m vs file ${knownMin}m`;
     }
     // ── test marker: fix-match helpers slice end ──
 

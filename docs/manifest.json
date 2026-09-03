@@ -1,7 +1,7 @@
 {
   "scriptId": "cytube.pc",
   "displayName": "CyTube Fullscreen Video with Overlay Chat",
-  "baseVersion": "4.10.15",
+  "baseVersion": "4.11.0",
   "headerTemplate": "src/pc/header.template.js",
   "match": [
     "https://cytu.be/r/420Grindhouse",
@@ -64,7 +64,8 @@
         "Full-screen Now Playing info card auto-triggered on title change — backdrop, poster, title/year, rating, runtime, genres, synopsis",
         "IMDb / Letterboxd / Wikipedia badge links",
         "Color-coded parental-guide content-warning chips",
-        "Floating stats strip + I hotkey to reopen the card"
+        "Floating stats strip + I hotkey to reopen the card",
+        "Fix a wrong movie match: 'Matched as' line + pencil on the Now Playing card opens a search-and-pin modal; per-filename override persists"
       ],
       "screenshot": "screenshots/movie-title-links.png"
     },

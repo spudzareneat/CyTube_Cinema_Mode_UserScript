@@ -75,14 +75,14 @@ eq('no known duration -> unknown', _fixRuntimeIndicator(null, 128, null), 'runti
 eq('known duration 0 -> unknown', _fixRuntimeIndicator(null, 128, 0), 'runtime unknown');
 eq('delta null but runtime+known present -> unknown', _fixRuntimeIndicator(null, 128, 130), 'runtime unknown');
 
-// Within 15% tolerance -> ✓ with the "≈" form.
-eq('exact match -> ✓', _fixRuntimeIndicator(0, 131, 131), 'runtime ✓ 131m≈131m');
-eq('3m off on 131 -> ✓', _fixRuntimeIndicator(3, 128, 131), 'runtime ✓ 128m≈131m');
-eq('15% boundary -> ✓', _fixRuntimeIndicator(15, 100, 100), 'runtime ✓ 100m≈100m'); // 15/100 == 0.15
+// Within 15% tolerance -> ✓ with the labelled "≈" form.
+eq('exact match -> ✓', _fixRuntimeIndicator(0, 131, 131), 'runtime ✓ IMDb 131m ≈ file 131m');
+eq('3m off on 131 -> ✓', _fixRuntimeIndicator(3, 128, 131), 'runtime ✓ IMDb 128m ≈ file 131m');
+eq('15% boundary -> ✓', _fixRuntimeIndicator(15, 100, 100), 'runtime ✓ IMDb 100m ≈ file 100m'); // 15/100 == 0.15
 
-// Beyond tolerance -> ✗ with the "vs" form.
-eq('far off -> ✗', _fixRuntimeIndicator(36, 128, 92), 'runtime ✗ 128m vs 92m');
-eq('just past 15% -> ✗', _fixRuntimeIndicator(16, 100, 100), 'runtime ✗ 100m vs 100m'); // 16/100 > 0.15
+// Beyond tolerance -> ✗ with the labelled "vs" form.
+eq('far off -> ✗', _fixRuntimeIndicator(36, 128, 92), 'runtime ✗ IMDb 128m vs file 92m');
+eq('just past 15% -> ✗', _fixRuntimeIndicator(16, 100, 100), 'runtime ✗ IMDb 100m vs file 100m'); // 16/100 > 0.15
 
 if (failed) {
     console.error(`\n${failed} assertion(s) failed`);
