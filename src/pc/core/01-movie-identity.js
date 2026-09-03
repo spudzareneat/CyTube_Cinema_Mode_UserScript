@@ -44,9 +44,40 @@
         return null;
     }
 
+    // Scene-release quality/codec tags stripped from filename titles just
+    // before the dot/underscore -> space cleanup, so they never survive into
+    // the TMDB query. parseYouTubeTitle does the same job for YT titles via
+    // YT_NOISE (which already folds in the handful that overlap --
+    // 1080p/720p/480p/4k/blu-ray/web-dl); this is the filename-side list for
+    // the tokens YT_NOISE doesn't carry. Entries are regex fragments
+    // (word-boundaried, case-insensitive at the call site).
+    const RELEASE_TOKENS = [
+        '2160p', '1080p', '720p', '480p', '4k',
+        'x264', 'x265', 'h264', 'h265', 'hevc',
+        'bluray', 'brrip', 'bdrip', 'web-?dl', 'webrip', 'hdrip', 'dvdrip', 'dvdscr',
+        'xvid', 'divx', 'aac', 'ac3', 'dts', 'remux', 'hdr',
+    ];
+
     function parseMovieFilename(raw) {
         // Remove file extension
         let s = raw.replace(/\.(mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts|divx|xvid|ogv)$/i, '');
+
+        const nowYear = new Date().getFullYear();
+
+        // Digit-bracket repair: a stray bracket sometimes splits a 4-digit
+        // year run ("1[989]", "[19]89", "19(89)", "199[0]") so neither the
+        // bracketed-year regex nor the bare-year fallback below can see it.
+        // Collapse the bracket ONLY when the digits on each side concatenate
+        // to exactly four and form a plausible release year -- real tags like
+        // "[720p]" / "[BluRay]", and an already-valid fully-bracketed
+        // "[1984]" (no digits spilling outside the brackets), are left alone.
+        s = s.replace(/(\d*)[\[(](\d+)[\])](\d*)/g, (m, pre, mid, post) => {
+            if (!pre && !post) return m;                          // nothing split -- leave [1984] etc. intact
+            const digits = pre + mid + post;
+            if (digits.length !== 4 || !/^(?:19|20)\d{2}$/.test(digits)) return m;
+            if (parseInt(digits, 10) > nowYear + 2) return m;
+            return digits;
+        });
 
         // Locate the year and the season/episode marker (S01E10, Season 1
         // Episode 20, 1x22, Ep. 5, etc.) against the same untouched string
@@ -58,8 +89,34 @@
         // leaving season/episode null even though the marker was right
         // there in the original string.
         let year = null;
+        let yearCutIndex = Infinity;
         const yearMatch = s.match(/[\[(](\d{4})[\])]/);
-        if (yearMatch) year = yearMatch[1];
+        if (yearMatch) {
+            year = yearMatch[1];
+            yearCutIndex = yearMatch.index;
+        }
+
+        // Bare 4-digit year fallback -- only when no bracketed year was found.
+        // A release year trails the scene name ("Blade.Runner.1982"), so take
+        // the LAST plausible match; a number at the very START of the string
+        // is part of the title ("2001.A.Space.Odyssey"), never a year, so a
+        // match anchored at index 0 is ignored.
+        if (!year) {
+            const bareYearRe = /(?:^|[.\s_\-([])((?:19|20)\d{2})(?:$|[.\s_\-)\]])/g;
+            let bm, last = null;
+            while ((bm = bareYearRe.exec(s)) !== null) {
+                last = bm;
+                bareYearRe.lastIndex = bm.index + 1; // let a shared delimiter start the next match too
+            }
+            if (last) {
+                const yearIndex = last.index + last[0].indexOf(last[1]);
+                const y = parseInt(last[1], 10);
+                if (yearIndex > 0 && y >= 1900 && y <= nowYear + 2) {
+                    year = last[1];
+                    yearCutIndex = yearIndex;
+                }
+            }
+        }
 
         let season = null, episode = null;
         const epMatch = _matchEpisode(s);
@@ -72,7 +129,7 @@
         // series-name prefix, discards the episode-specific subtitle
         // scene/upload filenames often append after the marker.
         const cutIndex = Math.min(
-            yearMatch ? yearMatch.index : Infinity,
+            yearCutIndex,
             epMatch ? epMatch.match.index : Infinity
         );
         if (cutIndex !== Infinity) s = s.slice(0, cutIndex);
@@ -86,6 +143,15 @@
         s = s.replace(/\b(?:[A-Za-z]\.){2,}/g, (m) => {
             acronyms.push(m);
             return ` @@${acronyms.length - 1}@@ `;
+        });
+
+        // Strip scene-release quality/codec tags ("1080p", "x264", "BluRay",
+        // "WEB-DL", ...) while dots still delimit them. Word-boundaried and
+        // case-insensitive; the protected-acronym placeholders (@@n@@) hold
+        // no digits/letters these fragments match, and episode markers were
+        // already sliced off above, so both are safe.
+        RELEASE_TOKENS.forEach((tok) => {
+            s = s.replace(new RegExp('\\b' + tok + '\\b', 'gi'), ' ');
         });
 
         // Replace dots and underscores with spaces
