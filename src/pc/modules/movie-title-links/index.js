@@ -397,7 +397,15 @@
     // All 5 fields confirmed working in Task 1's discovery (rating, runtime,
     // overview, poster, genres) — none omitted. Field paths and the
     // `titleGenres.genres[].genre.text` nesting are exactly as proven there.
-    const IMDB_TITLE_FIELDS_QUERY = 'query GHCombined($id: ID!){ title(id:$id){ id ratingsSummary{ aggregateRating voteCount } runtime{ seconds } plot{ plotText{ plainText } } primaryImage{ url width height } titleGenres{ genres{ genre{ text } } } } }';
+    // titleText/releaseYear added later (same shape as IMDB_MAIN_SEARCH_QUERY):
+    // the by-title path already has canonical title/year from imdbSearchTitle's
+    // `match`, but the pinned-override path in lookupMovie() resolves straight
+    // from a tconst with no search step, so this is its only source of a
+    // display title/year. Returned under distinct `titleText`/`releaseYear`
+    // keys (NOT title/year) so fetchImdbMovieByTitle's `...(fields || {})`
+    // spread can't collide with `match.title`/`match.year` -- the by-title path
+    // stays byte-identical, these two keys just ride along unused there.
+    const IMDB_TITLE_FIELDS_QUERY = 'query GHCombined($id: ID!){ title(id:$id){ id titleText{ text } releaseYear{ year } ratingsSummary{ aggregateRating voteCount } runtime{ seconds } plot{ plotText{ plainText } } primaryImage{ url width height } titleGenres{ genres{ genre{ text } } } } }';
 
     async function fetchImdbTitleFields(tconst) {
         if (!tconst) return null;
@@ -406,6 +414,8 @@
             const t = data?.data?.title;
             if (!t) return null;
             return {
+                titleText:    t.titleText?.text ?? null,
+                releaseYear:  t.releaseYear?.year ?? null,
                 rating:       t.ratingsSummary?.aggregateRating ?? null,
                 voteCount:    t.ratingsSummary?.voteCount ?? null,
                 runtime:      t.runtime?.seconds != null ? Math.round(t.runtime.seconds / 60) : null,
@@ -422,7 +432,9 @@
     // then pulls its fields, and returns a single merged object. Returns
     // null if the title can't be resolved at all; still returns the
     // tconst/title/year even if the field lookup itself fails (fields
-    // spread in as {} in that case).
+    // spread in as {} in that case). `match.title`/`match.year` win over the
+    // spread -- fetchImdbTitleFields deliberately returns its own title/year
+    // under titleText/releaseYear, so there's no key collision here.
     async function fetchImdbMovieByTitle(title, year, knownSeconds) {
         const match = await imdbSearchTitle(title, year, knownSeconds);
         if (!match || !match.tconst) return null;
@@ -738,13 +750,16 @@
             ? 'pinned'
             : (tmdbPrimary ? 'tmdb' : (imdbResult ? 'imdb' : null));
 
-        // A pin's imdbId enrichment (fetchImdbTitleFields) carries no
-        // title/year, so cleanTitle/cleanYear would be null for a pinned movie.
-        // Fall back to the parsed title/year (only on the override path -- the
-        // auto paths are untouched) so the Now Playing card still names it.
+        // On a pin, cleanTitle/cleanYear from the `??` chain above are null
+        // (tmdbPrimary is null and fetchImdbTitleFields' title/year live under
+        // titleText/releaseYear, not title/year). Prefer IMDb's canonical
+        // title/year for the pinned tconst so the Now Playing bar shows the
+        // corrected title next to Task 5's "pinned" badge -- not the original
+        // garbage parse. Falls back to the chain result, then the parsed
+        // title/year. Override path only; the auto paths are untouched.
         if (override) {
-            result.cleanTitle = result.cleanTitle ?? (title || null);
-            result.cleanYear  = result.cleanYear  ?? (year || null);
+            result.cleanTitle = imdbResult?.titleText   ?? result.cleanTitle ?? (title || null);
+            result.cleanYear  = imdbResult?.releaseYear  ?? result.cleanYear  ?? (year || null);
         }
 
         // ── Runtime delta for Task 5's "Matched as" line ─────────────────────
