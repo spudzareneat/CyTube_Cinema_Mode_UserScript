@@ -229,10 +229,74 @@
     // generic words to no longer be a risk post-titlesMatch, but was before
     // stopword-stripping was added) could still block the loop from ever
     // reaching the tier holding the real title.
-    const IMDB_MAIN_SEARCH_QUERY = 'query MainSearch($term: String!) { mainSearch(first: 20, options: { searchTerm: $term, type: TITLE }) { edges { node { entity { ... on Title { id titleText { text } releaseYear { year } titleType { text id isSeries isEpisode } ratingsSummary { voteCount } } } } } } }';
+    // `runtime { seconds }` in the `... on Title` fragment: confirmed live
+    // against caching.graphql.imdb.com (this endpoint accepts arbitrary field
+    // selection, no persisted-hash restriction) -- a MainSearch for "Collision
+    // Course" returns runtime.seconds for every real title, undefined only for
+    // the odd entry IMDb genuinely lacks one for. It's the zero-extra-call way
+    // to feed the runtime cross-check below (demoteByRuntime); the alternative
+    // was an extra fetchImdbTitleFields round-trip per top candidate.
+    const IMDB_MAIN_SEARCH_QUERY = 'query MainSearch($term: String!) { mainSearch(first: 20, options: { searchTerm: $term, type: TITLE }) { edges { node { entity { ... on Title { id titleText { text } releaseYear { year } titleType { text id isSeries isEpisode } ratingsSummary { voteCount } runtime { seconds } } } } } } }';
 
     function byVoteCountDesc(a, b) {
         return (b.ratingsSummary?.voteCount ?? 0) - (a.ratingsSummary?.voteCount ?? 0);
+    }
+
+    /* ==========================================================
+       RUNTIME CROSS-CHECK (Layer 1c) — demote, don't exclude.
+
+       When the parsed title is ambiguous ("Collision Course" -> a
+       dozen unrelated films), imdbSearchTitle picks whichever title
+       match has the most IMDb votes. The file actually playing has a
+       duration (getCurrentMediaSeconds), and that's a strong
+       disambiguator the vote-count sort ignores entirely: a candidate
+       whose runtime is nowhere near the playing file almost certainly
+       isn't what's on screen.
+
+       15% tolerance, and DEMOTE rather than EXCLUDE, both deliberate:
+       a runtime mismatch has too many innocent causes to hard-filter
+       on -- distributor idents / channel bumpers baked into the file,
+       the classic PAL 4% speedup on older transfers, theatrical vs.
+       extended/unrated/director's cuts, and multi-part files that
+       concatenate a whole miniseries into one entry. Excluding on a
+       threshold would just trade the vote-count failure mode for a
+       worse one (drop the real match, resolve to nothing or to
+       something even further off). So a far-off candidate only loses
+       its priority; if it was the only title match, it still wins.
+
+       A candidate with no runtime data is NEVER demoted -- IMDb
+       genuinely lacks a runtime for some obscure titles, and absence
+       of evidence isn't evidence of a mismatch.
+
+       Stable partition: within "kept" and within "demoted" the
+       incoming order is preserved, so whatever the caller already
+       ranked first in each group still leads it. Caller applies this
+       AFTER its vote-count / relevance sort.
+
+       Pure function (no network, no globals) -- exercised directly by
+       scripts/test-runtime-demote.mjs. `getRuntimeMin(candidate)`
+       returns the candidate's runtime in whole minutes, or null.
+    ========================================================== */
+    // ── test marker: slice start ──
+    function demoteByRuntime(candidates, knownSeconds, getRuntimeMin) {
+        // No known duration -> no-op, same array reference and order.
+        if (!knownSeconds) return candidates;
+        const targetMin = knownSeconds / 60;
+        const kept = [];
+        const demoted = [];
+        for (const c of candidates) {
+            const runtimeMin = getRuntimeMin(c);
+            // null runtime is never demoted (see header).
+            if (runtimeMin == null) { kept.push(c); continue; }
+            const deltaFrac = Math.abs(runtimeMin - targetMin) / targetMin;
+            (deltaFrac > 0.15 ? demoted : kept).push(c);
+        }
+        return kept.concat(demoted);
+    }
+    // ── test marker: slice end ──
+
+    function imdbCandidateRuntimeMin(c) {
+        return c?.runtime?.seconds != null ? Math.round(c.runtime.seconds / 60) : null;
     }
 
     // Sequel numbering swaps freely between roman and arabic ("Part III" vs
@@ -279,7 +343,7 @@
         return (2 * intersection) / (setA.size + setB.size) >= 0.7;
     }
 
-    async function imdbSearchTitle(title, year) {
+    async function imdbSearchTitle(title, year, knownSeconds) {
         if (!title) return null;
         try {
             const data = await imdbQuery('MainSearch', IMDB_MAIN_SEARCH_QUERY, { term: title });
@@ -311,7 +375,15 @@
             if (!titleMatches.length) return null;
             const yearMatches = year ? titleMatches.filter(r => String(r.releaseYear?.year) === String(year)) : [];
             const candidates = yearMatches.length ? yearMatches : titleMatches;
-            const best = candidates.slice().sort(byVoteCountDesc)[0] || null;
+            // Vote-count / relevance sort first, THEN demote candidates whose
+            // runtime is far from the playing file's duration -- so within the
+            // kept group the most-voted real release still leads, and a
+            // wrong-but-popular same-name title only loses when its runtime
+            // gives it away. knownSeconds undefined (no call site passed one,
+            // or changeMedia hasn't reported a duration) -> demoteByRuntime is
+            // a pure no-op and this is byte-identical to the old pick.
+            const ranked = candidates.slice().sort(byVoteCountDesc);
+            const best = demoteByRuntime(ranked, knownSeconds, imdbCandidateRuntimeMin)[0] || null;
             if (!best) return null;
             return {
                 tconst: best.id,
@@ -351,8 +423,8 @@
     // null if the title can't be resolved at all; still returns the
     // tconst/title/year even if the field lookup itself fails (fields
     // spread in as {} in that case).
-    async function fetchImdbMovieByTitle(title, year) {
-        const match = await imdbSearchTitle(title, year);
+    async function fetchImdbMovieByTitle(title, year, knownSeconds) {
+        const match = await imdbSearchTitle(title, year, knownSeconds);
         if (!match || !match.tconst) return null;
         const fields = await fetchImdbTitleFields(match.tconst);
         return {
@@ -378,7 +450,11 @@
         } catch (e) { return {}; }
     })();
 
-    async function lookupMovie(title, year, season, episode) {
+    // knownSeconds: the playing file's duration (getCurrentMediaSeconds) when
+    // it's known and > 0, else undefined. Optional TRAILING param -- every
+    // pre-existing behaviour is byte-identical when it's omitted. Kept at
+    // position 5 exactly; later tasks stack another positional arg after it.
+    async function lookupMovie(title, year, season, episode, knownSeconds) {
         // Extend the key with season/episode so two episodes sharing an
         // identical cleaned title (e.g. two differently-numbered episodes
         // that both parsed down to "The Tomorrow People") don't collide in
@@ -403,7 +479,7 @@
         let wikiUrl = null;
 
         const tmdbPrimaryPromise = (typeof fetchTmdbPrimary === 'function')
-            ? fetchTmdbPrimary(title, year)
+            ? fetchTmdbPrimary(title, year, knownSeconds)
             : Promise.resolve(null);
 
         // Wikipedia can start immediately with the raw title; we'll use the
@@ -461,7 +537,7 @@
             // restoring the original IMDb/Wikipedia parallelism byte-for-byte, just
             // with fetchTmdbPrimary's near-instant no-key check now also racing
             // alongside both.
-            imdbResult = await fetchImdbMovieByTitle(title, year);
+            imdbResult = await fetchImdbMovieByTitle(title, year, knownSeconds);
             imdbId = imdbResult?.tconst || null;
             tmdbSupplemental = (typeof fetchTmdbSupplemental === 'function')
                 ? await fetchTmdbSupplemental(imdbId)
@@ -543,6 +619,22 @@
             backdrop:   episodeInfo?.image    ?? tmdbPrimary?.backdrop ?? tmdbSupplemental?.backdrop ?? imdbResult?.poster ?? null,
             overview:   episodeInfo?.overview ?? tmdbPrimary?.overview ?? imdbResult?.overview ?? null,
         };
+
+        // ── Runtime delta for Task 5's "Matched as" line ─────────────────────
+        // Whole-minute gap between the resolved title's runtime and the playing
+        // file's duration -- the same signal demoteByRuntime() ranked on above,
+        // surfaced for display. An explicit `!= null` guard (not `??`/`||`)
+        // because "unknown" here depends on TWO inputs, not one nullable value:
+        // null only when this title has no runtime (no key + IMDb lacks one) OR
+        // changeMedia hasn't reported a duration yet -- a genuine 0-minute delta
+        // (runtime matches to the minute) must survive as 0, same reasoning as
+        // fetchImdbEpisodeInfo's runtime guard. Uses result.runtime, so the
+        // delta always matches whatever runtime the card actually shows
+        // (episode-specific when episode refinement found one, else the film's).
+        const _targetMin = knownSeconds > 0 ? knownSeconds / 60 : null;
+        result.runtimeDelta = (_targetMin != null && result.runtime != null)
+            ? Math.round(Math.abs(result.runtime - _targetMin))
+            : null;
 
         // Only persist a resolved result -- caching an unresolved one (e.g. a
         // transient IMDb GraphQL failure) would permanently poison future
@@ -743,7 +835,11 @@
         if (!title || title.length < 2) return;
 
         const mySeq = ++_titleRequestSeq;
-        lookupMovie(title, year, season, episode).then(({ links, killCount, parentalGuide, imdbId, cleanTitle, cleanYear, episodeName, rating, runtime, genres, poster, backdrop, overview, season, episode }) => {
+        // knownSeconds threaded only when > 0 (a real reported duration) --
+        // otherwise undefined, so lookupMovie's ranking stays byte-identical to
+        // pre-Task-3. This is the movie path; the YT-clip runtime check below
+        // (isYt && runtime && ytSeconds) is a separate, untouched mechanism.
+        lookupMovie(title, year, season, episode, knownSeconds > 0 ? knownSeconds : undefined).then(({ links, killCount, parentalGuide, imdbId, cleanTitle, cleanYear, episodeName, rating, runtime, genres, poster, backdrop, overview, season, episode }) => {
             if (mySeq !== _titleRequestSeq) return; // a newer title lookup has since superseded this one — discard
 
             if (isYt && !cleanTitle) {

@@ -162,7 +162,16 @@
     // resolves to null on any failure (no key, no title, network error, no
     // search results, or no linked imdb_id) so the caller can fall straight
     // through to its existing IMDb-primary path without a try/catch of its own.
-    async function fetchTmdbPrimary(title, year) {
+    // knownSeconds (the playing file's duration) is accepted for call-signature
+    // parity with the IMDb path's imdbSearchTitle, but TMDB ranking deliberately
+    // does NOT use it: TMDB search results carry no runtime, so a runtime
+    // cross-check here would cost an extra /3/{movie|tv}/{id} details call for
+    // each of the top candidates just to rank them. Judged not worth it -- the
+    // IMDb path ranks purely on vote count and genuinely needs the runtime tie-
+    // breaker, whereas TMDB already has server-side relevance ranking PLUS the
+    // Task 2 `&year=` hard filter doing the same disambiguation job. So this
+    // param is intentionally unused; omitting or passing it changes nothing here.
+    async function fetchTmdbPrimary(title, year, knownSeconds) {
         // No key configured -- instant, no network. This is what keeps the
         // zero-key path exactly as fast as it is today.
         if (!title || !hasKey(LS_TMDB)) return null;
