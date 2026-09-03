@@ -450,18 +450,102 @@
         } catch (e) { return {}; }
     })();
 
+    // ── test marker: override store slice start ──
+    /* ==========================================================
+       MATCH-OVERRIDE STORE (Layer 3c) — per-raw-filename pins.
+
+       When the auto-match resolves the wrong TMDB/IMDb entry for the
+       playing file, the Settings "Fix match" modal (Task 5) writes the
+       correct ids here, keyed by the EXACT raw #currenttitle text
+       (pre-parse, e.g. "The.Crippled.Masters.[1979].mp4"). lookupMovie()
+       below then bypasses both search steps for that filename and enriches
+       the pinned imdbId directly.
+
+       Loaded once into a `let`, exactly like movieLinkCache above. The
+       three accessors keep the in-memory copy and localStorage in sync and
+       never throw on an absent key or malformed JSON — same defensive
+       pattern as the movieLinkCache loader.
+
+       Value shape: { "<rawFilename>": { imdbId: "tt…", tmdbId: <number|null>, ts: <epoch ms> } }
+    ========================================================== */
+    let movieOverrides = (() => {
+        try {
+            const raw = localStorage.getItem(LS_MOVIE_OVERRIDE);
+            const parsed = raw ? JSON.parse(raw) : {};
+            return (parsed && typeof parsed === 'object') ? parsed : {};
+        } catch (e) { return {}; }
+    })();
+
+    function _persistMovieOverrides() {
+        try { localStorage.setItem(LS_MOVIE_OVERRIDE, JSON.stringify(movieOverrides)); }
+        catch (e) { /* storage full/unavailable -- session in-memory copy still works */ }
+    }
+
+    // The pinned entry for this raw filename, or undefined when there's no
+    // usable pin (missing filename, no entry, or a malformed entry with no
+    // imdbId). Never throws.
+    function getMovieOverride(rawFilename) {
+        try {
+            if (!rawFilename) return undefined;
+            const entry = movieOverrides[rawFilename];
+            return (entry && typeof entry === 'object' && entry.imdbId) ? entry : undefined;
+        } catch (e) { return undefined; }
+    }
+
+    // Pin rawFilename to a specific IMDb id (+ optional TMDB id). tmdbId is
+    // normalized to null when absent; ts is a plain epoch-ms stamp for
+    // Task 5's "pinned <date>" line. A call with no imdbId is a no-op.
+    function setMovieOverride(rawFilename, { imdbId, tmdbId } = {}) {
+        try {
+            if (!rawFilename || !imdbId) return;
+            movieOverrides[rawFilename] = { imdbId, tmdbId: tmdbId ?? null, ts: Date.now() };
+            _persistMovieOverrides();
+        } catch (e) { /* ignore -- nothing pinned this session */ }
+    }
+
+    function clearMovieOverride(rawFilename) {
+        try {
+            if (!rawFilename || !(rawFilename in movieOverrides)) return;
+            delete movieOverrides[rawFilename];
+            _persistMovieOverrides();
+        } catch (e) { /* ignore */ }
+    }
+    // ── test marker: override store slice end ──
+
+    // The parsed-title cache key used by lookupMovie(). Factored out (was an
+    // inline expression) so the override re-render plumbing below can
+    // recompute and drop a stale entry for a filename without duplicating —
+    // and silently drifting from — the expression. Behaviour is byte-
+    // identical to the old inline form: title + year + optional SxxExx tag.
+    function _parsedCacheKey(title, year, season, episode) {
+        return title + (year || '') + (episode != null ? `S${season ?? ''}E${episode}` : '');
+    }
+
     // knownSeconds: the playing file's duration (getCurrentMediaSeconds) when
     // it's known and > 0, else undefined. Optional TRAILING param -- every
     // pre-existing behaviour is byte-identical when it's omitted. Kept at
     // position 5 exactly; later tasks stack another positional arg after it.
-    async function lookupMovie(title, year, season, episode, knownSeconds) {
+    async function lookupMovie(title, year, season, episode, knownSeconds, rawFilename) {
+        // ── User-pinned match override (Layer 3c) ────────────────────────────
+        // rawFilename is the exact raw #currenttitle text; only injectMovieLinks
+        // passes it. Any other caller (tonights-lineup passes just title+year)
+        // omits it -> override is null -> everything below is byte-identical to
+        // before. When a pin exists for this filename, the parsed cacheKey is
+        // replaced by a distinct `override:<rawFilename>` namespace: that keeps
+        // pinned and auto-matched results in separate cache slots, so clearing a
+        // pin cleanly re-exposes / recomputes the normal parsed-key entry and a
+        // stale wrong parsed-key entry can never shadow a live pin.
+        const override = rawFilename ? getMovieOverride(rawFilename) : null;
+
         // Extend the key with season/episode so two episodes sharing an
         // identical cleaned title (e.g. two differently-numbered episodes
         // that both parsed down to "The Tomorrow People") don't collide in
         // the cache. Additive-only: when episode is null (the movie case),
         // the key is byte-identical to before, so existing cached movie
         // entries stay valid with no migration needed.
-        const cacheKey = title + (year || '') + (episode != null ? `S${season ?? ''}E${episode}` : '');
+        const cacheKey = override
+            ? ('override:' + rawFilename)
+            : _parsedCacheKey(title, year, season, episode);
         if (movieLinkCache[cacheKey] !== undefined) return movieLinkCache[cacheKey];
 
         // ── TMDB-primary attempt + Wikipedia, kicked off together ─────────────────
@@ -478,7 +562,9 @@
         // await to where it belongs.
         let wikiUrl = null;
 
-        const tmdbPrimaryPromise = (typeof fetchTmdbPrimary === 'function')
+        // Override path skips the TMDB-primary *search* entirely -- the pinned
+        // id is authoritative. Non-override path is unchanged.
+        const tmdbPrimaryPromise = (!override && typeof fetchTmdbPrimary === 'function')
             ? fetchTmdbPrimary(title, year, knownSeconds)
             : Promise.resolve(null);
 
@@ -521,7 +607,27 @@
         let tmdbSupplemental = null;
         let imdbId;
 
-        if (tmdbPrimary) {
+        if (override) {
+            // ── Pinned-match fork (Layer 3c) ────────────────────────────────
+            // The user corrected a wrong auto-match for this exact raw
+            // filename. Trust override.imdbId verbatim: skip BOTH search steps
+            // (fetchTmdbPrimary above is already gated off, and
+            // fetchImdbMovieByTitle / imdbSearchTitle are simply not called
+            // here) and their fuzzy-title guards. Then fall through into the
+            // identical enrichment tail below (episode refinement, parental
+            // guide, Wikipedia, TMDB art/kills, `result` assembly) so a pin
+            // yields the same card an auto-match would. fetchImdbTitleFields is
+            // the very call the non-override IMDb branch makes inside
+            // fetchImdbMovieByTitle; assigning it to imdbResult lets the
+            // `??` merge chain below pick up rating/runtime/overview/poster/
+            // genres with no other change. fetchTmdbSupplemental(imdbId) is the
+            // same supplemental path the non-override IMDb branch uses.
+            imdbId = override.imdbId;
+            imdbResult = await fetchImdbTitleFields(imdbId);
+            tmdbSupplemental = (typeof fetchTmdbSupplemental === 'function')
+                ? await fetchTmdbSupplemental(imdbId)
+                : null;
+        } else if (tmdbPrimary) {
             // TMDB found a confidently-linked match (a real external_ids.imdb_id)
             // -- use it directly and skip the IMDb-primary lookup (and its
             // TMDB-supplemental enrichment, which fetchTmdbPrimary already made
@@ -591,7 +697,11 @@
                 letterboxd: imdbId ? `https://letterboxd.com/imdb/${imdbId}` : null,
                 wiki:       wikiUrl,
             },
-            resolved:   !!(tmdbPrimary || imdbResult),
+            // A pinned lookup resolves as soon as we have the user's imdbId,
+            // even if fetchImdbTitleFields came back null (transient failure) --
+            // the pin itself is the answer, so `(override && imdbId)` keeps it
+            // out of the "unresolved, don't cache" bucket.
+            resolved:   !!(tmdbPrimary || imdbResult || (override && imdbId)),
             killCount:  tmdbPrimary?.killCount ?? tmdbSupplemental?.killCount ?? null,
             parentalGuide,
             imdbId,
@@ -619,6 +729,23 @@
             backdrop:   episodeInfo?.image    ?? tmdbPrimary?.backdrop ?? tmdbSupplemental?.backdrop ?? imdbResult?.poster ?? null,
             overview:   episodeInfo?.overview ?? tmdbPrimary?.overview ?? imdbResult?.overview ?? null,
         };
+
+        // ── Which lookup path resolved this entry (Task 5's modal renders it
+        // as the "Matched via" line). 'pinned' when the user override drove it,
+        // else 'tmdb' / 'imdb' for whichever auto-source was used, else null
+        // (unresolved). Inert here -- nothing in this module branches on it. ──
+        result.matchSource = override
+            ? 'pinned'
+            : (tmdbPrimary ? 'tmdb' : (imdbResult ? 'imdb' : null));
+
+        // A pin's imdbId enrichment (fetchImdbTitleFields) carries no
+        // title/year, so cleanTitle/cleanYear would be null for a pinned movie.
+        // Fall back to the parsed title/year (only on the override path -- the
+        // auto paths are untouched) so the Now Playing card still names it.
+        if (override) {
+            result.cleanTitle = result.cleanTitle ?? (title || null);
+            result.cleanYear  = result.cleanYear  ?? (year || null);
+        }
 
         // ── Runtime delta for Task 5's "Matched as" line ─────────────────────
         // Whole-minute gap between the resolved title's runtime and the playing
@@ -839,7 +966,10 @@
         // otherwise undefined, so lookupMovie's ranking stays byte-identical to
         // pre-Task-3. This is the movie path; the YT-clip runtime check below
         // (isYt && runtime && ytSeconds) is a separate, untouched mechanism.
-        lookupMovie(title, year, season, episode, knownSeconds > 0 ? knownSeconds : undefined).then(({ links, killCount, parentalGuide, imdbId, cleanTitle, cleanYear, episodeName, rating, runtime, genres, poster, backdrop, overview, season, episode }) => {
+        // rawTitle (the exact, unparsed #currenttitle text) is threaded as the
+        // 6th arg so lookupMovie can consult the per-filename match-override
+        // store. Every other caller omits it -> no-op.
+        lookupMovie(title, year, season, episode, knownSeconds > 0 ? knownSeconds : undefined, rawTitle).then(({ links, killCount, parentalGuide, imdbId, cleanTitle, cleanYear, episodeName, rating, runtime, genres, poster, backdrop, overview, matchSource, season, episode }) => {
             if (mySeq !== _titleRequestSeq) return; // a newer title lookup has since superseded this one — discard
 
             if (isYt && !cleanTitle) {
@@ -851,7 +981,7 @@
             }
 
             _currentImdbId = imdbId || null;
-            _npData = { cleanTitle, cleanYear, episodeName, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, killCount, imdbId, links, season, episode };
+            _npData = { cleanTitle, cleanYear, episodeName, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, killCount, imdbId, links, matchSource, season, episode };
 
             // Update title with clean IMDb title, wrapped in a clickable span
             if (cleanTitle && titleEl) {
@@ -953,6 +1083,65 @@
         if (_socketTitleLockUntil && Date.now() < _socketTitleLockUntil) return;
         const el = findTitleEl();
         if (el) injectMovieLinks(el);
+    }
+
+    /* ==========================================================
+       MATCH-OVERRIDE RE-RENDER PLUMBING (Layer 3d).
+
+       Task 5's "Fix match" modal calls applyMovieOverride /
+       removeMovieOverride after the user pins or unpins a match. Both
+       mutate the store (accessors above), drop the now-stale cache
+       entry, then force an immediate re-render of the current title so
+       the corrected card shows without waiting for the next changeMedia.
+    ========================================================== */
+
+    // Drop cached lookup entries for a raw filename so the next lookupMovie()
+    // genuinely re-fetches. Always clears the `override:` namespace slot; also
+    // clears the parsed-title slot when parseMovieFilename can reconstruct its
+    // key cheaply -- so *removing* a pin re-runs a real auto-lookup instead of
+    // surfacing the wrong pre-pin match straight from cache.
+    function _dropCachedEntriesFor(rawFilename) {
+        if (!rawFilename) return;
+        const keys = ['override:' + rawFilename];
+        try {
+            const p = (typeof parseMovieFilename === 'function') ? parseMovieFilename(rawFilename) : null;
+            if (p && p.title) keys.push(_parsedCacheKey(p.title, p.year, p.season, p.episode));
+        } catch (e) { /* parser failure -> just clear the override slot */ }
+        let changed = false;
+        for (const k of keys) {
+            if (movieLinkCache[k] !== undefined) { delete movieLinkCache[k]; changed = true; }
+        }
+        if (changed) {
+            try { localStorage.setItem(LS_MOVIE_CACHE, JSON.stringify(movieLinkCache)); }
+            catch (e) { /* storage unavailable -- in-memory drop still took effect */ }
+        }
+    }
+
+    // Re-run the lookup/inject pipeline for the current title right now,
+    // forcing rawFilename as the title (bypasses the DOM read) so the parse
+    // and the override consult the exact filename the pin is keyed by. Mirrors
+    // triggerTitleInject minus the _socketTitleLockUntil gate -- an explicit
+    // user action should always re-render, even inside the post-changeMedia
+    // lock window.
+    function rerenderCurrentTitle(rawFilename) {
+        lastMovieTitle = '';        // clear the dedup guard (injectMovieLinks)
+        _titleRequestSeq++;         // invalidate any in-flight lookup's .then
+        const el = findTitleEl();
+        if (el) injectMovieLinks(el, rawFilename);
+    }
+
+    function applyMovieOverride(rawFilename, { imdbId, tmdbId } = {}) {
+        if (!rawFilename || !imdbId) return;
+        setMovieOverride(rawFilename, { imdbId, tmdbId });
+        _dropCachedEntriesFor(rawFilename);
+        rerenderCurrentTitle(rawFilename);
+    }
+
+    function removeMovieOverride(rawFilename) {
+        if (!rawFilename) return;
+        clearMovieOverride(rawFilename);
+        _dropCachedEntriesFor(rawFilename);
+        rerenderCurrentTitle(rawFilename);
     }
 
     let _titleObsAttached = false;
