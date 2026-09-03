@@ -135,6 +135,25 @@
         }
     }
 
+    // ── Pure merge+tag helper for the year-filtered search in fetchTmdbPrimary ──
+    // TMDB's /search/movie and /search/tv endpoints -- unlike /search/multi --
+    // do NOT put a `media_type` field on their result objects. Everything
+    // downstream in fetchTmdbPrimary reads `best.media_type` / `mediaType` (the
+    // details-call path segment, the movie-only kill-count gate, the movie-vs-tv
+    // field picks in the return object), so every candidate MUST carry one. This
+    // tags each list with its known type and concatenates them, movies first
+    // (matching /search/multi's usual movie-before-tv ordering, so the existing
+    // year tiebreak downstream behaves identically). Kept pure -- no network, no
+    // globals -- so scripts/test-tmdb-year-merge.mjs can exercise it directly.
+    // ── test marker: slice start ──
+    function tagYearFilteredResults(movieResults, tvResults) {
+        return [
+            ...(movieResults || []).map(r => ({ ...r, media_type: 'movie' })),
+            ...(tvResults    || []).map(r => ({ ...r, media_type: 'tv'    })),
+        ];
+    }
+    // ── test marker: slice end ──
+
     // Primary lookup: given a raw title (and optional year), searches TMDB
     // directly and returns full metadata plus the linked IMDb id. Called by
     // movie-title-links's lookupMovie() through a typeof-guard, ahead of (and,
@@ -150,26 +169,73 @@
         try {
             const apiKey = getKey(LS_TMDB);
 
-            // /search/multi covers both movies and TV shows in one call (mirrors
-            // IMDb's own cross-type mainSearch, which also matches tvEpisode).
-            // TMDB already relevance-ranks server-side, unlike IMDb's GraphQL
-            // search, which needs titlesMatch()/Dice-coefficient scoring
-            // client-side (see movie-title-links/index.js) -- so no client-side
-            // fuzzy matching is needed here.
-            const searchRes = await new Promise((resolve, reject) => {
-                GM_xmlhttpRequest({
-                    method: 'GET',
-                    url: `https://api.themoviedb.org/3/search/multi?query=${encodeURIComponent(title)}` +
-                        `&include_adult=false&api_key=${encodeURIComponent(apiKey)}`,
-                    onload: r => resolve(r),
-                    onerror: reject,
+            // ── Layer 1b -- year-filtered search (gated entirely on `year`) ─────
+            // Task 1 made the parser emit a usable `year` far more often, so we
+            // can now hand the year to TMDB as a REAL API filter rather than only
+            // the client-side tiebreak below. /search/movie?year= and
+            // /search/tv?first_air_date_year= are far more precise than
+            // /search/multi's popularity-weighted relevance ranking when the
+            // parsed title is plausible-but-wrong (garbage title + right year ->
+            // TMDB returns the correct film instead of a wrong popular one). We
+            // run both, tag+merge their results (see tagYearFilteredResults --
+            // these endpoints omit media_type), and if ANYTHING comes back we use
+            // it as `candidates` and continue into the unchanged downstream
+            // logic. If BOTH come back empty -- or error, or non-200 -- we leave
+            // `candidates` unset and fall through to the original /search/multi
+            // path below, exactly as before. The no-year path is untouched.
+            let candidates;
+            if (year) {
+                // A transport error here must NOT abort the lookup -- it means
+                // "no year-filtered results", i.e. fall through to /search/multi.
+                // So this resolves null on error instead of the reject() the
+                // other GM_xmlhttpRequest calls in this function use.
+                const yearReq = (url) => new Promise((resolve) => {
+                    GM_xmlhttpRequest({
+                        method: 'GET',
+                        url,
+                        onload: r => resolve(r),
+                        onerror: () => resolve(null),
+                    });
                 });
-            });
-            if (searchRes.status !== 200) return null;
-            const searchData = JSON.parse(searchRes.responseText);
-            const candidates = (searchData?.results || [])
-                .filter(r => r.media_type === 'movie' || r.media_type === 'tv');
-            if (!candidates.length) return null;
+                const [movieRes, tvRes] = await Promise.all([
+                    yearReq(`https://api.themoviedb.org/3/search/movie?query=${encodeURIComponent(title)}` +
+                        `&year=${encodeURIComponent(year)}&include_adult=false&api_key=${encodeURIComponent(apiKey)}`),
+                    yearReq(`https://api.themoviedb.org/3/search/tv?query=${encodeURIComponent(title)}` +
+                        `&first_air_date_year=${encodeURIComponent(year)}&include_adult=false&api_key=${encodeURIComponent(apiKey)}`),
+                ]);
+                // Non-200 / missing / unparseable body -> [] -> that half just
+                // contributes nothing to the merge (still fall through if both).
+                const parseHits = (res) => {
+                    if (!res || res.status !== 200) return [];
+                    try { return JSON.parse(res.responseText)?.results || []; }
+                    catch (e) { return []; }
+                };
+                const merged = tagYearFilteredResults(parseHits(movieRes), parseHits(tvRes));
+                if (merged.length) candidates = merged;
+            }
+
+            if (!candidates) {
+                // /search/multi covers both movies and TV shows in one call (mirrors
+                // IMDb's own cross-type mainSearch, which also matches tvEpisode).
+                // TMDB already relevance-ranks server-side, unlike IMDb's GraphQL
+                // search, which needs titlesMatch()/Dice-coefficient scoring
+                // client-side (see movie-title-links/index.js) -- so no client-side
+                // fuzzy matching is needed here.
+                const searchRes = await new Promise((resolve, reject) => {
+                    GM_xmlhttpRequest({
+                        method: 'GET',
+                        url: `https://api.themoviedb.org/3/search/multi?query=${encodeURIComponent(title)}` +
+                            `&include_adult=false&api_key=${encodeURIComponent(apiKey)}`,
+                        onload: r => resolve(r),
+                        onerror: reject,
+                    });
+                });
+                if (searchRes.status !== 200) return null;
+                const searchData = JSON.parse(searchRes.responseText);
+                candidates = (searchData?.results || [])
+                    .filter(r => r.media_type === 'movie' || r.media_type === 'tv');
+                if (!candidates.length) return null;
+            }
 
             // Year tiebreak: prefer the first candidate whose release/first-air
             // year matches, if a year was given; otherwise trust TMDB's own
