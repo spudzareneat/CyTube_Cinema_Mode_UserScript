@@ -121,17 +121,27 @@
         return imdbGmFetch(url);
     }
 
-    async function fetchImdbParentalGuide(tconst) {
-        if (!tconst) return null;
-        const q = 'query GHGuide($id: ID!){ title(id:$id){ parentsGuide{ categories{ category{ text } severity{ text } } } } }';
+    // One call per lookup, keyed off the final resolved imdbId (episode tconst
+    // when episode-refined) -- runs on every path (tmdb / imdb / pinned), so it's
+    // the cheapest place to also pull the MPAA/IMDb certificate. Returns
+    // { guide, certificate }: `guide` is the parental-guide severity array (or
+    // null, unchanged from the old bare-array return -- see the one caller in
+    // lookupMovie), `certificate` is the rating string ("R", "PG-13",
+    // "Not Rated", "X", "Approved", ...) or null. Whole call fails soft to
+    // { guide: null, certificate: null } on any error.
+    async function fetchImdbTitleGuide(tconst) {
+        if (!tconst) return { guide: null, certificate: null };
+        const q = 'query GHGuide($id: ID!){ title(id:$id){ certificate{ rating } parentsGuide{ categories{ category{ text } severity{ text } } } } }';
         try {
             const data = await imdbQuery('GHGuide', q, { id: tconst });
-            const cats = data?.data?.title?.parentsGuide?.categories;
-            if (!cats) return null;
-            return cats
-                .map(c => ({ category: c.category?.text, severity: c.severity?.text }))
-                .filter(c => c.category && c.severity);
-        } catch (e) { return null; }
+            const t = data?.data?.title;
+            const cats = t?.parentsGuide?.categories;
+            const guide = cats
+                ? cats.map(c => ({ category: c.category?.text, severity: c.severity?.text }))
+                      .filter(c => c.category && c.severity)
+                : null;
+            return { guide, certificate: t?.certificate?.rating ?? null };
+        } catch (e) { return { guide: null, certificate: null }; }
     }
 
     // Given a TV series' own tconst plus a season/episode number, resolves
@@ -711,10 +721,11 @@
             : null;
         if (episodeInfo) imdbId = episodeInfo.tconst;
 
-        // ── IMDb Parent Guide — also defined above in this file; called
-        // directly, same as fetchImdbMovieByTitle above. No TMDB equivalent
-        // exists, so this always runs off whichever path resolved imdbId. ───────
-        const parentalGuide = await fetchImdbParentalGuide(imdbId);
+        // ── IMDb Parent Guide + MPAA certificate — also defined above in this
+        // file; called directly, same as fetchImdbMovieByTitle above. No TMDB
+        // equivalent exists, so this always runs off whichever path resolved
+        // imdbId. ───────
+        const { guide: parentalGuide, certificate } = await fetchImdbTitleGuide(imdbId);
 
         // wikiPromise has been running in the background this whole time; awaited
         // here (rather than up front via Promise.all) so it never blocks the
@@ -747,6 +758,9 @@
             resolved:   !!(tmdbPrimary || imdbResult || (override && imdbId)),
             killCount:  tmdbPrimary?.killCount ?? tmdbSupplemental?.killCount ?? null,
             parentalGuide,
+            // MPAA/IMDb certificate string ("R", "PG-13", "Not Rated", ...) or
+            // null. IMDb-only -- fetchImdbTitleGuide above runs on every path.
+            certificate: certificate ?? null,
             imdbId,
             // episodeName has no series-level equivalent to fall back to -- null
             // for movies and for episodes fetchImdbEpisodeInfo couldn't match.
@@ -919,6 +933,7 @@
                         <div id="sc-np-match"></div>
                         <button id="sc-np-fix" type="button" title="Pin the correct movie for this file">✎ Wrong match?</button>
                         <div id="sc-np-overview"></div>
+                        <div id="sc-np-mpaa"></div>
                         <div id="sc-np-chips"></div>
                         <div id="sc-np-links"></div>
                     </div>
@@ -997,10 +1012,44 @@
             d2.textContent = line2;
             matchEl.appendChild(d1);
             matchEl.appendChild(d2);
+            // Raw #currenttitle text that was fed to the parser -- the actual
+            // input behind line1/line2, so a wrong auto-match can be diagnosed
+            // at a glance. textContent, never innerHTML: filenames are untrusted.
+            if (data.rawFilename) {
+                const d3 = document.createElement('div');
+                d3.className = 'sc-np-match-parsed';
+                d3.textContent = `file: ${data.rawFilename}`;
+                matchEl.appendChild(d3);
+            }
             matchEl.style.display = '';
         } else {
             matchEl.textContent = '';
             matchEl.style.display = 'none';
+        }
+
+        // ── MPAA / IMDb certificate badge — sits between the description and the
+        // parental-guide chips (see #sc-np-mpaa in the template). Rendered for any
+        // non-empty certificate string, including "Not Rated"/"Unrated"/"Approved"
+        // (all meaningful on a grindhouse channel); hidden only when null.
+        const mpaaEl = card.querySelector('#sc-np-mpaa');
+        const cert = data.certificate;
+        if (cert) {
+            mpaaEl.textContent = '';
+            const box = document.createElement('span');
+            box.className = 'sc-np-mpaa-box sc-mpaa-' + String(cert).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+            const rl = document.createElement('span');
+            rl.className = 'sc-np-mpaa-label';
+            rl.textContent = 'RATED';
+            const rv = document.createElement('span');
+            rv.className = 'sc-np-mpaa-value';
+            rv.textContent = cert;
+            box.appendChild(rl);
+            box.appendChild(rv);
+            mpaaEl.appendChild(box);
+            mpaaEl.style.display = '';
+        } else {
+            mpaaEl.textContent = '';
+            mpaaEl.style.display = 'none';
         }
 
         const chipHtml = [];
@@ -1135,6 +1184,7 @@
                             backdrop: info.thumbnail_url || null,
                             overview: info.author_name ? `Uploaded by ${info.author_name}` : null,
                             rating: null, runtime: null, genres: [], parentalGuide: null,
+                            certificate: null,
                             killCount: null, imdbId: null, links: {}, season: null, episode: null,
                             // Symmetry with the real-match _npData below. A YT clip has
                             // no IMDb/parsed match, so the "Matched as" line and the
@@ -1159,7 +1209,7 @@
         // rawTitle (the exact, unparsed #currenttitle text) is threaded as the
         // 6th arg so lookupMovie can consult the per-filename match-override
         // store. Every other caller omits it -> no-op.
-        lookupMovie(title, year, season, episode, knownSeconds > 0 ? knownSeconds : undefined, rawTitle).then(({ links, killCount, parentalGuide, imdbId, cleanTitle, cleanYear, episodeName, rating, runtime, genres, poster, backdrop, overview, matchSource, runtimeDelta, season, episode }) => {
+        lookupMovie(title, year, season, episode, knownSeconds > 0 ? knownSeconds : undefined, rawTitle).then(({ links, killCount, parentalGuide, certificate, imdbId, cleanTitle, cleanYear, episodeName, rating, runtime, genres, poster, backdrop, overview, matchSource, runtimeDelta, season, episode }) => {
             if (mySeq !== _titleRequestSeq) return; // a newer title lookup has since superseded this one — discard
 
             if (isYt && !cleanTitle) {
@@ -1175,7 +1225,7 @@
             // "Matched as" diagnostic line + the "Fix match" pencil on the card.
             // title/year here are the outer parseMovieFilename() values (the
             // .then destructure shadows only season/episode, never title/year).
-            _npData = { cleanTitle, cleanYear, episodeName, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, killCount, imdbId, links, matchSource, season, episode,
+            _npData = { cleanTitle, cleanYear, episodeName, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, certificate, killCount, imdbId, links, matchSource, season, episode,
                         parsedTitle: title, parsedYear: year, runtimeDelta, rawFilename: rawTitle };
 
             // Update title with clean IMDb title, wrapped in a clickable span

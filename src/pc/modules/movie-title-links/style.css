@@ -87,6 +87,43 @@
                 display: -webkit-box !important; -webkit-line-clamp: 3 !important;
                 -webkit-box-orient: vertical !important; overflow: hidden !important;
             }
+            /* ===== MPAA / IMDb CERTIFICATE BADGE (between overview and chips) ===== */
+            #sc-np-mpaa { margin: 0 0 16px !important; }
+            .sc-np-mpaa-box {
+                display: inline-flex !important; align-items: stretch !important;
+                border: 2px solid rgba(255,255,255,0.88) !important;
+                border-radius: 4px !important; overflow: hidden !important;
+                font-family: "Helvetica Neue", Arial, sans-serif !important;
+                line-height: 1 !important; vertical-align: middle !important;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.35) !important;
+            }
+            .sc-np-mpaa-label {
+                display: flex !important; align-items: center !important;
+                background: rgba(255,255,255,0.88) !important; color: #111 !important;
+                font-size: 10px !important; font-weight: 700 !important;
+                letter-spacing: 0.12em !important; padding: 0 8px !important;
+            }
+            .sc-np-mpaa-value {
+                display: flex !important; align-items: center !important;
+                color: #fff !important; font-size: 15px !important; font-weight: 700 !important;
+                letter-spacing: 0.04em !important; padding: 5px 11px !important;
+                text-transform: uppercase !important;
+            }
+            /* Subtle accents for the harsher ratings */
+            .sc-np-mpaa-box.sc-mpaa-r        .sc-np-mpaa-value,
+            .sc-np-mpaa-box.sc-mpaa-nc-17    .sc-np-mpaa-value,
+            .sc-np-mpaa-box.sc-mpaa-x        .sc-np-mpaa-value,
+            .sc-np-mpaa-box.sc-mpaa-tv-ma    .sc-np-mpaa-value { color: #ff6b5e !important; }
+            .sc-np-mpaa-box.sc-mpaa-not-rated,
+            .sc-np-mpaa-box.sc-mpaa-unrated,
+            .sc-np-mpaa-box.sc-mpaa-approved { border-color: rgba(255,255,255,0.5) !important; }
+            .sc-np-mpaa-box.sc-mpaa-not-rated .sc-np-mpaa-label,
+            .sc-np-mpaa-box.sc-mpaa-unrated   .sc-np-mpaa-label,
+            .sc-np-mpaa-box.sc-mpaa-approved  .sc-np-mpaa-label { background: rgba(255,255,255,0.5) !important; }
+            .sc-np-mpaa-box.sc-mpaa-not-rated .sc-np-mpaa-value,
+            .sc-np-mpaa-box.sc-mpaa-unrated   .sc-np-mpaa-value,
+            .sc-np-mpaa-box.sc-mpaa-approved  .sc-np-mpaa-value { color: rgba(255,255,255,0.75) !important; }
+
             #sc-np-chips { display: flex !important; flex-wrap: wrap !important; gap: 8px !important; }
             #sc-np-links { display: flex !important; gap: 6px !important; margin-top: 10px !important; }
             .sc-np-chip {

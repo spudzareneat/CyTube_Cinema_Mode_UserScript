@@ -789,6 +789,7 @@
             runtime: info.runtime ?? null,
             genres: info.genres || [],
             parentalGuide: info.parentalGuide || null,
+            certificate: info.certificate ?? null,
             killCount: info.killCount ?? null,
             imdbId: info.imdbId || null,
             links: info.links || {},

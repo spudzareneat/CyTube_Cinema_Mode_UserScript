@@ -6,7 +6,10 @@
     const LS_CHAT_FONT   = 'sc_chat_fontsize';
     const LS_MOVIE_LINKS = 'sc_movie_links';
     const LS_IMGBB       = 'sc_imgbb_key';
-    const LS_MOVIE_CACHE = 'sc_movie_cache_v5'; // v5: episode-specific IMDb refinement added (fetchImdbEpisodeInfo) --
+    const LS_MOVIE_CACHE = 'sc_movie_cache_v6'; // v6: MPAA/IMDb certificate added to lookupMovie result -- v5 entries
+                                                 // lack `certificate` and would otherwise shadow enriched results
+                                                 // forever; bump forces a clean slate.
+                                                 // v5: episode-specific IMDb refinement added (fetchImdbEpisodeInfo) --
                                                  // v4 episode entries were cached with series-level imdbId/rating/
                                                  // overview/backdrop and would otherwise shadow the new episode-
                                                  // specific result forever; bump forces a clean slate.
