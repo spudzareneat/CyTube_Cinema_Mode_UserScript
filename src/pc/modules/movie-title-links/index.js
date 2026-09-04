@@ -1112,6 +1112,34 @@
     // wrote lets the reaction to our own write be recognised and dropped.
     let _lastInjectedTitleText = '';
 
+    // Writes the resolved title into #sc-title-text (creating the span the
+    // first time), from whatever `data` object currently holds cleanTitle/
+    // cleanYear/season/episode/episodeName -- shared by the normal lookup
+    // success path and the DOM-repair branch below, which re-renders from
+    // cached _npData with no new network call.
+    function _renderTitleSpan(titleEl, data) {
+        if (!data || !data.cleanTitle || !titleEl) return;
+        const epTag = _episodeTag(data.season, data.episode);
+        const newText = data.cleanTitle + (data.cleanYear ? ` (${data.cleanYear})` : '') + (epTag ? ` · ${epTag}` : '')
+            + (data.episodeName ? ` — ${data.episodeName}` : '');
+        let span = document.getElementById('sc-title-text');
+        if (!span) {
+            span = document.createElement('span');
+            span.id = 'sc-title-text';
+            span.style.cursor = 'pointer';
+            span.title = 'Movie info (I)';
+            span.addEventListener('click', (e) => { e.stopPropagation(); showNowPlayingCard(_npData, { autoHide: false }); });
+            const textNode = [...titleEl.childNodes].find(n => n.nodeType === 3 && n.textContent.trim());
+            if (textNode) textNode.parentNode.replaceChild(span, textNode);
+            else titleEl.insertBefore(span, titleEl.firstChild);
+        }
+        span.textContent = newText;
+        // Remember exactly what we wrote so the header MutationObserver's
+        // echo of this very mutation is recognised and dropped by the guard
+        // at the top of injectMovieLinks.
+        _lastInjectedTitleText = newText;
+    }
+
     // overrideRawTitle, when given, is trusted verbatim instead of re-deriving
     // the title from titleEl's live text -- used by the changeMedia socket
     // handler below, which has an authoritative title straight from the
@@ -1146,7 +1174,27 @@
         // injectMovieLinks(el, rawFilename) always proceeds.
         if (overrideRawTitle === undefined && _lastInjectedTitleText && rawTitle === _lastInjectedTitleText) return;
 
-        if (!rawTitle || rawTitle === lastMovieTitle || rawTitle.length < 2) return;
+        if (!rawTitle || rawTitle.length < 2) return;
+        if (rawTitle === lastMovieTitle) {
+            // Same identity as the title already resolved for -- normally
+            // nothing to do. But CyTube's own header re-render can wipe our
+            // injected #sc-title-text span back to plain raw-filename text
+            // mid-playback (confirmed live: a title that matched fine at
+            // media-change reverted to "Currently Playing: <raw>.mp4" and
+            // stayed stuck that way for the rest of the play -- only a full
+            // page reload, which resets lastMovieTitle to '', brought the
+            // match back). Since rawTitle here is unchanged, this dedup guard
+            // used to swallow every subsequent trigger unconditionally, so
+            // the wiped span was never restored. Detect the wipe (span
+            // missing from the DOM) and repair it straight from the cached
+            // _npData -- no new network lookup needed, movieLinkCache already
+            // holds this title's data and _npData is exactly what the
+            // original successful lookup produced.
+            if (titleEl && _npData && _npData.rawFilename === rawTitle && !document.getElementById('sc-title-text')) {
+                _renderTitleSpan(titleEl, _npData);
+            }
+            return;
+        }
         lastMovieTitle = rawTitle;
         const knownSeconds = getCurrentMediaSeconds();
         // lineupObserveTitleChange lives in the optional tonights-lineup module --
@@ -1229,27 +1277,7 @@
                         parsedTitle: title, parsedYear: year, runtimeDelta, rawFilename: rawTitle };
 
             // Update title with clean IMDb title, wrapped in a clickable span
-            if (cleanTitle && titleEl) {
-                const epTag = _episodeTag(season, episode);
-                const newText = cleanTitle + (cleanYear ? ` (${cleanYear})` : '') + (epTag ? ` · ${epTag}` : '')
-                    + (episodeName ? ` — ${episodeName}` : '');
-                let span = document.getElementById('sc-title-text');
-                if (!span) {
-                    span = document.createElement('span');
-                    span.id = 'sc-title-text';
-                    span.style.cursor = 'pointer';
-                    span.title = 'Movie info (I)';
-                    span.addEventListener('click', (e) => { e.stopPropagation(); showNowPlayingCard(_npData, { autoHide: false }); });
-                    const textNode = [...titleEl.childNodes].find(n => n.nodeType === 3 && n.textContent.trim());
-                    if (textNode) textNode.parentNode.replaceChild(span, textNode);
-                    else titleEl.insertBefore(span, titleEl.firstChild);
-                }
-                span.textContent = newText;
-                // Remember exactly what we wrote so the header
-                // MutationObserver's echo of this very mutation is recognised
-                // and dropped by the guard at the top of this function.
-                _lastInjectedTitleText = newText;
-            }
+            _renderTitleSpan(titleEl, _npData);
 
             // Trivia button — only when we have an IMDb ID and the imdb-trivia module is
             // present (toggleTriviaPanel is defined there; typeof-guarded so a build
