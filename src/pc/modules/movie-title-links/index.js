@@ -917,15 +917,15 @@
                         <div id="sc-np-title"></div>
                         <div id="sc-np-meta"></div>
                         <div id="sc-np-match"></div>
+                        <button id="sc-np-fix" type="button" title="Pin the correct movie for this file">✎ Wrong match?</button>
                         <div id="sc-np-overview"></div>
                         <div id="sc-np-chips"></div>
                         <div id="sc-np-links"></div>
                     </div>
-                </div>
-                <button id="sc-np-fix" type="button" title="Fix match">✎</button>`;
+                </div>`;
             document.body.appendChild(card);
             card.addEventListener('click', hideNowPlayingCard);
-            // The pencil lives inside the card, whose click closes it -- so the
+            // The button lives inside the card, whose click closes it -- so the
             // handler must stopPropagation. Attached once; it reads the live
             // _npData (every call site passes exactly that object as `data`).
             card.querySelector('#sc-np-fix').addEventListener('click', (e) => {
@@ -955,28 +955,28 @@
         }
         card.querySelector('#sc-np-meta').textContent = metaParts.join('     ');
 
-        // ── "Matched as" diagnostic + Fix-match pencil (Layer 3a) ────────────
+        // ── "Matched as" diagnostic + "Wrong match?" button (Layer 3a) ───────
         // Shown only for a real parsed movie match: hidden entirely for YouTube
         // clips (parsedTitle null) and while a card still lacks parse data. The
-        // dim block itself additionally needs a resolved imdbId; the pencil
+        // dim block itself additionally needs a resolved imdbId; the button
         // shows without one so a total match failure can still be corrected.
         const fixBtn  = card.querySelector('#sc-np-fix');
         const matchEl = card.querySelector('#sc-np-match');
         // setProperty(..., 'important') -- NOT a plain `.style.display =`. The
-        // #sc-np-fix rule in style.css declares `display: flex !important`
+        // #sc-np-fix rule in style.css declares `display: inline-flex !important`
         // (every rule in this module is !important to survive CyTube's own
         // sheets), and a normal inline declaration LOSES to an author
         // !important one. So a plain assignment of 'none' here was a silent
-        // no-op and the pencil rendered on every card -- including YouTube
+        // no-op and the button rendered on every card -- including YouTube
         // clips (where it's a dead no-op) and tonights-lineup's per-item
         // cards (where clicking it opened the fix modal keyed to the wrong
         // file). An important inline declaration outranks the sheet, so both
-        // the show and the hide branch now actually take effect; 'flex' (not
-        // '') is restored on the show branch since '' would drop back to the
-        // sheet's value and we no longer rely on the cascade for it.
+        // the show and the hide branch now actually take effect; 'inline-flex'
+        // (not '') is restored on the show branch since '' would drop back to
+        // the sheet's value and we no longer rely on the cascade for it.
         // Gate is deliberately rawFilename && parsedTitle, NOT imdbId -- a
-        // total match failure is exactly when the user most needs the pencil.
-        fixBtn.style.setProperty('display', (data.rawFilename && data.parsedTitle) ? 'flex' : 'none', 'important');
+        // total match failure is exactly when the user most needs this.
+        fixBtn.style.setProperty('display', (data.rawFilename && data.parsedTitle) ? 'inline-flex' : 'none', 'important');
         if (data.imdbId && data.parsedTitle) {
             const SRC_LABEL = { tmdb: 'TMDB', imdb: 'IMDb search', pinned: 'pinned' };
             const srcLabel = SRC_LABEL[data.matchSource] || '';

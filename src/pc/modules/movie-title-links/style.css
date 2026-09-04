@@ -110,25 +110,28 @@
                 letter-spacing: 0.01em !important;
             }
             #sc-np-match .sc-np-match-parsed { color: rgba(255,255,255,0.38) !important; }
-            /* NOTE: `display: flex !important` below is the DEFAULT/shown state
-               only. showNowPlayingCard() hides the pencil per-card and must
-               therefore use style.setProperty('display', ..., 'important') --
-               a plain inline `.style.display = 'none'` loses to this
-               !important rule and silently does nothing. */
+            /* NOTE: `display: inline-flex !important` below is the DEFAULT/shown
+               state only. showNowPlayingCard() hides the button per-card and
+               must therefore use style.setProperty('display', ..., 'important')
+               -- a plain inline `.style.display = 'none'` loses to this
+               !important rule and silently does nothing. Sits inline in the
+               info column right under the "Matched as" block (not a corner
+               glyph -- that was ~850px from where the eye lands and nobody
+               found it). */
             #sc-np-fix {
-                position: absolute !important; top: 18px !important; right: 20px !important;
-                width: 34px !important; height: 34px !important;
+                display: inline-flex !important; align-items: center !important; gap: 6px !important;
+                margin: 2px 0 16px !important;
+                padding: 5px 12px !important;
                 border-radius: 999px !important;
-                background: rgba(255,255,255,0.10) !important;
-                border: 1px solid rgba(255,255,255,0.20) !important;
-                color: rgba(255,255,255,0.85) !important;
-                font-size: 15px !important; line-height: 1 !important;
-                cursor: pointer !important; z-index: 2 !important;
-                display: flex !important; align-items: center !important; justify-content: center !important;
-                backdrop-filter: blur(4px) !important;
+                background: rgba(245,197,24,0.16) !important;
+                border: 1px solid rgba(245,197,24,0.55) !important;
+                color: #f5c518 !important;
+                font-size: 12px !important; font-weight: 600 !important; line-height: 1 !important;
+                letter-spacing: 0.02em !important;
+                cursor: pointer !important;
                 transition: background 0.15s ease !important;
             }
-            #sc-np-fix:hover { background: rgba(255,255,255,0.22) !important; }
+            #sc-np-fix:hover { background: rgba(245,197,24,0.28) !important; }
 
             /* ===== FIX-MATCH MODAL ===== */
             #sc-fix-overlay {
