@@ -1,7 +1,7 @@
 {
   "scriptId": "cytube.pc",
   "displayName": "CyTube Fullscreen Video with Overlay Chat",
-  "baseVersion": "4.12.1",
+  "baseVersion": "4.13.0",
   "headerTemplate": "src/pc/header.template.js",
   "match": [
     "https://cytu.be/r/420Grindhouse",
@@ -337,14 +337,23 @@
       "locked": false,
       "defaultOn": true,
       "files": [
+        "src/pc/modules/subtitles/opensubtitles.js",
         "src/pc/modules/subtitles/index.js"
       ],
       "dependsOn": ["core"],
+      "grants": [
+        "GM_xmlhttpRequest"
+      ],
+      "connects": [
+        "api.opensubtitles.com",
+        "opensubtitles.com"
+      ],
       "features": [
         "Load a local .srt/.vtt file, synced via native browser captions",
         "Fine-tune offset with quick buttons/keyboard shortcuts",
         "Adjustable caption size + drag-to-position on screen (both persisted)",
-        "One-click OpenSubtitles search; auto-restores your subtitles for ~6h per movie"
+        "With a free OpenSubtitles API key: search & one-click load real subtitles for the movie playing now, right in the panel",
+        "One-click external OpenSubtitles search; auto-restores your subtitles for ~6h per movie"
       ],
       "screenshot": "screenshots/subtitles.png"
     },
