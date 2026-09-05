@@ -316,7 +316,11 @@
         clearPanelError();
         results.innerHTML = ''; // collapse the list
         const note = document.getElementById('sc-sub-os-note');
-        if (note) note.textContent = '✓ Loaded: ' + release + (dl.remaining != null ? ' — ' + dl.remaining + ' downloads left today' : '');
+        if (note) note.textContent = '✓ Loaded: ' + release;
+        // Remaining daily quota shows in its own line under the footer, not
+        // in the section note.
+        const quota = document.getElementById('sc-sub-os-quota');
+        if (quota) quota.textContent = dl.remaining != null ? dl.remaining + ' downloads left today' : '';
         const searchBtn = document.getElementById('sc-sub-os-search');
         if (searchBtn) searchBtn.textContent = 'Find different subtitles';
     }
@@ -424,6 +428,18 @@
             .sc-sub-dpad .sc-sub-btn-icon { width: 26px !important; height: 26px !important; }
             .sc-sub-footer { display: flex !important; gap: 8px !important; }
             .sc-sub-footer .sc-sub-btn { flex: 1 1 0 !important; }
+            .sc-sub-collapse {
+                display: flex !important; align-items: center !important; gap: 6px !important;
+                background: transparent !important; border: none !important; padding: 0 !important;
+                cursor: pointer !important; font-family: inherit !important; text-align: left !important;
+            }
+            .sc-sub-caret { font-size: 9px !important; line-height: 1 !important; color: rgba(77,208,225,0.75) !important; }
+            #sc-sub-appearance-body {
+                display: flex !important; flex-direction: column !important; gap: 8px !important;
+            }
+            #sc-sub-appearance-body.sc-collapsed { display: none !important; }
+            #sc-sub-os-quota { font-size: 11px !important; text-align: center !important; color: rgba(244,244,242,0.62) !important; }
+            #sc-sub-os-quota:empty { display: none !important; }
             #sc-sub-error { font-size: 12px !important; color: #ff6b6b !important; min-height: 14px !important; }
             #sc-sub-os-results:empty { display: none !important; }
             #sc-sub-os-results:not(:empty) {
@@ -529,6 +545,10 @@
         panel.innerHTML = `
             <div id="sc-sub-head">Subtitles <button id="sc-sub-close" type="button">✕</button></div>
             <div id="sc-sub-body">
+                <div class="sc-sub-section" id="sc-sub-os-section">
+                    <div class="sc-sub-eyebrow">Find online</div>
+                    ${osSectionInner}
+                </div>
                 <div class="sc-sub-section">
                     <div class="sc-sub-eyebrow">File</div>
                     <input type="file" id="sc-sub-file" accept=".srt,.vtt">
@@ -545,40 +565,39 @@
                     </div>
                 </div>
                 <div class="sc-sub-section">
-                    <div class="sc-sub-eyebrow">Appearance</div>
-                    <div class="sc-sub-row">
-                        <span class="sc-sub-label">Size</span>
-                        <button id="sc-sub-fontsize-minus" class="sc-sub-btn sc-sub-btn-icon" type="button">−</button>
-                        <span id="sc-sub-fontsize-value" class="sc-sub-readout">${_subFontSizePx}px</span>
-                        <button id="sc-sub-fontsize-plus" class="sc-sub-btn sc-sub-btn-icon" type="button">+</button>
-                    </div>
-                    <div class="sc-sub-posrow">
-                        <div id="sc-sub-pospad" title="Drag to position captions"><div id="sc-sub-pospad-dot"></div></div>
-                        <div class="sc-sub-dpad">
-                            <span></span>
-                            <button id="sc-sub-posy-minus" class="sc-sub-btn sc-sub-btn-icon" type="button" title="Move up">▲</button>
-                            <span></span>
-                            <button id="sc-sub-posx-minus" class="sc-sub-btn sc-sub-btn-icon" type="button" title="Move left">◀</button>
-                            <span></span>
-                            <button id="sc-sub-posx-plus" class="sc-sub-btn sc-sub-btn-icon" type="button" title="Move right">▶</button>
-                            <span></span>
-                            <button id="sc-sub-posy-plus" class="sc-sub-btn sc-sub-btn-icon" type="button" title="Move down">▼</button>
-                            <span></span>
+                    <button class="sc-sub-eyebrow sc-sub-collapse" id="sc-sub-appearance-toggle" type="button" aria-expanded="false"><span class="sc-sub-caret">▸</span> Appearance</button>
+                    <div id="sc-sub-appearance-body" class="sc-collapsed">
+                        <div class="sc-sub-row">
+                            <span class="sc-sub-label">Size</span>
+                            <button id="sc-sub-fontsize-minus" class="sc-sub-btn sc-sub-btn-icon" type="button">−</button>
+                            <span id="sc-sub-fontsize-value" class="sc-sub-readout">${_subFontSizePx}px</span>
+                            <button id="sc-sub-fontsize-plus" class="sc-sub-btn sc-sub-btn-icon" type="button">+</button>
                         </div>
-                        <div class="sc-sub-poscol">
-                            <span class="sc-sub-label">Position</span>
-                            <span id="sc-sub-pos-readout" class="sc-sub-readout">${_subPosX}%, ${_subPosY}%</span>
-                            <button id="sc-sub-pos-reset" class="sc-sub-btn" type="button">Reset</button>
+                        <div class="sc-sub-posrow">
+                            <div id="sc-sub-pospad" title="Drag to position captions"><div id="sc-sub-pospad-dot"></div></div>
+                            <div class="sc-sub-dpad">
+                                <span></span>
+                                <button id="sc-sub-posy-minus" class="sc-sub-btn sc-sub-btn-icon" type="button" title="Move up">▲</button>
+                                <span></span>
+                                <button id="sc-sub-posx-minus" class="sc-sub-btn sc-sub-btn-icon" type="button" title="Move left">◀</button>
+                                <span></span>
+                                <button id="sc-sub-posx-plus" class="sc-sub-btn sc-sub-btn-icon" type="button" title="Move right">▶</button>
+                                <span></span>
+                                <button id="sc-sub-posy-plus" class="sc-sub-btn sc-sub-btn-icon" type="button" title="Move down">▼</button>
+                                <span></span>
+                            </div>
+                            <div class="sc-sub-poscol">
+                                <span class="sc-sub-label">Position</span>
+                                <span id="sc-sub-pos-readout" class="sc-sub-readout">${_subPosX}%, ${_subPosY}%</span>
+                                <button id="sc-sub-pos-reset" class="sc-sub-btn" type="button">Reset</button>
+                            </div>
                         </div>
                     </div>
-                </div>
-                <div class="sc-sub-section" id="sc-sub-os-section">
-                    <div class="sc-sub-eyebrow">Find online</div>
-                    ${osSectionInner}
                 </div>
                 <div class="sc-sub-footer">
                     <button id="sc-sub-clear" class="sc-sub-btn" type="button">Clear subtitles</button>
                 </div>
+                <div id="sc-sub-os-quota" class="sc-sub-label"></div>
                 <div id="sc-sub-error"></div>
             </div>`;
         document.body.appendChild(panel);
@@ -675,6 +694,20 @@
         $('#sc-sub-posy-minus').addEventListener('click', () => setSubPosition(_subPosX, _subPosY - SUB_POS_STEP));
         $('#sc-sub-posy-plus').addEventListener('click', () => setSubPosition(_subPosX, _subPosY + SUB_POS_STEP));
         $('#sc-sub-pos-reset').addEventListener('click', () => resetSubPosition());
+
+        // Appearance section is collapsible, collapsed on every panel open
+        // (not persisted). Caret ▸ collapsed / ▾ expanded.
+        const apToggle = $('#sc-sub-appearance-toggle');
+        const apBody = $('#sc-sub-appearance-body');
+        if (apToggle && apBody) {
+            apToggle.addEventListener('click', () => {
+                const collapsed = apBody.classList.toggle('sc-collapsed');
+                apToggle.setAttribute('aria-expanded', String(!collapsed));
+                const caret = apToggle.querySelector('.sc-sub-caret');
+                if (caret) caret.textContent = collapsed ? '▸' : '▾';
+            });
+        }
+
         $('#sc-sub-clear').addEventListener('click', () => {
             resetSubtitles();
             clearSubCache();
@@ -684,6 +717,8 @@
             if (r) r.innerHTML = '';
             const n = $('#sc-sub-os-note');
             if (n) n.textContent = '';
+            const q = $('#sc-sub-os-quota');
+            if (q) q.textContent = '';
             const sb = $('#sc-sub-os-search'); // only present when a key is set
             if (sb) sb.textContent = 'Find subtitles online';
         });
