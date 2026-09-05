@@ -218,6 +218,106 @@
     }
 
     /* ==========================================================
+       IN-PANEL OPENSUBTITLES SEARCH + LOAD
+       Wires the Task-1 API client (opensubtitles.js — same bundle
+       scope after assembly: LS_OPENSUBTITLES, osSearchSubtitles,
+       osDownloadSubtitle, osFetchSrtText, _osResultsMemo) into the
+       "Find online" panel section. Degrades gracefully with no key /
+       no IMDb match / YouTube — no hard dependency on movie-title-links.
+       These are module-scope (called from openSubtitlePanel's wiring)
+       and touch the panel purely by id, null-safe if it's been closed
+       mid-request. Named escOsText / runOnlineSearch / selectOsResult
+       (not esc/…) — the assembled bundle is one shared scope.
+    ========================================================== */
+    // HTML-escape for interpolation into the results-list HTML string
+    // ONLY (never cue text — cues go through VTTCue / the native parser,
+    // same as the local-file path).
+    function escOsText(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    async function runOnlineSearch(imdbId) {
+        const searchBtn = document.getElementById('sc-sub-os-search');
+        const note = document.getElementById('sc-sub-os-note');
+        const results = document.getElementById('sc-sub-os-results');
+        if (searchBtn) searchBtn.disabled = true;
+        if (note) note.textContent = 'Searching OpenSubtitles…';
+        if (results) results.innerHTML = '';
+        clearPanelError();
+
+        let list;
+        if (_osResultsMemo.imdbId === imdbId && _osResultsMemo.list) {
+            list = _osResultsMemo.list;
+        } else {
+            list = await osSearchSubtitles(imdbId);
+            _osResultsMemo = { imdbId, list };
+        }
+
+        if (searchBtn) { searchBtn.disabled = false; searchBtn.textContent = 'Search again'; }
+
+        if (!list.length) {
+            if (note) note.textContent = 'No English subtitles found for this movie.';
+            return;
+        }
+        if (note) note.textContent = '';
+
+        const html = list.map((s) => {
+            const rel = escOsText(s.release);
+            const badges = (s.fromTrusted ? '<span class="sc-sub-os-badge b-trust">Trusted</span>' : '')
+                + (s.hearingImpaired ? '<span class="sc-sub-os-badge b-sdh">SDH</span>' : '')
+                + (s.machineTranslated ? '<span class="sc-sub-os-badge b-mt">Machine</span>' : '');
+            return '<button class="sc-sub-os-item" type="button" data-file-id="' + s.fileId + '" data-release="' + rel + '">'
+                + '<span class="sc-sub-os-rel" title="' + rel + '">' + rel + '</span>'
+                + '<span class="sc-sub-os-meta">' + escOsText(s.uploader) + ' · ' + s.downloadCount.toLocaleString() + ' downloads</span>'
+                + '<span class="sc-sub-os-badges">' + badges + '</span>'
+                + '</button>';
+        }).join('');
+        if (results) results.innerHTML = html;
+    }
+
+    async function selectOsResult(fileId, release) {
+        const results = document.getElementById('sc-sub-os-results');
+        if (!results) return;
+        const items = results.querySelectorAll('.sc-sub-os-item');
+        const item = results.querySelector('.sc-sub-os-item[data-file-id="' + fileId + '"]');
+        const rel = item && item.querySelector('.sc-sub-os-rel');
+        const restore = () => {
+            items.forEach((b) => { b.disabled = false; });
+            if (item) item.classList.remove('busy');
+            if (rel) rel.textContent = release;
+        };
+
+        if (item) item.classList.add('busy');
+        if (rel) rel.textContent = 'Downloading…';
+        items.forEach((b) => { b.disabled = true; });
+        clearPanelError();
+
+        const dl = await osDownloadSubtitle(fileId);
+        if (!dl) { restore(); showPanelError('Download failed — the daily limit (free keys: 5/day) may be used up, or the key is invalid.'); return; }
+
+        const srt = await osFetchSrtText(dl.link);
+        if (!srt) { restore(); showPanelError('Couldn’t fetch the subtitle file from OpenSubtitles.'); return; }
+
+        const cues = parseSubtitleFile(srt);
+        if (!cues.length) { restore(); showPanelError('That subtitle file couldn’t be parsed.'); return; }
+
+        const video = getPlayerVideoEl();
+        if (!video) { restore(); showPanelError('No video found to attach subtitles to.'); return; }
+
+        applySubtitles(video, cues, release + '.srt');
+        clearPanelError();
+        results.innerHTML = ''; // collapse the list
+        const note = document.getElementById('sc-sub-os-note');
+        if (note) note.textContent = '✓ Loaded: ' + release + (dl.remaining != null ? ' — ' + dl.remaining + ' downloads left today' : '');
+        const searchBtn = document.getElementById('sc-sub-os-search');
+        if (searchBtn) searchBtn.textContent = 'Find different subtitles';
+    }
+
+    /* ==========================================================
        SUBTITLE PANEL
     ========================================================== */
     function injectPanelCss() {
@@ -321,6 +421,39 @@
             .sc-sub-footer { display: flex !important; gap: 8px !important; }
             .sc-sub-footer .sc-sub-btn, .sc-sub-footer .sc-sub-btn-accent { flex: 1 1 0 !important; }
             #sc-sub-error { font-size: 12px !important; color: #ff6b6b !important; min-height: 14px !important; }
+            #sc-sub-os-results:not(:empty) {
+                display: flex !important; flex-direction: column !important; gap: 6px !important;
+                max-height: 200px !important; overflow-y: auto !important;
+            }
+            .sc-sub-os-item {
+                display: flex !important; flex-direction: column !important; gap: 3px !important;
+                width: 100% !important; text-align: left !important; align-items: flex-start !important;
+                padding: 7px 9px !important;
+                background: rgba(255,255,255,0.08) !important;
+                border: 1px solid rgba(255,255,255,0.18) !important;
+                border-radius: 6px !important;
+                color: #f4f4f2 !important; cursor: pointer !important;
+                transition: background 120ms ease !important;
+            }
+            .sc-sub-os-item:hover { background: rgba(255,255,255,0.22) !important; }
+            .sc-sub-os-item:disabled { opacity: 0.5 !important; cursor: default !important; }
+            .sc-sub-os-item.busy { opacity: 0.7 !important; }
+            .sc-sub-os-rel {
+                font-size: 12px !important; color: #f4f4f2 !important;
+                white-space: nowrap !important; overflow: hidden !important;
+                text-overflow: ellipsis !important; max-width: 100% !important;
+            }
+            .sc-sub-os-meta { font-size: 11px !important; color: rgba(244,244,242,0.62) !important; }
+            .sc-sub-os-badges {
+                display: flex !important; flex-wrap: wrap !important; gap: 4px !important; margin-top: 2px !important;
+            }
+            .sc-sub-os-badge {
+                font-size: 9px !important; text-transform: uppercase !important; letter-spacing: 0.06em !important;
+                padding: 1px 5px !important; border-radius: 4px !important; font-weight: 700 !important;
+            }
+            .sc-sub-os-badge.b-trust { background: rgba(77,208,225,0.14) !important; color: #4dd0e1 !important; }
+            .sc-sub-os-badge.b-sdh { background: rgba(255,255,255,0.12) !important; color: rgba(244,244,242,0.85) !important; }
+            .sc-sub-os-badge.b-mt { background: rgba(224,162,77,0.16) !important; color: #e0a24d !important; }
         `;
         document.head.appendChild(style);
     }
@@ -361,6 +494,30 @@
         const osLinkHtml = osUrl
             ? `<a id="sc-sub-opensubs" class="sc-sub-btn-accent" href="${osUrl}" target="_blank" rel="noopener noreferrer">Search OpenSubtitles</a>`
             : '';
+
+        // "Find online" section state (see task brief state table). imdbId
+        // is filled asynchronously by movie-title-links — can be null early
+        // (req 5 poll) or forever if that module isn't in the build.
+        const hasOsKey  = hasKey(LS_OPENSUBTITLES);
+        const osImdbId  = (movieInfo && movieInfo.imdbId) || null;
+        const onYouTube = isYouTubeMedia();
+        const osSearchBtnHtml = (disabled) =>
+            `<button id="sc-sub-os-search" class="sc-sub-btn-accent" type="button"${disabled ? ' disabled' : ''}>Find subtitles online</button>`;
+        const osNoteResultsHtml = (note) =>
+            `<div id="sc-sub-os-note" class="sc-sub-label">${note}</div><div id="sc-sub-os-results"></div>`;
+        let osSectionInner;
+        if (!hasOsKey) {
+            osSectionInner = osLinkHtml
+                + `<div class="sc-sub-label">Add an OpenSubtitles API key in ⚙ Settings to search &amp; load here.</div>`;
+        } else if (onYouTube) {
+            osSectionInner = `<div class="sc-sub-label">Online search isn't available for YouTube.</div>`;
+        } else if (!movieInfo) {
+            osSectionInner = osSearchBtnHtml(true) + osNoteResultsHtml('No movie identified yet.') + osLinkHtml;
+        } else if (!osImdbId) {
+            osSectionInner = osSearchBtnHtml(true) + osNoteResultsHtml('Waiting for an IMDb match for this movie…') + osLinkHtml;
+        } else {
+            osSectionInner = osSearchBtnHtml(false) + osNoteResultsHtml('');
+        }
 
         const panel = document.createElement('div');
         panel.id = 'sc-sub-panel';
@@ -410,9 +567,12 @@
                         </div>
                     </div>
                 </div>
+                <div class="sc-sub-section" id="sc-sub-os-section">
+                    <div class="sc-sub-eyebrow">Find online</div>
+                    ${osSectionInner}
+                </div>
                 <div class="sc-sub-footer">
                     <button id="sc-sub-clear" class="sc-sub-btn" type="button">Clear subtitles</button>
-                    ${osLinkHtml}
                 </div>
                 <div id="sc-sub-error"></div>
             </div>`;
@@ -423,7 +583,51 @@
         updateFontSizeDisplay();
         updatePositionDisplay();
 
-        $('#sc-sub-close').addEventListener('click', () => panel.remove());
+        /* ---- "Find online" (OpenSubtitles) wiring ---------------------- */
+        // Panel-scoped (function scope — safe from bundle name collisions).
+        // osImdbIdNow starts at panel-open's id and is upgraded by the poll.
+        let osImdbIdNow = osImdbId;
+        let osPollId = null;
+        const clearOsPoll = () => { if (osPollId) { clearInterval(osPollId); osPollId = null; } };
+
+        // req 5: bounded poll only while "key set, movie identified, no
+        // imdbId yet, not YouTube" — mirrors watchMovieTitleForCache()'s
+        // ~1500ms / 14-try budget.
+        if (hasOsKey && movieInfo && !osImdbId && !onYouTube) {
+            let osTries = 0;
+            osPollId = setInterval(() => {
+                if (!document.getElementById('sc-sub-panel')) { clearOsPoll(); return; }
+                const info = getBridgeMovieInfo();
+                if (info && info.imdbId) {
+                    osImdbIdNow = info.imdbId;
+                    const sb = $('#sc-sub-os-search');
+                    if (sb) sb.disabled = false;
+                    const nt = $('#sc-sub-os-note');
+                    if (nt) nt.textContent = '';
+                    clearOsPoll();
+                    return;
+                }
+                if (++osTries >= 14) clearOsPoll();
+            }, 1500);
+        }
+
+        const osSearchBtn = $('#sc-sub-os-search');
+        if (osSearchBtn) {
+            osSearchBtn.addEventListener('click', () => {
+                if (osImdbIdNow) runOnlineSearch(osImdbIdNow);
+            });
+        }
+        // One delegated listener, attached once at panel build (not per-render).
+        const osResultsEl = $('#sc-sub-os-results');
+        if (osResultsEl) {
+            osResultsEl.addEventListener('click', (e) => {
+                const item = e.target.closest('.sc-sub-os-item');
+                if (!item || item.disabled) return;
+                selectOsResult(Number(item.dataset.fileId), item.dataset.release);
+            });
+        }
+
+        $('#sc-sub-close').addEventListener('click', () => { clearOsPoll(); panel.remove(); });
 
         $('#sc-sub-file').addEventListener('change', (e) => {
             const file = e.target.files && e.target.files[0];
@@ -458,7 +662,18 @@
         $('#sc-sub-posy-minus').addEventListener('click', () => setSubPosition(_subPosX, _subPosY - SUB_POS_STEP));
         $('#sc-sub-posy-plus').addEventListener('click', () => setSubPosition(_subPosX, _subPosY + SUB_POS_STEP));
         $('#sc-sub-pos-reset').addEventListener('click', () => resetSubPosition());
-        $('#sc-sub-clear').addEventListener('click', () => { resetSubtitles(); clearSubCache(); });
+        $('#sc-sub-clear').addEventListener('click', () => {
+            resetSubtitles();
+            clearSubCache();
+            // Also reset the online-search UI (req 7).
+            _osResultsMemo = { imdbId: null, list: null };
+            const r = $('#sc-sub-os-results');
+            if (r) r.innerHTML = '';
+            const n = $('#sc-sub-os-note');
+            if (n) n.textContent = '';
+            const sb = $('#sc-sub-os-search'); // only present when a key is set
+            if (sb) sb.textContent = 'Find subtitles online';
+        });
 
         const pad = $('#sc-sub-pospad');
         let posDragging = false;
