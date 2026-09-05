@@ -69,3 +69,56 @@
                 font-size: 11px !important; color: rgba(255,255,200,0.6) !important;
                 padding: 2px 4px !important; flex-shrink: 0 !important;
             }
+
+            /* ===== INLINE SPELL-CHECK TOGGLE ===== */
+            /* Small icon button mirroring #sc-emote-proxy, but in the chat
+               box's bottom-LEFT corner. Fixed-positioned with per-layout
+               offsets, the same pattern as the emote button and gap buttons. */
+            #sc-spellcheck-toggle {
+                position: fixed !important;
+                z-index: 20002 !important;
+                background: rgba(255,255,255,0.08) !important;
+                color: rgba(255,255,255,0.55) !important;
+                border: 1px solid rgba(255,255,255,0.18) !important;
+                border-radius: 50% !important;
+                width: 28px !important; height: 28px !important;
+                padding: 0 !important;
+                cursor: pointer !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
+                transition: color 0.3s ease, background 0.3s ease, border-color 0.3s ease, opacity 0.3s ease !important;
+            }
+            #sc-spellcheck-toggle svg {
+                width: 19px !important; height: 19px !important;
+                display: block !important; overflow: visible !important;
+            }
+            #sc-spellcheck-toggle:hover { color: #fff !important; background: rgba(255,255,255,0.22) !important; }
+
+            /* ON — subtle purple accent, matching the settings checkboxes' accent-color */
+            #sc-spellcheck-toggle:not(.sc-off) {
+                color: #c0b0ff !important;
+                border-color: rgba(192,176,255,0.45) !important;
+                background: rgba(192,176,255,0.14) !important;
+            }
+            #sc-spellcheck-toggle:not(.sc-off):hover { background: rgba(192,176,255,0.28) !important; }
+
+            /* OFF — greyed, with a diagonal strike across the icon */
+            #sc-spellcheck-toggle.sc-off { color: rgba(255,255,255,0.32) !important; }
+            #sc-spellcheck-toggle.sc-off::after {
+                content: "" !important;
+                position: absolute !important;
+                left: 4px !important; right: 4px !important; top: 50% !important;
+                height: 2px !important; margin-top: -1px !important;
+                background: rgba(255,110,110,0.9) !important;
+                border-radius: 2px !important;
+                transform: rotate(-45deg) !important;
+                pointer-events: none !important;
+            }
+
+            body.sc-horizontal #sc-spellcheck-toggle {
+                bottom: 6px !important;
+                left: calc(100vw - var(--sc-chat-w) + 8px) !important;
+            }
+            body.sc-vertical #sc-spellcheck-toggle {
+                bottom: 18px !important;
+                left: 8px !important;
+            }

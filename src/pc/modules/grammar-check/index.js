@@ -327,3 +327,74 @@
     // src/pc/core/15-settings-modal-shell.js, which sorts SC_SETTINGS_ROWS by
     // this field before rendering.
     scRegisterSetting({ id: 'sc-input-spellcheck', group: 'grammar-check', label: 'Grammar &amp; spell check popup', note: 'When off, messages send immediately without review', key: LS_SPELLCHECK, defaultOn: true, order: 1 });
+
+    /* ==========================================================
+       INLINE SPELL-CHECK TOGGLE — a small icon button in the chat
+       box's bottom-LEFT corner, mirroring the emote button in the
+       bottom-right, so the grammar/spell check can be flipped
+       on/off without opening the settings modal. It's a second
+       surface for the SAME setting as the scRegisterSetting row
+       above: both read and write the one LS_SPELLCHECK key, so
+       they can never disagree. The settings-modal row is rebuilt
+       from getKey() every time the modal opens, so a change made
+       here shows up there; a change made there is pulled back onto
+       this button when the chat textarea next gains focus.
+    ========================================================== */
+
+    // "ABC" + a check mark — reads as spell-check. currentColor + the
+    // .sc-off strike (see style.css) carry the on/off state.
+    const _SPELLCHECK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">'
+        + '<text x="0.5" y="13" font-family="system-ui,-apple-system,sans-serif" font-size="11" font-weight="700" fill="currentColor">ABC</text>'
+        + '<path d="M3 18 L7 22 L15.5 12.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>'
+        + '</svg>';
+
+    function syncSpellcheckButton(btn) {
+        const on = spellCheckEnabled();
+        btn.classList.toggle('sc-off', !on);
+        btn.setAttribute('aria-pressed', String(on));
+        btn.title = on
+            ? 'Grammar & spell check: ON — click to skip it'
+            : 'Grammar & spell check: OFF — click to turn it back on';
+    }
+
+    function installSpellcheckToggle() {
+        const textarea = document.getElementById('sc-chat-textarea');
+        if (!textarea) return false;
+        if (document.getElementById('sc-spellcheck-toggle')) return true;
+
+        const btn = document.createElement('button');
+        btn.id = 'sc-spellcheck-toggle';
+        btn.type = 'button';
+        btn.innerHTML = _SPELLCHECK_SVG;
+        btn.setAttribute('aria-label', 'Toggle grammar & spell check');
+        syncSpellcheckButton(btn);
+
+        btn.addEventListener('click', e => {
+            e.preventDefault();
+            e.stopPropagation();
+            setKey(LS_SPELLCHECK, spellCheckEnabled() ? 'off' : 'on');
+            syncSpellcheckButton(btn);
+            textarea.focus();
+        });
+
+        // Fixed-positioned on <body> like #sc-emote-proxy; style.css gives it
+        // per-layout bottom-left offsets that mirror the emote button.
+        document.body.appendChild(btn);
+
+        // Pull in changes made through the settings modal while the page stayed open.
+        textarea.addEventListener('focus', () => syncSpellcheckButton(btn));
+        return true;
+    }
+
+    // The textarea is installed by core's boot MutationObserver, normally
+    // before this scRegisterInit callback runs on 'load' -- but retry a few
+    // times in case it isn't in the DOM yet.
+    function initSpellcheckToggle() {
+        if (installSpellcheckToggle()) return;
+        let tries = 0;
+        const timer = setInterval(() => {
+            if (installSpellcheckToggle() || ++tries > 20) clearInterval(timer);
+        }, 150);
+    }
+
+    scRegisterInit(initSpellcheckToggle);

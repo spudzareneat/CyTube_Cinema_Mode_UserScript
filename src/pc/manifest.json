@@ -1,7 +1,7 @@
 {
   "scriptId": "cytube.pc",
   "displayName": "CyTube Fullscreen Video with Overlay Chat",
-  "baseVersion": "4.11.4",
+  "baseVersion": "4.11.8",
   "headerTemplate": "src/pc/header.template.js",
   "match": [
     "https://cytu.be/r/420Grindhouse",
@@ -208,7 +208,8 @@
         "Checks chat messages for grammar/spelling/mixed-up words via LanguageTool before sending (3s timeout, never blocks send)",
         "Flags ALL-CAPS, keyyysmash, excessive punctuation",
         "Inline review popup with click-to-fix suggestions",
-        "Skips @mentions, #hashtags, and URLs"
+        "Skips @mentions, #hashtags, and URLs",
+        "Icon button in the chat box's bottom-left corner (mirroring the emote button) toggles the check on/off without opening Settings"
       ]
     },
     {
