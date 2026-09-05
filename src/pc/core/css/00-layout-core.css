@@ -21,12 +21,12 @@
             /* ── TOP BAR SYSTEM ────────────────────────────────────────────────────
                A single gradient band overlays the top of the video.
                After a few seconds the gradient, icons and Coming Attractions
-               fade out leaving only the title. Mouse-over restores everything.
+               fade out and the title dims to 50%. Mouse-over restores everything.
                If the poster strip is open nothing fades.
 
                States driven by .sc-bar-dim on #sc-top-bar:
                  (no class)    = fully visible
-                 .sc-bar-dim   = gradient/icons/toggle faded, title stays
+                 .sc-bar-dim   = gradient/icons/toggle faded, title dims to 50%
             ─────────────────────────────────────────────────────────────────── */
 
             /* Gradient overlay behind the whole bar */
@@ -71,9 +71,20 @@
                 pointer-events: auto !important;
                 transition: background 1.5s ease !important;
             }
-            /* When dimmed: background fades away, title stays via text-shadow */
+            /* When dimmed: background fades away, title dims but stays readable */
             #videowrap-header.sc-bar-dim {
                 background: transparent !important;
+            }
+            /* Title eases toward the dimmed state in lockstep with the bar.
+               The header's own transition only covers `background`, so the
+               opacity transition has to live on #currenttitle itself. 1.5s
+               matches #sc-top-bar's opacity fade and the header background. */
+            #videowrap-header #currenttitle {
+                transition: opacity 1.5s ease !important;
+                opacity: 1 !important;
+            }
+            #videowrap-header.sc-bar-dim #currenttitle {
+                opacity: 0.5 !important;
             }
             body.sc-vertical #videowrap-header { width: 100vw !important; }
             /* Hide the "Currently Playing:" prefix label */
