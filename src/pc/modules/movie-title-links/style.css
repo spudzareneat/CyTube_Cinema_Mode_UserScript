@@ -63,7 +63,7 @@
                 display: flex !important; gap: 32px !important; align-items: flex-end !important;
             }
             #sc-np-poster {
-                width: 180px !important; border-radius: 10px !important;
+                width: 230px !important; border-radius: 10px !important;
                 box-shadow: 0 16px 48px rgba(0,0,0,0.8) !important;
                 flex-shrink: 0 !important;
             }

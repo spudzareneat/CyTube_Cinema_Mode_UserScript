@@ -52,7 +52,7 @@
 
     const TP_POLL_MS     = 3000;            // heartbeat: detect movie change + drive the scheduler
     const TP_RETRY_MS    = 20 * 1000;       // recheck delay when blocked (paused/YouTube/setting off)
-    const TP_VISIBLE_MS  = 20 * 1000;       // how long a bubble stays up before auto-dismissing
+    const TP_VISIBLE_MS  = 15 * 1000;       // how long a bubble stays up before auto-dismissing
     const TP_EXIT_ANIM_MS = 300;             // must match style.css's .sc-tp-out transition-duration
     const TP_MAX_FACT_LEN = 280;             // skip trivia entries longer than this -- too much text to pop up legibly
 

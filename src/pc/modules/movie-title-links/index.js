@@ -886,14 +886,14 @@
        IMDb title id or a full imdb.com/title/ URL, else null (meaning
        "treat this as a free-text search term").
 
-       _fixRuntimeIndicator: the third clause of the card's second
-       "Matched as" line. Inputs are result.runtimeDelta (whole-minute
-       |runtime - knownDuration| gap, or null), the resolved title's
-       runtime in minutes (or null), and the playing file's duration in
-       whole minutes (or null). 15% tolerance mirrors demoteByRuntime().
-       Returns '' when there's no runtime to talk about at all, so the
-       caller omits the clause entirely rather than printing an empty
-       separator.
+       _fixRuntimeIndicator: computes the runtime ✓/✗/unknown verdict
+       for a match (result.runtimeDelta -- whole-minute |runtime -
+       knownDuration| gap, or null -- the resolved title's runtime in
+       minutes, and the playing file's duration in whole minutes). 15%
+       tolerance mirrors demoteByRuntime(). No longer surfaced on the
+       Now Playing card itself (that debug line was removed as
+       unhelpful noise); kept here, tested, for any future diagnostic
+       UI that wants it.
     ========================================================== */
     // ── test marker: fix-match helpers slice start ──
     function _fixMatchDetectTconst(input) {
@@ -997,24 +997,13 @@
             const srcLabel = SRC_LABEL[data.matchSource] || '';
             let line1 = `Matched: ${title}${data.cleanYear ? ` (${data.cleanYear})` : ''} · ${data.imdbId}`;
             if (srcLabel) line1 += ` — ${srcLabel}`;
-            const knownMin = (typeof getCurrentMediaSeconds === 'function' && getCurrentMediaSeconds() > 0)
-                ? Math.round(getCurrentMediaSeconds() / 60)
-                : null;
-            let line2 = `parsed "${data.parsedTitle}"` +
-                (data.parsedYear ? `, year ${data.parsedYear}` : ', no year');
-            const rt = _fixRuntimeIndicator(data.runtimeDelta, data.runtime, knownMin);
-            if (rt) line2 += ` · ${rt}`;
             matchEl.textContent = '';
             const d1 = document.createElement('div');
             d1.textContent = line1;
-            const d2 = document.createElement('div');
-            d2.className = 'sc-np-match-parsed';
-            d2.textContent = line2;
             matchEl.appendChild(d1);
-            matchEl.appendChild(d2);
             // Raw #currenttitle text that was fed to the parser -- the actual
-            // input behind line1/line2, so a wrong auto-match can be diagnosed
-            // at a glance. textContent, never innerHTML: filenames are untrusted.
+            // input behind line1, so a wrong auto-match can be diagnosed at a
+            // glance. textContent, never innerHTML: filenames are untrusted.
             if (data.rawFilename) {
                 const d3 = document.createElement('div');
                 d3.className = 'sc-np-match-parsed';
