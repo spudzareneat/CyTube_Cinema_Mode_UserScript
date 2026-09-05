@@ -54,6 +54,15 @@
     let _subPosX = getSubPos(LS_SUB_POS_X, SUB_POS_X_DEFAULT);
     let _subPosY = getSubPos(LS_SUB_POS_Y, SUB_POS_Y_DEFAULT);
 
+    // Whether loaded captions are currently hidden from view (Show/Hide
+    // toggle in the panel footer). Persisted like the size/position prefs
+    // so hiding survives a page refresh or the same movie cycling back --
+    // it only flips _subTrack.mode ('showing' <-> 'hidden'), never the
+    // parsed cues or the per-movie cache. "Clear subtitles" stays the
+    // action that actually forgets the file.
+    const LS_SUB_HIDDEN = 'sc_sub_hidden';
+    let _subHidden = localStorage.getItem(LS_SUB_HIDDEN) === '1';
+
     /* ==========================================================
        SUBTITLE STATE (session-only — no localStorage persistence)
     ========================================================== */
@@ -112,9 +121,10 @@
         _subCuesOriginal = cues;
         _loadedFilename = filename;
         _subTrack = video.addTextTrack('subtitles', 'Loaded subtitles', 'en');
-        _subTrack.mode = 'showing'; // addTextTrack defaults to 'hidden'
+        _subTrack.mode = _subHidden ? 'hidden' : 'showing'; // honor the Show/Hide pref; addTextTrack defaults to 'hidden'
         rebuildCues();
         updateOffsetDisplay();
+        updateToggleBtn();
         saveSubCache();
     }
 
@@ -180,9 +190,28 @@
     }
     function clearPanelError() { showPanelError(''); }
 
+    // Footer Show/Hide toggle: enabled only while a track is loaded, label
+    // tracks the persisted _subHidden pref.
+    function updateToggleBtn() {
+        const btn = document.getElementById('sc-sub-toggle');
+        if (!btn) return;
+        btn.disabled = !_subTrack;
+        btn.textContent = _subHidden ? 'Show subtitles' : 'Hide subtitles';
+    }
+
+    function setSubHidden(hidden) {
+        _subHidden = hidden;
+        try { localStorage.setItem(LS_SUB_HIDDEN, hidden ? '1' : '0'); } catch (e) {}
+        if (_subTrack) {
+            try { _subTrack.mode = hidden ? 'hidden' : 'showing'; } catch (e) {}
+        }
+        updateToggleBtn();
+    }
+
     function resetSubtitles() {
         clearSubtitleTrack();
         updateOffsetDisplay();
+        updateToggleBtn();
         clearPanelError();
     }
 
@@ -388,6 +417,8 @@
                 transition: background 120ms ease !important;
             }
             .sc-sub-btn:hover { background: rgba(255,255,255,0.22) !important; }
+            .sc-sub-btn:disabled { opacity: 0.4 !important; cursor: default !important; }
+            .sc-sub-btn:disabled:hover { background: rgba(255,255,255,0.08) !important; }
             .sc-sub-btn-icon {
                 width: 26px !important; height: 26px !important; padding: 0 !important; flex: none !important;
                 display: inline-flex !important; align-items: center !important; justify-content: center !important;
@@ -595,6 +626,7 @@
                     </div>
                 </div>
                 <div class="sc-sub-footer">
+                    <button id="sc-sub-toggle" class="sc-sub-btn" type="button">Hide subtitles</button>
                     <button id="sc-sub-clear" class="sc-sub-btn" type="button">Clear subtitles</button>
                 </div>
                 <div id="sc-sub-os-quota" class="sc-sub-label"></div>
@@ -606,6 +638,7 @@
         updateOffsetDisplay();
         updateFontSizeDisplay();
         updatePositionDisplay();
+        updateToggleBtn();
 
         /* ---- "Find online" (OpenSubtitles) wiring ---------------------- */
         // Panel-scoped (function scope — safe from bundle name collisions).
@@ -694,6 +727,7 @@
         $('#sc-sub-posy-minus').addEventListener('click', () => setSubPosition(_subPosX, _subPosY - SUB_POS_STEP));
         $('#sc-sub-posy-plus').addEventListener('click', () => setSubPosition(_subPosX, _subPosY + SUB_POS_STEP));
         $('#sc-sub-pos-reset').addEventListener('click', () => resetSubPosition());
+        $('#sc-sub-toggle').addEventListener('click', () => setSubHidden(!_subHidden));
 
         // Appearance section is collapsible, collapsed on every panel open
         // (not persisted). Caret ▸ collapsed / ▾ expanded.
