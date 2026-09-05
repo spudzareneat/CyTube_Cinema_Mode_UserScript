@@ -146,6 +146,10 @@
     // and NO headers here, the signed link itself is the credential (and
     // it expires). Adding Api-Key/User-Agent/Content-Type can break the
     // signed request. Resolves the raw SRT text, or null on any failure.
+    //
+    // Tradeoff (accepted for v1): responseText decodes as UTF-8, so a
+    // Windows-1252/Latin-1 subtitle file can mojibake. A later mitigation
+    // is responseType: 'arraybuffer' + TextDecoder with a charset guess.
     async function osFetchSrtText(link) {
         if (!link) return null;
         try {
@@ -163,15 +167,16 @@
     // state across its concatenated files.
     let _osResultsMemo = { imdbId: null, list: null };
 
-    // order: 8 — places this after every existing settings row
-    // (tmdb=0 … movie-lead-time=7). type:'text' rows with a testHandler
-    // are already fully handled by core/15-settings-modal-shell.js
-    // (textRowHtml / wireTextRowTestButton / Save handler) — nothing to
-    // add there.
+    // order: 11 — places this last. Rows above: tmdb=0 … movie-lead-time=7,
+    // link-pip=8, trivia-popup=9/10; this row = 11. (order: 8 collided with
+    // link-pip and the stable sort resolved it mid-list by emission order.)
+    // type:'text' rows with a testHandler are already fully handled by
+    // core/15-settings-modal-shell.js (textRowHtml / wireTextRowTestButton /
+    // Save handler) — nothing to add there.
     scRegisterSetting({
         id: 'sc-input-opensubtitles', group: 'subtitles', type: 'text',
         label: 'OpenSubtitles API key',
-        note: 'Optional — search & load real subtitles for the movie playing now, right in the Subtitles panel (needs an IMDb match). Free keys allow 5 downloads/day. Without a key the panel keeps its external OpenSubtitles search link.',
+        note: 'Optional — search &amp; load real subtitles for the movie playing now, right in the Subtitles panel (needs an IMDb match). Free keys allow 5 downloads/day. Without a key the panel keeps its external OpenSubtitles search link.',
         key: LS_OPENSUBTITLES,
         placeholder: 'Paste OpenSubtitles API key…',
         testHandler: validateOpensubtitlesKey,
@@ -181,5 +186,5 @@
         testErrorMessage: '⚠ Couldn’t reach API',
         link: 'https://www.opensubtitles.com/en/consumers',
         linkText: 'Get a free OpenSubtitles API key ↗',
-        order: 8,
+        order: 11,
     });

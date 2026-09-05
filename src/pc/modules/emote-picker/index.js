@@ -383,7 +383,7 @@
        Adapted from the (independently duplicated) pointer-drag logic
        in gifmaker's openGifPanel (src/pc/modules/gifmaker/index.js
        around line 1342) and subtitles' openSubtitlePanel
-       (src/pc/modules/subtitles/index.js around line 490). Net-new
+       (src/pc/modules/subtitles/index.js around line 717). Net-new
        here, local to this module, and used only by #sc-emotes-panel --
        gifmaker/subtitles keep their own copies untouched.
     ========================================================== */

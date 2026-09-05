@@ -346,7 +346,9 @@
       ],
       "connects": [
         "api.opensubtitles.com",
-        "opensubtitles.com"
+        "opensubtitles.com",
+        "opensubtitles.org",
+        "dl.opensubtitles.org"
       ],
       "features": [
         "Load a local .srt/.vtt file, synced via native browser captions",

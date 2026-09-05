@@ -254,7 +254,10 @@
             list = _osResultsMemo.list;
         } else {
             list = await osSearchSubtitles(imdbId);
-            _osResultsMemo = { imdbId, list };
+            // Only memoize a non-empty list: an empty result may be a
+            // transient network/API failure, not a real "none". Searches
+            // cost no quota, so let "Search again" retry.
+            if (list.length) _osResultsMemo = { imdbId, list };
         }
 
         if (searchBtn) { searchBtn.disabled = false; searchBtn.textContent = 'Search again'; }
@@ -265,12 +268,13 @@
         }
         if (note) note.textContent = '';
 
+        // Single quotes are intentionally not escaped — every interpolation site here uses double-quoted attributes.
         const html = list.map((s) => {
             const rel = escOsText(s.release);
             const badges = (s.fromTrusted ? '<span class="sc-sub-os-badge b-trust">Trusted</span>' : '')
                 + (s.hearingImpaired ? '<span class="sc-sub-os-badge b-sdh">SDH</span>' : '')
                 + (s.machineTranslated ? '<span class="sc-sub-os-badge b-mt">Machine</span>' : '');
-            return '<button class="sc-sub-os-item" type="button" data-file-id="' + s.fileId + '" data-release="' + rel + '">'
+            return '<button class="sc-sub-os-item" type="button" data-file-id="' + escOsText(s.fileId) + '" data-release="' + rel + '">'
                 + '<span class="sc-sub-os-rel" title="' + rel + '">' + rel + '</span>'
                 + '<span class="sc-sub-os-meta">' + escOsText(s.uploader) + ' · ' + s.downloadCount.toLocaleString() + ' downloads</span>'
                 + '<span class="sc-sub-os-badges">' + badges + '</span>'
@@ -419,8 +423,9 @@
             }
             .sc-sub-dpad .sc-sub-btn-icon { width: 26px !important; height: 26px !important; }
             .sc-sub-footer { display: flex !important; gap: 8px !important; }
-            .sc-sub-footer .sc-sub-btn, .sc-sub-footer .sc-sub-btn-accent { flex: 1 1 0 !important; }
+            .sc-sub-footer .sc-sub-btn { flex: 1 1 0 !important; }
             #sc-sub-error { font-size: 12px !important; color: #ff6b6b !important; min-height: 14px !important; }
+            #sc-sub-os-results:empty { display: none !important; }
             #sc-sub-os-results:not(:empty) {
                 display: flex !important; flex-direction: column !important; gap: 6px !important;
                 max-height: 200px !important; overflow-y: auto !important;
@@ -614,7 +619,15 @@
         const osSearchBtn = $('#sc-sub-os-search');
         if (osSearchBtn) {
             osSearchBtn.addEventListener('click', () => {
-                if (osImdbIdNow) runOnlineSearch(osImdbIdNow);
+                // Read the current movie fresh at click time — the movie can
+                // change while the panel is open (resetSubtitles() clears the
+                // track but not osImdbIdNow / _osResultsMemo), and searching
+                // or downloading for the previous film wastes a free key's
+                // 5 daily downloads. runOnlineSearch's memo is keyed on
+                // imdbId, so a fresh id naturally bypasses a stale memo.
+                const info = getBridgeMovieInfo();
+                const id = (info && info.imdbId) || osImdbIdNow;
+                if (id) runOnlineSearch(id);
             });
         }
         // One delegated listener, attached once at panel build (not per-render).
