@@ -1,0 +1,101 @@
+            /* ===== CHAT FORMATTING TOOLBAR ===== */
+            /* #sc-format-toggle mirrors #sc-emote-proxy / #sc-spellcheck-toggle:
+               a fixed-position round button with per-layout bottom offsets,
+               sitting one 28px slot inboard (toward chat) of the emote button.
+               #sc-format-bar is the pop-up toolbar it shows, anchored just
+               above it. */
+            #sc-format-toggle {
+                position: fixed !important;
+                z-index: 20002 !important;
+                background: rgba(255,255,255,0.08) !important;
+                color: rgba(255,255,255,0.55) !important;
+                border: 1px solid rgba(255,255,255,0.18) !important;
+                border-radius: 50% !important;
+                width: 28px !important; height: 28px !important;
+                padding: 0 !important;
+                font: 700 12px/1 system-ui, -apple-system, sans-serif !important;
+                letter-spacing: 0.5px !important;
+                cursor: pointer !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
+                transition: color 0.3s ease, background 0.3s ease !important;
+            }
+            #sc-format-toggle:hover,
+            #sc-format-toggle[aria-expanded="true"] {
+                color: #fff !important;
+                background: rgba(255,255,255,0.22) !important;
+            }
+
+            /* [hidden] is more specific than the bare #id, so this wins over the
+               display:flex below when the toolbar is closed. */
+            #sc-format-bar[hidden] { display: none !important; }
+            #sc-format-bar {
+                position: fixed !important;
+                z-index: 20003 !important;
+                display: flex !important;
+                align-items: center !important;
+                flex-wrap: wrap !important;
+                gap: 3px !important;
+                max-width: 94vw !important;
+                padding: 4px !important;
+                background: rgba(20,20,30,0.97) !important;
+                border: 1px solid rgba(255,255,255,0.18) !important;
+                border-radius: 8px !important;
+                box-shadow: 0 6px 22px rgba(0,0,0,0.55) !important;
+            }
+            #sc-format-bar .sc-fmt-btn {
+                min-width: 30px !important; height: 28px !important;
+                padding: 0 6px !important;
+                background: rgba(255,255,255,0.06) !important;
+                color: rgba(255,255,255,0.8) !important;
+                border: 1px solid rgba(255,255,255,0.14) !important;
+                border-radius: 5px !important;
+                font: 600 13px/1 system-ui, -apple-system, sans-serif !important;
+                cursor: pointer !important;
+                display: inline-flex !important; align-items: center !important; justify-content: center !important;
+                transition: background 0.15s ease, color 0.15s ease !important;
+            }
+            #sc-format-bar .sc-fmt-btn:hover {
+                background: rgba(255,255,255,0.18) !important;
+                color: #fff !important;
+            }
+            #sc-format-bar .sc-fmt-btn[data-fmt="italic"] {
+                font-family: Georgia, "Times New Roman", serif !important;
+                font-style: italic !important;
+            }
+            #sc-format-bar .sc-fmt-btn[data-fmt="bold"]   { font-weight: 800 !important; }
+            #sc-format-bar .sc-fmt-btn[data-fmt="mono"]   {
+                font-family: ui-monospace, "Courier New", monospace !important;
+                font-size: 11px !important;
+            }
+            #sc-format-bar .sc-fmt-btn[data-fmt="strike"] { text-decoration: line-through !important; }
+            #sc-format-bar .sc-fmt-btn[data-fmt="green"]  { color: #6bd66b !important; }
+            #sc-format-bar .sc-fmt-btn[data-fmt="me"],
+            #sc-format-bar .sc-fmt-btn[data-fmt="sp"] {
+                font-size: 10px !important;
+                letter-spacing: 0.3px !important;
+            }
+            #sc-format-bar .sc-fmt-sep {
+                width: 1px !important; height: 18px !important;
+                margin: 0 2px !important;
+                background: rgba(255,255,255,0.18) !important;
+            }
+
+            /* ===== HORIZONTAL ===== emote proxy is bottom:6px / right:8px */
+            body.sc-horizontal #sc-format-toggle {
+                bottom: 6px !important;
+                right: 44px !important;
+            }
+            body.sc-horizontal #sc-format-bar {
+                bottom: 40px !important;
+                right: 8px !important;
+            }
+
+            /* ===== VERTICAL ===== emote proxy is bottom:18px / right:8px */
+            body.sc-vertical #sc-format-toggle {
+                bottom: 18px !important;
+                right: 44px !important;
+            }
+            body.sc-vertical #sc-format-bar {
+                bottom: 52px !important;
+                right: 8px !important;
+            }

@@ -1,7 +1,7 @@
 {
   "scriptId": "cytube.pc",
   "displayName": "CyTube Fullscreen Video with Overlay Chat",
-  "baseVersion": "4.11.8",
+  "baseVersion": "4.12.0",
   "headerTemplate": "src/pc/header.template.js",
   "match": [
     "https://cytu.be/r/420Grindhouse",
@@ -230,6 +230,26 @@
         "Adapts to vertical/horizontal layout"
       ],
       "screenshot": "screenshots/emote-picker.png"
+    },
+    {
+      "id": "chat-formatting",
+      "name": "Chat Formatting Toolbar",
+      "category": "Chat",
+      "locked": false,
+      "defaultOn": true,
+      "files": [
+        "src/pc/modules/chat-formatting/index.js"
+      ],
+      "cssFiles": [
+        "src/pc/modules/chat-formatting/style.css"
+      ],
+      "dependsOn": ["core"],
+      "features": [
+        "Small “Aa” button beside the emote button opens a pop-up toolbar of CyTube chat-markup shortcuts",
+        "Italic / bold / monospace / strikethrough wrap the highlighted text (or drop the markers at the cursor); click again to unwrap",
+        "Greentext, /me and /sp buttons prefix the current line or the whole message",
+        "Closes on click-away or Esc; focus returns to the chat box after each insert"
+      ]
     },
     {
       "id": "chatimages",
