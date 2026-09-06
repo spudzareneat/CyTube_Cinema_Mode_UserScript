@@ -284,8 +284,9 @@
                 position: absolute !important; top: 0 !important; bottom: 0 !important; z-index: 2 !important;
                 background: repeating-linear-gradient(45deg, rgba(255,64,64,0.32) 0 6px, rgba(255,64,64,0.12) 6px 12px) !important;
                 border-left: 2px solid #ff4040 !important; border-right: 2px solid #ff4040 !important;
-                pointer-events: none !important;
+                pointer-events: auto !important; cursor: grab !important; touch-action: none !important;
             }
+            .sc-gif-filmstrip-cut:active { cursor: grabbing !important; }
             .sc-gif-filmstrip-cut-handle {
                 position: absolute !important; top: 0 !important; bottom: 0 !important; width: 14px !important; margin-left: -7px !important;
                 cursor: ew-resize !important; display: flex !important; align-items: center !important; justify-content: center !important;
@@ -380,6 +381,31 @@
             #sc-gif-cut-toggle:hover { background: rgba(255,64,64,0.14) !important; border-color: #ff4040 !important; color: #f4f4f2 !important; }
             #sc-gif-cut-toggle.sc-gif-cut-on { border-color: #ff4040 !important; color: #ff8080 !important; }
             #sc-gif-cut-toggle:disabled { opacity: 0.4 !important; cursor: default !important; }
+            #sc-gif-cut-tune {
+                display: flex !important; align-items: center !important; justify-content: center !important;
+                flex-wrap: wrap !important; gap: 4px !important; margin-top: 6px !important;
+                color: rgba(244,244,242,0.62) !important; font-size: 11px !important;
+            }
+            #sc-gif-cut-tune[hidden] { display: none !important; }
+            #sc-gif-cut-tune .sc-gif-cut-tune-lbl { color: rgba(255,128,128,0.9) !important; font-weight: 700 !important;
+                letter-spacing: 0.06em !important; }
+            #sc-gif-cut-tune .sc-gif-cut-tune-grp { color: rgba(244,244,242,0.4) !important; margin-left: 6px !important; }
+            #sc-gif-cut-tune button {
+                background: transparent !important; color: rgba(244,244,242,0.62) !important;
+                border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 5px !important;
+                padding: 2px 7px !important; font-size: 11px !important; cursor: pointer !important; min-width: 0 !important;
+                transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
+            }
+            #sc-gif-cut-tune button:hover { background: rgba(255,64,64,0.14) !important; border-color: #ff4040 !important; color: #f4f4f2 !important; }
+            .sc-gif-filmstrip-zoom { display: inline-flex !important; align-items: center !important; gap: 3px !important; margin-left: 6px !important; }
+            .sc-gif-filmstrip-zoom button {
+                background: transparent !important; color: rgba(244,244,242,0.5) !important;
+                border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 4px !important;
+                padding: 0 5px !important; font-size: 11px !important; line-height: 15px !important; cursor: pointer !important;
+                transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
+            }
+            .sc-gif-filmstrip-zoom button:hover { background: rgba(255,176,32,0.14) !important; border-color: #ffb020 !important; color: #f4f4f2 !important; }
+            .sc-gif-filmstrip-zoom button.sc-gif-zoom-active { border-color: #ffb020 !important; color: #ffb020 !important; }
             .sc-gif-col-right .sc-gif-fx-row { flex-direction: column !important; align-items: stretch !important; gap: 6px !important; }
             #sc-gif-go {
                 background: #ffb020 !important; color: #0c0c0e !important;
@@ -1422,6 +1448,13 @@
     const FILMSTRIP_MIN_WINDOW = 12;
     const FILMSTRIP_EDGE_PAD = 1;
     const FILMSTRIP_TILES = 10;
+    const FILMSTRIP_ZOOM_MIN_SPAN = 1;    // tightest manual zoom, seconds
+    const FILMSTRIP_ZOOM_MAX_SPAN = 180;  // widest manual zoom, seconds
+    const FILMSTRIP_ZOOM_FACTOR_BTN = 1.5;
+    const FILMSTRIP_ZOOM_FACTOR_WHEEL = 1.2;
+    const FILMSTRIP_FIT_MARGIN_FACTOR = 1.2; // "Fit": clip fills ~1/1.2 of the window
+    const CUT_NUDGE_STEP = 0.1;
+    const CUT_NUDGE_STEP_FAST = 0.5;
     const OVERVIEW_NUDGE_SEC = 1;
     const OVERVIEW_NUDGE_SEC_FAST = 10;
     const SELECTION_EDGE_ZONE_PX = 20;
@@ -1445,6 +1478,7 @@
         let endT = Math.min(vidDur, startT + DEFAULT_CLIP_LEN);
         let cutStart = null, cutEnd = null; // interior exclusion band; null = no cut
         let _filmstripWindow = null; // { windowStart, windowEnd } — sticky across renders
+        let _filmstripZoomSpan = null; // manual zoom: desired visible span (s); null = auto
 
         const panel = document.createElement('div');
         panel.id = 'sc-gif-panel';
@@ -1463,7 +1497,7 @@
                     <div class="sc-gif-overview-labels">
                         <span>0:00</span>
                         <span class="sc-gif-overview-current"><span id="sc-gif-overview-label">Currently editing:</span> <span id="sc-gif-overview-current" class="sc-gif-mono"></span><span id="sc-gif-overview-hint"></span></span>
-                        <span>Window: <span id="sc-gif-filmstrip-range"></span></span>
+                        <span>Window: <span id="sc-gif-filmstrip-range"></span><span class="sc-gif-filmstrip-zoom"><button type="button" id="sc-gif-zoom-in" title="Zoom in (or scroll over the filmstrip)">＋</button><button type="button" id="sc-gif-zoom-out" title="Zoom out">－</button><button type="button" id="sc-gif-zoom-fit" title="Fit the filmstrip to the selection">⤢</button><button type="button" id="sc-gif-zoom-reset" title="Reset zoom to automatic framing">⟲</button></span></span>
                         <span id="sc-gif-overview-total"></span>
                     </div>
                 </div>
@@ -1508,6 +1542,17 @@
                     </div>
                 </div>
                 <div id="sc-gif-dur-line">Duration <b id="sc-gif-dur-val"></b><button type="button" id="sc-gif-cut-toggle">✂ Cut middle</button></div>
+                <div id="sc-gif-cut-tune" hidden>
+                    <span class="sc-gif-cut-tune-lbl">CUT</span>
+                    <span class="sc-gif-cut-tune-grp">start</span>
+                    <button type="button" data-act="cut-start-now" title="Set cut start to current playback position">⤓</button>
+                    <button type="button" data-act="cut-start-minus" title="−0.1s (Shift: −0.5s)">−</button>
+                    <button type="button" data-act="cut-start-plus" title="+0.1s (Shift: +0.5s)">+</button>
+                    <span class="sc-gif-cut-tune-grp">end</span>
+                    <button type="button" data-act="cut-end-now" title="Set cut end to current playback position">⤓</button>
+                    <button type="button" data-act="cut-end-minus" title="−0.1s (Shift: −0.5s)">−</button>
+                    <button type="button" data-act="cut-end-plus" title="+0.1s (Shift: +0.5s)">+</button>
+                </div>
                 </div>
                 <button type="button" class="sc-gif-mid-header" id="sc-gif-mid-header" aria-expanded="true">
                     <span>Captions &amp; Format</span>
@@ -2088,19 +2133,52 @@
         // Return value is advisory only — tile refetching is decided by
         // refetchFilmstripTiles() via _tilesWindowKey, not by this return value.
         function ensureFilmstripWindow() {
-            const needsReframe = !_filmstripWindow ||
-                startT < _filmstripWindow.windowStart + FILMSTRIP_EDGE_PAD ||
-                endT   > _filmstripWindow.windowEnd   - FILMSTRIP_EDGE_PAD;
-            if (!needsReframe) return false;
+            const autoSpan = Math.max(FILMSTRIP_MIN_WINDOW, (endT - startT) + FILMSTRIP_MARGIN * 2);
+            let span = _filmstripZoomSpan != null ? _filmstripZoomSpan : autoSpan;
+            if (isFinite(vidDur)) span = Math.min(span, vidDur);
 
-            const span = Math.max(FILMSTRIP_MIN_WINDOW, (endT - startT) + FILMSTRIP_MARGIN * 2);
-            let windowStart = Math.max(0, startT - FILMSTRIP_MARGIN);
+            const win = _filmstripWindow;
+            const curSpan = win ? win.windowEnd - win.windowStart : 0;
+            // Auto framing keeps a 1s buffer so a dragged handle never hugs the
+            // edge; a manual zoom (esp. "Fit") deliberately runs tight, so drop
+            // the buffer to 0 there or the window oscillates chasing both edges.
+            const edgePad = _filmstripZoomSpan != null ? 0 : FILMSTRIP_EDGE_PAD;
+            // Reframe whenever the target span no longer matches what's shown —
+            // covers a zoom in/out and the "Reset" return to the auto span.
+            const spanMismatch = !!win && Math.abs(curSpan - span) > 0.05;
+            const handleOutOfView = !!win &&
+                (startT < win.windowStart + edgePad ||
+                 endT   > win.windowEnd   - edgePad);
+            if (win && !spanMismatch && !handleOutOfView) return false;
+
+            let windowStart;
+            if (_filmstripZoomSpan != null && win && !spanMismatch) {
+                // Manual zoom, only a handle drifted out of view: pan the
+                // minimum needed rather than recentring, so a wheel-zoom's
+                // cursor anchor survives when it sits near the selection.
+                windowStart = win.windowStart;
+                if (endT - startT <= span) {
+                    if (startT < windowStart + edgePad) windowStart = startT - edgePad;
+                    else if (endT > windowStart + span - edgePad) windowStart = endT - span + edgePad;
+                } else {
+                    windowStart = (startT + endT) / 2 - span / 2;
+                }
+            } else if (_filmstripZoomSpan != null) {
+                // Manual zoom, span just changed (zoom button, Fit, first frame):
+                // centre the window on the selection.
+                windowStart = (startT + endT) / 2 - span / 2;
+            } else {
+                // Auto mode: unchanged behaviour.
+                windowStart = startT - FILMSTRIP_MARGIN;
+            }
+
+            windowStart = Math.max(0, windowStart);
             if (isFinite(vidDur)) windowStart = Math.min(windowStart, Math.max(0, vidDur - span));
             const windowEnd = isFinite(vidDur) ? Math.min(vidDur, windowStart + span) : windowStart + span;
 
-            const changed = !_filmstripWindow ||
-                _filmstripWindow.windowStart !== windowStart ||
-                _filmstripWindow.windowEnd   !== windowEnd;
+            const changed = !win ||
+                win.windowStart !== windowStart ||
+                win.windowEnd   !== windowEnd;
             _filmstripWindow = { windowStart, windowEnd };
             return changed;
         }
@@ -2230,6 +2308,92 @@
         wireCutDrag($('#sc-gif-filmstrip-cut-start'), 'cut-start');
         wireCutDrag($('#sc-gif-filmstrip-cut-end'), 'cut-end');
 
+        // Drag the whole cut band as a unit (its width fixed) without moving the
+        // surrounding selection.
+        (function wireCutBandDrag() {
+            const band = $('#sc-gif-filmstrip-cut');
+            let dragging = false, startX = 0, cs0 = 0, width = 0;
+            band.addEventListener('pointerdown', (e) => {
+                if (cutStart == null || cutEnd == null) return;
+                e.stopPropagation();
+                dragging = true;
+                startX = e.clientX;
+                cs0 = cutStart;
+                width = cutEnd - cutStart;
+                band.setPointerCapture(e.pointerId);
+            });
+            band.addEventListener('pointermove', (e) => {
+                if (!dragging || !_filmstripWindow || cutStart == null) return;
+                const win = _filmstripWindow;
+                const rect = filmstripStrip.getBoundingClientRect();
+                const deltaSec = (e.clientX - startX) / rect.width * (win.windowEnd - win.windowStart);
+                let ns = cs0 + deltaSec;
+                ns = Math.max(startT + MIN_CUT_GAP, Math.min(ns, endT - MIN_CUT_GAP - width));
+                cutStart = ns;
+                cutEnd = ns + width;
+                render('cut');
+            });
+            const endDrag = (e) => {
+                dragging = false;
+                try { band.releasePointerCapture(e.pointerId); } catch (err) {}
+            };
+            band.addEventListener('pointerup', endDrag);
+            band.addEventListener('pointercancel', endDrag);
+        })();
+
+        // ---- Filmstrip zoom (wheel + buttons) ----
+        function currentFilmstripSpan() {
+            if (_filmstripWindow) return _filmstripWindow.windowEnd - _filmstripWindow.windowStart;
+            return Math.max(FILMSTRIP_MIN_WINDOW, (endT - startT) + FILMSTRIP_MARGIN * 2);
+        }
+        function clampZoomSpan(s) {
+            const hi = Math.min(FILMSTRIP_ZOOM_MAX_SPAN, isFinite(vidDur) ? vidDur : FILMSTRIP_ZOOM_MAX_SPAN);
+            return Math.max(FILMSTRIP_ZOOM_MIN_SPAN, Math.min(s, hi));
+        }
+        function updateZoomButtons() {
+            // Highlight the reset button while a manual zoom is in effect, so the
+            // way back to automatic framing is obvious.
+            $('#sc-gif-zoom-reset').classList.toggle('sc-gif-zoom-active', _filmstripZoomSpan != null);
+        }
+        function applyZoom(span) {
+            _filmstripZoomSpan = span == null ? null : clampZoomSpan(span);
+            ensureFilmstripWindow();
+            renderFilmstripHandles();
+            scheduleFilmstripRefresh();
+            updateZoomButtons();
+        }
+        $('#sc-gif-zoom-in').addEventListener('click', () => {
+            if (isBlob || !src) return;
+            applyZoom(currentFilmstripSpan() / FILMSTRIP_ZOOM_FACTOR_BTN);
+        });
+        $('#sc-gif-zoom-out').addEventListener('click', () => {
+            if (isBlob || !src) return;
+            applyZoom(currentFilmstripSpan() * FILMSTRIP_ZOOM_FACTOR_BTN);
+        });
+        $('#sc-gif-zoom-fit').addEventListener('click', () => {
+            if (isBlob || !src) return;
+            applyZoom((endT - startT) * FILMSTRIP_FIT_MARGIN_FACTOR); // window ≈ the trimmed clip
+        });
+        $('#sc-gif-zoom-reset').addEventListener('click', () => applyZoom(null));
+        filmstripStrip.addEventListener('wheel', (e) => {
+            if (isBlob || !src || !_filmstripWindow) return;
+            e.preventDefault();
+            const win = _filmstripWindow;
+            const rect = filmstripStrip.getBoundingClientRect();
+            const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            const tUnder = win.windowStart + pct * (win.windowEnd - win.windowStart);
+            const factor = e.deltaY < 0 ? 1 / FILMSTRIP_ZOOM_FACTOR_WHEEL : FILMSTRIP_ZOOM_FACTOR_WHEEL;
+            const span = clampZoomSpan((win.windowEnd - win.windowStart) * factor);
+            _filmstripZoomSpan = span;
+            let ws = tUnder - pct * span; // keep the time under the cursor put
+            ws = Math.max(0, ws);
+            if (isFinite(vidDur)) ws = Math.min(ws, Math.max(0, vidDur - span));
+            _filmstripWindow = { windowStart: ws, windowEnd: ws + span };
+            renderFilmstripHandles();
+            scheduleFilmstripRefresh();
+            updateZoomButtons();
+        }, { passive: false });
+
         $('#sc-gif-cut-toggle').addEventListener('click', () => {
             if (cutStart != null) {
                 cutStart = cutEnd = null;
@@ -2239,6 +2403,27 @@
                 if (dur < MIN_CUT_GAP * 3) return;
                 cutStart = startT + dur * 0.35;
                 cutEnd = startT + dur * 0.65;
+            }
+            render('cut');
+        });
+
+        $('#sc-gif-cut-tune').addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-act]');
+            if (!btn || cutStart == null || cutEnd == null) return;
+            const step = (e.shiftKey ? CUT_NUDGE_STEP_FAST : CUT_NUDGE_STEP);
+            const live = getPlayerVideoEl();
+            const cur = live ? live.currentTime : 0;
+            const act = btn.dataset.act;
+            // Move only the edge that was nudged, clamped against the other edge
+            // and the selection, matching wireCutDrag's per-handle bounds.
+            if (act.startsWith('cut-start-')) {
+                let v = act === 'cut-start-now' ? cur
+                      : cutStart + (act === 'cut-start-plus' ? step : -step);
+                cutStart = Math.max(startT + MIN_CUT_GAP, Math.min(v, cutEnd - MIN_CUT_GAP));
+            } else {
+                let v = act === 'cut-end-now' ? cur
+                      : cutEnd + (act === 'cut-end-plus' ? step : -step);
+                cutEnd = Math.min(endT - MIN_CUT_GAP, Math.max(v, cutStart + MIN_CUT_GAP));
             }
             render('cut');
         });
@@ -2400,6 +2585,7 @@
             btn.textContent = on ? '✕ Remove cut' : '✂ Cut middle';
             btn.classList.toggle('sc-gif-cut-on', on);
             btn.disabled = isBlob || !src || (!on && endT - startT < MIN_CUT_GAP * 3);
+            $('#sc-gif-cut-tune').hidden = !on;
         };
 
         const render = (changed) => {
