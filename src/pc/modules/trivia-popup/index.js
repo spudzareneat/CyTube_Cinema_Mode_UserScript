@@ -229,9 +229,23 @@
             // T-panel and cheap either way.
             if (!popupTriviaEnabled()) return;
 
+            // Movies only. For a TV episode the "top cast"/"director" credits
+            // are the series regulars and the episode's director; their
+            // per-person trivia and "also known for" facts swamp the episode's
+            // own trivia and rarely relate to what's on screen. Episodes fall
+            // through to just their own IMDb trivia (already queued above),
+            // matching the T-panel. _npData is guaranteed populated by now:
+            // movie-title-links sets _currentImdbId and _npData in one
+            // synchronous block, and this module hard-depends on it.
+            if (_npData && _npData.episode != null) return;
+
             const result = await fetchCastAndDirector(id);
             if (id !== _tpLastImdbId) return; // movie changed again while this was in flight
             if (!result || !result.people.length) return;
+            // Belt-and-suspenders episode guard for when the filename parser
+            // missed the season/episode marker: IMDb itself says this title
+            // has a parent series, so treat it as an episode (movies only).
+            if (result.seriesTconst) return;
 
             const castCrewItems = await _tpBuildCastCrewItems(result.people, id, result.seriesTconst);
             if (id !== _tpLastImdbId) return; // movie changed again while this was in flight

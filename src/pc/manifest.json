@@ -1,7 +1,7 @@
 {
   "scriptId": "cytube.pc",
   "displayName": "CyTube Fullscreen Video with Overlay Chat",
-  "baseVersion": "4.13.3",
+  "baseVersion": "4.13.4",
   "headerTemplate": "src/pc/header.template.js",
   "match": [
     "https://cytu.be/r/420Grindhouse",
@@ -106,7 +106,7 @@
       "dependsOn": ["core", "movie-title-links", "imdb-trivia"],
       "features": [
         "VH1 Pop-up Video style trivia bubbles auto-appear every few minutes during movie playback",
-        "Reuses the same IMDb trivia already fetched for the Trivia panel, plus trivia and \"also known for\" facts about the top cast and director",
+        "Reuses the same IMDb trivia already fetched for the Trivia panel, plus (movies only) trivia and \"also known for\" facts about the top cast and director",
         "Cycles without repeats; stops for the rest of that movie once every fact has been shown",
         "Off by default — opt in from Settings"
       ]
