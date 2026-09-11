@@ -213,6 +213,22 @@
       ]
     },
     {
+      "id": "emote-cache",
+      "name": "Emote Image Cache",
+      "category": "Chat",
+      "locked": false,
+      "defaultOn": true,
+      "files": [
+        "src/pc/modules/emote-cache/index.js"
+      ],
+      "dependsOn": ["core"],
+      "features": [
+        "Caches every channel emote's image in Cache Storage instead of relying on the browser's shared HTTP cache, which gets evicted constantly by ordinary chat/gif traffic",
+        "Stops emotes from re-downloading and rate-limiting the CDN when scrolling the emote picker or viewing them in chat",
+        "Stays fresh via the channel's live emote add/edit/remove events, plus an on-demand top-up whenever the emote picker panel opens"
+      ]
+    },
+    {
       "id": "emote-picker",
       "name": "Emote Picker",
       "category": "Chat",
@@ -221,7 +237,7 @@
       "files": [
         "src/pc/modules/emote-picker/index.js"
       ],
-      "dependsOn": ["core"],
+      "dependsOn": ["core", "emote-cache"],
       "features": [
         "Redesigned draggable emote panel — position remembered",
         "Live search/filter, star-to-favorite with a pinned favorites row",
