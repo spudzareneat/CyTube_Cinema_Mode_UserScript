@@ -645,19 +645,21 @@
 
     /* ==========================================================
        GIF HOVER PREVIEW — hovering a tile whose image is an actual
-       .gif shows it enlarged in a floating box beside the panel (see
-       #sc-emotes-preview in injectEmotesPanelCss()). Non-gif tiles
-       (most channel emotes are static PNGs) get no hover behavior.
-       The preview element is lazily created/appended to <body> --
-       same convention as the panel itself -- and torn down whenever
-       the panel closes so it never lingers.
+       .gif (or .webp -- Giphy's modern CDN serves animated emotes as
+       .webp by default now, not .gif) shows it enlarged in a floating
+       box beside the panel (see #sc-emotes-preview in
+       injectEmotesPanelCss()). Other tiles (most channel emotes are
+       static PNGs) get no hover behavior. The preview element is
+       lazily created/appended to <body> -- same convention as the
+       panel itself -- and torn down whenever the panel closes so it
+       never lingers.
     ========================================================== */
     function isGifImageUrl(url) {
         if (!url) return false;
         try {
-            return /\.gif$/i.test(new URL(url, location.href).pathname);
+            return /\.(?:gif|webp)$/i.test(new URL(url, location.href).pathname);
         } catch (e) {
-            return /\.gif(?:[?#]|$)/i.test(url);
+            return /\.(?:gif|webp)(?:[?#]|$)/i.test(url);
         }
     }
 
