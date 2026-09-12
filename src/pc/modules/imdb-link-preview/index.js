@@ -168,7 +168,13 @@
             img.style.display = '';
         } else {
             img.removeAttribute('src');
-            img.style.display = 'none';
+            // .sc-imdb-card-poster's `display: block` in style.css is
+            // !important (every rule in this stylesheet is, to survive
+            // CyTube's own sheets) -- a plain img.style.display = 'none'
+            // assignment loses to it and silently has no effect, so this
+            // needs the same setProperty(..., 'important') technique used
+            // for the card's own show/hide and positioning below.
+            img.style.setProperty('display', 'none', 'important');
             card.classList.add('sc-imdb-card-loaded'); // nothing to wait on -- don't leave the spinner spinning forever
         }
         const yearPart = data.releaseYear ? ` (${data.releaseYear})` : '';
@@ -237,6 +243,21 @@
     let _scImdbHoverLink = null;
     let _scImdbHoverTimer = null;
 
+    // Full reset shared by every hide trigger (mouseout-leaves-link, Escape,
+    // #messagebuffer scroll) -- not just hideImdbCard() alone. Clearing
+    // _scImdbHoverLink/_scImdbHoverTimer here, not just hiding the card
+    // element, matters for two reasons: (1) a still-pending hover-intent
+    // timer must be cancelled, or it fires 200ms later and re-shows the
+    // card for a link the pointer is no longer over; (2) leaving
+    // _scImdbHoverLink pointing at the old link would make the mouseover
+    // dedup guard (`a === _scImdbHoverLink`) silently no-op on a genuine
+    // re-hover of that same link, leaving the card stuck hidden.
+    function resetImdbHover() {
+        _scImdbHoverLink = null;
+        if (_scImdbHoverTimer) { clearTimeout(_scImdbHoverTimer); _scImdbHoverTimer = null; }
+        hideImdbCard();
+    }
+
     function wireImdbHoverDelegation(buf) {
         buf.addEventListener('mouseover', (e) => {
             if (!imdbCardEnabled()) return;
@@ -253,9 +274,7 @@
             const a = e.target.closest('a[data-sc-imdb-tconst]');
             if (!a || a !== _scImdbHoverLink) return;
             if (a.contains(e.relatedTarget)) return; // still inside the same link
-            _scImdbHoverLink = null;
-            if (_scImdbHoverTimer) { clearTimeout(_scImdbHoverTimer); _scImdbHoverTimer = null; }
-            hideImdbCard();
+            resetImdbHover();
         });
     }
 
@@ -264,9 +283,7 @@
     // handlers elsewhere in this codebase.
     document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
-        _scImdbHoverLink = null;
-        if (_scImdbHoverTimer) { clearTimeout(_scImdbHoverTimer); _scImdbHoverTimer = null; }
-        hideImdbCard();
+        resetImdbHover();
     });
 
     /* ==========================================================
@@ -288,7 +305,12 @@
         new MutationObserver(() => scanImdbLinks(buf)).observe(buf, { childList: true, subtree: true });
         scanImdbLinks(buf);
         wireImdbHoverDelegation(buf);
-        buf.addEventListener('scroll', hideImdbCard);
+        // resetImdbHover(), not just hideImdbCard() -- see that function's
+        // comment: a pending hover-intent timer or a stale _scImdbHoverLink
+        // left behind here would either re-show the card 200ms after the
+        // scroll (once the intent timer fires anyway) or leave the card
+        // stuck hidden on the next hover of the same link.
+        buf.addEventListener('scroll', resetImdbHover);
     }
 
     function imdbLinkPreviewBoot() {
