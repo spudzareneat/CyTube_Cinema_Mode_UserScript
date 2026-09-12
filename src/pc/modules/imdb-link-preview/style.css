@@ -1,0 +1,77 @@
+/* ===== IMDB LINK PREVIEW ===== */
+/* Floating hover-preview card for IMDb title links in chat. Appended
+   to <body>, position: fixed + its own z-index (20500 -- between the
+   Now Playing card's 21000 and normal chat UI, so it's never buried
+   but never competes with an actual modal). pointer-events: none on
+   the outer container so it never blocks clicks/hover on the chat
+   underneath -- the card is purely informational. Every rule is
+   !important to survive CyTube's own stylesheets, same convention as
+   every other floating panel in this codebase (see #sc-np-card in
+   movie-title-links/style.css, #sc-emotes-preview in
+   emote-picker/index.js). */
+#sc-imdb-card {
+    position: fixed !important;
+    z-index: 20500 !important;
+    display: none !important;
+    pointer-events: none !important;
+    box-sizing: border-box !important;
+    width: 220px !important;
+    background: rgba(0,0,0,0.85) !important;
+    border: 1px solid rgba(255,255,255,0.14) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.6) !important;
+    padding: 10px !important;
+    color: #f4f4f2 !important;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif !important;
+    font-size: 12px !important;
+}
+.sc-imdb-card-spinner {
+    display: block !important;
+    width: 20px !important; height: 20px !important;
+    margin: 30px auto !important;
+    box-sizing: border-box !important;
+    border: 2px solid rgba(244,244,242,0.18) !important;
+    border-top-color: #f5c518 !important;
+    border-radius: 50% !important;
+    animation: sc-imdb-card-spin 700ms linear infinite !important;
+}
+@keyframes sc-imdb-card-spin { to { transform: rotate(360deg); } }
+/* Hidden once the card has settled (poster loaded/errored, or there
+   was no poster to wait on at all -- see renderImdbCardData()). */
+#sc-imdb-card.sc-imdb-card-loaded .sc-imdb-card-spinner { display: none !important; }
+.sc-imdb-card-poster {
+    display: block !important;
+    width: 100% !important;
+    max-height: 260px !important;
+    object-fit: cover !important;
+    border-radius: 5px !important;
+    margin-bottom: 8px !important;
+    opacity: 0 !important;
+    transition: opacity 150ms ease !important;
+}
+/* Starts hidden (opacity:0) and only fades in once ITS OWN load/error
+   fires (see ensureImdbCardEl()) -- without this, swapping a persistent
+   <img>'s src keeps rendering the previously-loaded poster until the
+   new one finishes decoding, so a still-loading title would flash the
+   last-hovered one's poster. */
+#sc-imdb-card.sc-imdb-card-loaded .sc-imdb-card-poster { opacity: 1 !important; }
+.sc-imdb-card-title {
+    font-weight: 700 !important;
+    font-size: 13px !important;
+    line-height: 1.3 !important;
+    color: #fff !important;
+    margin-bottom: 4px !important;
+}
+.sc-imdb-card-rating {
+    color: #f5c518 !important;
+    font-weight: 600 !important;
+    margin-bottom: 6px !important;
+}
+.sc-imdb-card-overview {
+    color: rgba(244,244,242,0.75) !important;
+    line-height: 1.4 !important;
+    display: -webkit-box !important;
+    -webkit-line-clamp: 4 !important;
+    -webkit-box-orient: vertical !important;
+    overflow: hidden !important;
+}
