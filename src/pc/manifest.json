@@ -1,7 +1,7 @@
 {
   "scriptId": "cytube.pc",
   "displayName": "CyTube Fullscreen Video with Overlay Chat",
-  "baseVersion": "4.13.6",
+  "baseVersion": "4.13.7",
   "headerTemplate": "src/pc/header.template.js",
   "match": [
     "https://cytu.be/r/420Grindhouse",
@@ -312,6 +312,25 @@
       "features": [
         "Adds a 🗗 icon next to YouTube links in chat that opens a floating picture-in-picture player",
         "Auto-mutes the main player while a YouTube PiP plays, restoring its previous state on close"
+      ]
+    },
+    {
+      "id": "imdb-link-preview",
+      "name": "IMDb Link Preview",
+      "category": "Chat",
+      "locked": false,
+      "defaultOn": true,
+      "files": [
+        "src/pc/modules/imdb-link-preview/index.js"
+      ],
+      "cssFiles": [
+        "src/pc/modules/imdb-link-preview/style.css"
+      ],
+      "dependsOn": ["core", "movie-title-links"],
+      "features": [
+        "Hovering an imdb.com/title/ link posted in chat shows a floating poster/title/rating/description card",
+        "Hover-intent delay avoids firing a lookup for every link the mouse passes over while scrolling",
+        "Cached per-title for the session so repeat hovers don't re-hit the network"
       ]
     },
     {
