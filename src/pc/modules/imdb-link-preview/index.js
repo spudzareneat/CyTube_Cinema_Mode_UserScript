@@ -48,7 +48,9 @@
     // ── test marker: extract-tconst slice start ──
     function extractImdbTconst(url) {
         if (!url) return null;
-        const m = String(url).match(/^https?:\/\/(?:www\.)?imdb\.com\/title\/(tt\d{6,})/);
+        // (?:www\.|m\.)? -- www. is the desktop site, m. is IMDb's own mobile
+        // subdomain (what a phone browser's share sheet actually copies).
+        const m = String(url).match(/^https?:\/\/(?:www\.|m\.)?imdb\.com\/title\/(tt\d{6,})/);
         return m ? m[1] : null;
     }
     // ── test marker: extract-tconst slice end ──
@@ -132,7 +134,21 @@
                 '<div class="sc-imdb-card-overview"></div>' +
             '</div>';
         const img = card.querySelector('.sc-imdb-card-poster');
-        const onDone = () => card.classList.add('sc-imdb-card-loaded');
+        // Unlike emote-picker's fixed 176x176 preview image, the poster here
+        // has no fixed height (style.css: width:100%, max-height:260px only)
+        // -- at the instant positionImdbCard() first runs in showImdbCard(),
+        // the just-assigned <img src> hasn't decoded yet, so the card
+        // measures short and can get positioned near the bottom of the
+        // viewport, then visibly jump ~270px taller once the poster loads
+        // with nothing left to reposition it. So reposition again here, once
+        // the image (or its error) actually settles -- but only against
+        // whichever link is CURRENTLY hovered (_scImdbHoverLink), since the
+        // load event can fire well after the mouse has moved to a different
+        // link or off the card entirely.
+        const onDone = () => {
+            card.classList.add('sc-imdb-card-loaded');
+            if (_scImdbHoverLink) positionImdbCard(card, _scImdbHoverLink);
+        };
         img.addEventListener('load', onDone);
         img.addEventListener('error', onDone);
         document.body.appendChild(card);
@@ -220,6 +236,20 @@
         const tconst = a.dataset.scImdbTconst;
         if (!tconst) return;
         const card = ensureImdbCardEl();
+
+        // Cache hit -- this tconst was already resolved earlier this
+        // session, so render straight from the cached data with no spinner/
+        // fade reset at all (mirrors emote-picker's "re-entering the same
+        // still-cached tile shouldn't re-hide an already-loaded preview").
+        // Read the Map directly rather than going through getImdbCardData()
+        // (an async function) so this branch never awaits anything.
+        if (_scImdbCardCache.has(tconst)) {
+            renderImdbCardData(card, _scImdbCardCache.get(tconst));
+            card.style.setProperty('display', 'block', 'important');
+            positionImdbCard(card, a);
+            return;
+        }
+
         resetImdbCardLoading(card);
         card.style.setProperty('display', 'block', 'important');
         positionImdbCard(card, a);
@@ -267,7 +297,12 @@
             if (_scImdbHoverTimer) clearTimeout(_scImdbHoverTimer);
             _scImdbHoverTimer = setTimeout(() => {
                 _scImdbHoverTimer = null;
-                if (_scImdbHoverLink === a) showImdbCard(a);
+                // showImdbCard is async; nothing in this codebase currently
+                // rejects out of it (fetchImdbTitleFields catches
+                // internally), but that's an invisible coupling -- a future
+                // change upstream could otherwise turn this into an
+                // unhandled promise rejection in the page console.
+                if (_scImdbHoverLink === a) showImdbCard(a).catch(() => {});
             }, 200);
         });
         buf.addEventListener('mouseout', (e) => {
@@ -319,4 +354,7 @@
     }
     imdbLinkPreviewBoot();
 
-    scRegisterSetting({ id: 'sc-input-imdblinkpreview', group: 'imdb-link-preview', label: 'IMDb hover-preview cards for chat links', note: 'Hovering an imdb.com/title/ link posted in chat shows a floating poster/title/rating/description card.', key: LS_IMDB_CARD_ENABLED, defaultOn: true, order: 9 });
+    // order: 12 -- 9/10 are trivia-popup's own toggle+frequency pair, 11 is
+    // subtitles'; keeping this row clear of both avoids ever splitting
+    // trivia-popup's pair apart if manifest module emission order changes.
+    scRegisterSetting({ id: 'sc-input-imdblinkpreview', group: 'imdb-link-preview', label: 'IMDb hover-preview cards for chat links', note: 'Hovering an imdb.com/title/ link posted in chat shows a floating poster/title/rating/description card.', key: LS_IMDB_CARD_ENABLED, defaultOn: true, order: 12 });

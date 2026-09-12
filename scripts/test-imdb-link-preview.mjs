@@ -52,6 +52,7 @@ function eq(label, actual, expected) {
 
 eq('plain title URL', extractImdbTconst('https://www.imdb.com/title/tt0259308/'), 'tt0259308');
 eq('without www.', extractImdbTconst('https://imdb.com/title/tt0259308/'), 'tt0259308');
+eq('m.imdb.com mobile subdomain', extractImdbTconst('https://m.imdb.com/title/tt0259308/'), 'tt0259308');
 eq('http (not https)', extractImdbTconst('http://www.imdb.com/title/tt0259308/'), 'tt0259308');
 eq('http, no www.', extractImdbTconst('http://imdb.com/title/tt0259308/'), 'tt0259308');
 eq('trailing path beyond id', extractImdbTconst('https://www.imdb.com/title/tt0259308/reference/'), 'tt0259308');
