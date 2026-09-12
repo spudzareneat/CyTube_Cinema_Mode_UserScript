@@ -582,7 +582,7 @@
         // (or forever, for a CORS-less CDN); patchEmoteImageNodes() there
         // swaps it in once available, so no render ever blocks on it.
         const src = getEmoteBlobUrl(e.name) || e.image;
-        return `<button type="button" class="sc-emotes-tile" data-emote-name="${name}">` +
+        return `<button type="button" class="sc-emotes-tile" data-emote-name="${name}" data-emote-image="${_emoteEscHtml(e.image)}">` +
                 `<span class="sc-emotes-spinner" aria-hidden="true"></span>` +
                 `<img src="${_emoteEscHtml(src)}" alt="${name}" title="${name}" loading="lazy">` +
                 `<span class="sc-emotes-tile-actions">` +
@@ -703,7 +703,12 @@
 
     function showEmotePreview(tile) {
         const img = tile.querySelector('img');
-        if (!img || !isGifImageUrl(img.src)) return;
+        // Determine gif-ness from the tile's real/original image URL, not
+        // img.src -- once emote-cache resolves, img.src becomes a
+        // blob:https://... URL (never ending in .gif) that would otherwise
+        // make isGifImageUrl() falsely return false for every cached emote.
+        const real = tile.dataset.emoteImage || (img ? img.src : '');
+        if (!img || !isGifImageUrl(real)) return;
         const preview = ensureEmotePreviewEl();
         const previewImg = preview.querySelector('img');
         // Only reset the loaded/fade state when the src is actually

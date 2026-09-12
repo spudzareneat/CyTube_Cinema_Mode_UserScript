@@ -100,10 +100,10 @@
     async function cacheEmoteImage(cache, name, url) {
         try {
             const res = await fetch(url);
-            if (!res.ok) return;
+            if (!res.ok) { _scEmoteCacheFailed.add(name); return; }
             await cache.put(url, res.clone());
             setEmoteBlobUrl(name, await res.blob());
-        } catch (e) {}
+        } catch (e) { _scEmoteCacheFailed.add(name); }
     }
 
     /* ==========================================================
@@ -117,6 +117,14 @@
     ========================================================== */
     const EMOTE_PRIME_CONCURRENCY = 4;
     const _scEmotePriming = new Set();
+    // Names that have already failed to fetch/cache this session (bad
+    // HTTP status, CORS throw, cache.put quota error, etc.) -- checked
+    // (never populated except on actual failure) by primeEmoteCache()'s
+    // filter below so a permanently-failing emote isn't re-fetched in
+    // full on every panel open / socket event, which is exactly the CDN
+    // hammering this whole feature exists to prevent. Deliberately never
+    // expires/retries within a session -- only a page reload clears it.
+    const _scEmoteCacheFailed = new Set();
 
     async function runWithConcurrency(items, limit, worker) {
         let i = 0;
@@ -133,7 +141,7 @@
         if (!emotes || !emotes.length) return;
         const cache = await openEmoteCache();
         if (!cache) return;
-        const todo = emotes.filter(e => e && e.name && e.image && !_scEmoteBlobUrls.has(e.name) && !_scEmotePriming.has(e.name));
+        const todo = emotes.filter(e => e && e.name && e.image && !_scEmoteBlobUrls.has(e.name) && !_scEmotePriming.has(e.name) && !_scEmoteCacheFailed.has(e.name));
         if (!todo.length) return;
         todo.forEach(e => _scEmotePriming.add(e.name));
         try {
