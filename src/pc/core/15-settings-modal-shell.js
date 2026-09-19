@@ -29,7 +29,37 @@
         if (r.type === 'text') return textRowHtml(r);
         if (r.type === 'number') return numberRowHtml(r);
         if (r.type === 'select') return selectRowHtml(r);
+        if (r.type === 'section') return sectionRowHtml(r);
+        if (r.type === 'action') return actionRowHtml(r);
         return checkboxRowHtml(r);
+    }
+
+    // Section header row: a titled divider that visually groups the rows
+    // registered after it (by `order`). Purely presentational -- has no input,
+    // so it has no element carrying `r.id` and the Save handler skips it.
+    // `r.label`/`r.note` are trusted raw HTML, like every other row type.
+    function sectionRowHtml(r) {
+        return `
+                <div class="sc-settings-group sc-settings-section">
+                    <div class="sc-settings-section-title">${r.label}</div>
+                    ${r.note ? `<span class="sc-settings-note">${r.note}</span>` : ''}
+                </div>`;
+    }
+
+    // Action row: a button + status line + detail area, for one-off actions
+    // that aren't persisted settings (e.g. a "Test connection" button that
+    // sits below the inputs it reads). No element gets the plain `r.id`
+    // (the Save handler looks elements up by row id and skips this type);
+    // see wireActionRow() below for the click handler and its ctx object.
+    function actionRowHtml(r) {
+        return `
+                <div class="sc-settings-group sc-settings-action-group">
+                    <div class="sc-settings-input-row">
+                        <button id="${r.id}-btn" class="sc-settings-test" type="button">${r.buttonLabel}</button>
+                    </div>
+                    <span id="${r.id}-status" class="sc-settings-test-status"></span>
+                    <div id="${r.id}-detail" class="sc-settings-action-detail"></div>
+                </div>`;
     }
 
     // Same markup every hardcoded checkbox row used to use, now shared by any
@@ -171,6 +201,67 @@
         });
     }
 
+    // Wires the button of a rendered type:'action' row. Clicking runs
+    // `r.actionHandler(ctx)`; while it runs the button is disabled, or -- if
+    // the row declared a `cancelHandler` -- relabeled `r.cancelLabel` and kept
+    // enabled so a second click calls `cancelHandler` instead. `ctx` is fresh
+    // per click: getValue(rowId) reads another row's trimmed input value,
+    // setStatus(text, kind) sets the status line ('ok'|'bad'|'pending'),
+    // setDetail(html) sets the RAW-HTML detail area (caller escapes), and
+    // isOpen() is false once the modal is closed (the shell doesn't auto-
+    // cancel; handlers use it to stop themselves).
+    function wireActionRow(r) {
+        if (r.type !== 'action') return;
+        const btn = document.getElementById(r.id + '-btn');
+        if (!btn) return;
+        let running = false;
+        btn.addEventListener('click', async () => {
+            if (running) {
+                if (r.cancelHandler) r.cancelHandler();
+                return;
+            }
+            running = true;
+            if (r.cancelHandler) {
+                btn.textContent = r.cancelLabel || 'Cancel';
+            } else {
+                btn.disabled = true;
+            }
+            const ctx = {
+                getValue(rowId) {
+                    const el = document.getElementById(rowId);
+                    return el ? String(el.value ?? '').trim() : '';
+                },
+                setStatus(text, kind) {
+                    const el = document.getElementById(r.id + '-status');
+                    if (!el) return;
+                    el.textContent = text;
+                    el.className = 'sc-settings-test-status' +
+                        (kind === 'ok' ? ' sc-test-ok' : kind === 'bad' ? ' sc-test-bad' : kind === 'pending' ? ' sc-test-pending' : '');
+                },
+                setDetail(html) {
+                    const el = document.getElementById(r.id + '-detail');
+                    if (el) el.innerHTML = html;
+                },
+                isOpen() { return document.body.contains(btn); },
+            };
+            ctx.setStatus('', '');
+            ctx.setDetail('');
+            try {
+                await r.actionHandler(ctx);
+            } catch (e) {
+                ctx.setStatus('⚠ Something went wrong', 'bad');
+                ctx.setDetail('');
+                console.warn('[SC] settings action failed', r.id, e);
+            } finally {
+                running = false;
+                if (btn) {
+                    btn.textContent = r.buttonLabel;
+                    btn.disabled = false;
+                }
+            }
+        });
+    }
+
     // Sorted view of SC_SETTINGS_ROWS used at render time -- doesn't mutate the
     // registry itself, since scRegisterSetting() may still be called by an
     // optional module's file after core has already loaded (same build, later
@@ -222,6 +313,7 @@
         // and live labels for any registered select-slider rows.
         sortedSettingsRows().forEach(r => wireTextRowTestButton(r));
         sortedSettingsRows().forEach(r => wireSelectSliderRow(r));
+        sortedSettingsRows().forEach(r => wireActionRow(r));
 
         // Font size live preview
         const fontInput  = document.getElementById('sc-input-fontsize');
@@ -237,6 +329,7 @@
         document.getElementById('sc-settings-save').addEventListener('click', () => {
             const fontPx = parseInt(fontInput.value, 10);
             SC_SETTINGS_ROWS.forEach(row => {
+                if (row.type === 'section' || row.type === 'action') return;
                 const el = document.getElementById(row.id);
                 if (!el) return;
                 if (row.type === 'text') {

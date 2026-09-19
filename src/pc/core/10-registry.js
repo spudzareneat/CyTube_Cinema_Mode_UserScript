@@ -16,6 +16,11 @@
     //               (async (value) => 'valid'|'invalid'|'error') is provided.
     //               Set `mask: true` to render it as a password field (e.g. secrets).
     //   'number'  — <input type="number"> using `min`/`max`/`step` from the row.
+    //   'section' — non-persisted header (`label`, optional `note`) that visually
+    //               groups the rows ordered after it.
+    //   'action'  — non-persisted button (`buttonLabel`) + status line + detail
+    //               area; `actionHandler(ctx)` runs on click, optional
+    //               `cancelHandler`/`cancelLabel` make the button a cancel toggle.
     // Existing callers that omit `type` keep rendering as checkboxes unchanged.
     function scRegisterSetting(row) { SC_SETTINGS_ROWS.push({ type: 'checkbox', ...row }); }
     function injectCSS(id, css) {

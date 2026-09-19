@@ -134,6 +134,11 @@
             .sc-settings-link { font-size: 11px !important; color: rgba(192,176,255,0.7) !important; text-decoration: none !important; align-self: flex-start !important; }
             .sc-settings-link:hover { color: #c0b0ff !important; text-decoration: underline !important; }
             .sc-settings-toggle-group, .sc-settings-divider { border-top: 1px solid rgba(255,255,255,0.08) !important; padding-top: 12px !important; }
+            .sc-settings-section { border-top: 2px solid rgba(192,176,255,0.28) !important; padding-top: 14px !important; margin-top: 6px !important; }
+            .sc-settings-section-title {
+                font-size: 12px !important; font-weight: 700 !important; letter-spacing: 0.08em !important;
+                text-transform: uppercase !important; color: #c0b0ff !important;
+            }
             .sc-settings-toggle-label {
                 display: flex !important; flex-direction: column !important; gap: 4px !important;
                 cursor: pointer !important; font-size: 13px !important;
@@ -270,6 +275,10 @@
             .sc-test-ok      { color: #7dffa0 !important; }
             .sc-test-bad     { color: #ff8080 !important; }
             .sc-test-pending { color: rgba(255,255,255,0.55) !important; }
+            /* action rows: lone button in a flex row must not stretch or collapse */
+            .sc-settings-action-group .sc-settings-test { align-self: flex-start !important; padding: 7px 16px !important; }
+            .sc-settings-action-detail { font-size: 12px !important; }
+            .sc-settings-action-detail:not(:empty) { margin-top: 4px !important; }
 
             /* ===== CHAT → MOVIE SEEK MENU ===== */
             .sc-seek-menu {
