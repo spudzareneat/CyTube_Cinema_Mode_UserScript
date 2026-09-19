@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         CyTube Fullscreen Video with Overlay Chat
+// @name         Spuds Grindhouse Experience
 // @namespace    http://tampermonkey.net/
 // @version      {{VERSION}}
 // @description  Fullscreen layout with selectable optional modules (GIF maker, chat image embeds, subtitle sync, and more) built to order via the customizer — LanguageTool grammar, inline error editor, tab-complete, movie links, IMDb trivia & parent guide, right-click chat-to-movie seek, Tonight's Lineup schedule overlay, resizable chat panel, vertical monitor support
