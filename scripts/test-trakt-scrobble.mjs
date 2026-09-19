@@ -89,6 +89,8 @@ await test('traktShouldPrompt: threshold 100 needs the very end', () => {
 await test('traktShouldPrompt: gate conditions', () => {
     assert.equal(H.traktShouldPrompt({ ...BASE, enabled: false }), false);
     assert.equal(H.traktShouldPrompt({ ...BASE, isYouTube: true }), false);
+    assert.equal(H.traktShouldPrompt({ ...BASE, isEpisode: true }), false);
+    assert.equal(H.traktShouldPrompt({ ...BASE, isEpisode: false }), true);
     assert.equal(H.traktShouldPrompt({ ...BASE, imdbId: null }), false);
     assert.equal(H.traktShouldPrompt({ ...BASE, imdbId: '' }), false);
     assert.equal(H.traktShouldPrompt({ ...BASE, duration: 599, currentTime: 599 }), false); // < 10 min

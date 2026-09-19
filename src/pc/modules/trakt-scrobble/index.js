@@ -51,9 +51,9 @@
         return Math.min(TRAKT_THRESHOLD_MAX, Math.max(TRAKT_THRESHOLD_MIN, v));
     }
 
-    // s = { enabled, isYouTube, imdbId, duration, currentTime, thresholdPct, prompted, now }
+    // s = { enabled, isYouTube, isEpisode, imdbId, duration, currentTime, thresholdPct, prompted, now }
     function traktShouldPrompt(s) {
-        if (!s.enabled || s.isYouTube || !s.imdbId) return false;
+        if (!s.enabled || s.isYouTube || s.isEpisode || !s.imdbId) return false;
         if (!Number.isFinite(s.duration) || s.duration < TRAKT_MIN_DURATION_SEC) return false;
         if (!Number.isFinite(s.currentTime) || s.currentTime < 0) return false;
         if (s.currentTime / s.duration < s.thresholdPct / 100) return false;
@@ -162,7 +162,7 @@
     function traktClearToken() { try { localStorage.removeItem(LS_TRAKT_TOKEN); } catch (e) {} }
 
     function traktLoadPrompted() { try { return JSON.parse(localStorage.getItem(LS_TRAKT_PROMPTED)); } catch (e) { return null; } }
-    // outcome: 'shown' (panel appeared -- also what an auto-dismiss leaves behind) | 'skipped' | 'scrobbled'
+    // outcome: 'shown' (panel appeared -- also what an auto-dismiss leaves behind) | 'skipped' | 'scrobbled' | 'needsconfig' (card shown but keys missing; ignored once keys exist)
     function traktMarkPrompted(imdbId, outcome) {
         try { localStorage.setItem(LS_TRAKT_PROMPTED, JSON.stringify({ imdbId, ts: Date.now(), outcome })); } catch (e) {}
     }
@@ -428,7 +428,7 @@
     function _traktLifeTick() {
         const c = _traktCtx;
         if (!c || !_traktPanelEl) return;
-        const paused = c.hover || c.view === 'submitting' || c.view === 'connect';
+        const paused = (c.hover && c.view !== 'success') || c.view === 'submitting' || c.view === 'connect';
         c.remaining = traktTickLifetime(c.remaining, TRAKT_LIFE_TICK_MS, paused);
         _traktReposition();
         _traktPaintLife();
@@ -510,13 +510,13 @@
     }
 
     function traktShowPanel(snap) {
-        traktMarkPrompted(snap.imdbId, 'shown');         // survives reloads: no re-prompt for this movie for 12 h
+        const configured = !!(traktClientId() && traktSecret());
+        traktMarkPrompted(snap.imdbId, configured ? 'shown' : 'needsconfig');   // survives reloads: no re-prompt for this movie for 12 h (a needsconfig record stops counting once keys are added)
         const el = document.createElement('div');
         el.id = 'sc-trakt-panel';
         el.setAttribute('role', 'dialog');
         el.setAttribute('aria-label', 'Log this movie on Trakt');
         _traktPanelEl = el;
-        const configured = !!(traktClientId() && traktSecret());
         _traktCtx = {
             snap, rating: 0, view: configured ? 'prompt' : 'needsconfig', message: '',
             remaining: TRAKT_PANEL_LIFETIME_MS, lifeTotal: TRAKT_PANEL_LIFETIME_MS,
@@ -558,14 +558,17 @@
         if (_traktPanelEl) return;
         const v = document.querySelector('#ytapiplayer video');   // strictly the player's own <video> (not preview/gif clones)
         if (!v) return;
+        const p = traktLoadPrompted();
+        const configured = !!(traktClientId() && traktSecret());
         const eligible = traktShouldPrompt({
             enabled: traktEnabled(),
             isYouTube: isYouTubeMedia(),
+            isEpisode: !!((_npData && _npData.imdbId === _currentImdbId && _npData.episode != null) || (lastMovieTitle && parseMovieFilename(lastMovieTitle).isEpisode)),
             imdbId: _currentImdbId,
             duration: v.duration,
             currentTime: v.currentTime,
             thresholdPct: traktThreshold(),
-            prompted: traktLoadPrompted(),
+            prompted: (p && p.outcome === 'needsconfig' && configured) ? null : p,
             now: Date.now(),
         });
         if (eligible) traktShowPanel(traktSnapshot());
