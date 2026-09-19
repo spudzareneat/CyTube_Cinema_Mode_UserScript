@@ -275,6 +275,306 @@
     // ── test marker: trakt-client slice end ──
 
     /* ==========================================================
+       PANEL — #sc-trakt-panel, a single card whose body is re-rendered
+       per view: 'prompt' | 'submitting' | 'success' | 'notfound' |
+       'error' | 'connect' | 'needsconfig'. Events are delegated from
+       the card itself (data-act / data-r), so re-rendering the body
+       never needs re-binding.
+    ========================================================== */
+    const TRAKT_POLL_MS = 3000;   // heartbeat: decides when the movie has reached the prompt point
+    const TRAKT_LIFE_TICK_MS = 250;
+
+    let _traktPanelEl    = null;  // live panel node, or null when closed
+    let _traktCtx        = null;  // { snap, rating, view, message, remaining, lifeTotal, hover, dev, devExpiresAt, poll, ratingFailed }
+    let _traktLifeTimer  = null;
+    let _traktKeyHandler = null;
+
+    function _traktEsc(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // Everything the panel needs about the movie, captured once at trigger time so a queue advance
+    // while the card is open can't change what gets submitted.
+    function traktSnapshot() {
+        const np = (_npData && _npData.imdbId === _currentImdbId) ? _npData : null;
+        const parsed = lastMovieTitle ? parseMovieFilename(lastMovieTitle) : { title: '', year: null };
+        return {
+            imdbId: _currentImdbId,
+            title:  (np && np.cleanTitle) || parsed.title || 'this movie',
+            year:   (np && np.cleanYear) || parsed.year || '',
+            poster: (np && np.poster) || '',
+        };
+    }
+
+    // Normally <body>; while something is fullscreened via the Fullscreen API the card must live
+    // inside that element to stay visible (a <video> can't hold children, so that case is skipped).
+    function _traktHost() {
+        const fs = document.fullscreenElement;
+        return (fs && fs.tagName !== 'VIDEO') ? fs : document.body;
+    }
+
+    // Pins the card to the bottom-right of the video (or #videowrap, else the viewport corner).
+    // Runs every life tick, so window resizes / chat-panel drags / fullscreen changes are followed.
+    function _traktReposition() {
+        if (!_traktPanelEl) return;
+        const host = _traktHost();
+        if (_traktPanelEl.parentNode !== host) host.appendChild(_traktPanelEl);
+        const v = document.querySelector('#ytapiplayer video');
+        const wrap = document.getElementById('videowrap');
+        let r = (v && v.getBoundingClientRect()) || null;
+        if (!r || r.width <= 0 || r.height <= 0) r = (wrap && wrap.getBoundingClientRect()) || null;
+        if (r && (r.width <= 0 || r.height <= 0)) r = null;
+        const pos = traktPanelPosition(r, { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight });
+        _traktPanelEl.style.setProperty('right', pos.right + 'px', 'important');
+        _traktPanelEl.style.setProperty('bottom', pos.bottom + 'px', 'important');
+    }
+
+    function _traktStars(rating) {
+        let out = '';
+        for (let i = 1; i <= 10; i++) {
+            out += `<button type="button" class="sc-trakt-star${i <= rating ? ' on' : ''}" data-r="${i}" aria-label="Rate ${i} out of 10">★</button>`;
+        }
+        return out;
+    }
+
+    function _traktPaintLife() {
+        const bar = _traktPanelEl && _traktPanelEl.querySelector('.sc-trakt-life-bar');
+        if (bar && _traktCtx) bar.style.setProperty('width', Math.max(0, Math.min(100, _traktCtx.remaining / _traktCtx.lifeTotal * 100)) + '%', 'important');
+    }
+
+    function _traktRender() {
+        const c = _traktCtx, el = _traktPanelEl;
+        if (!c || !el) return;
+        const s = c.snap;
+        const title = `${_traktEsc(s.title)}${s.year ? ` <span class="sc-trakt-year">(${_traktEsc(s.year)})</span>` : ''}`;
+        const poster = s.poster
+            ? `<img class="sc-trakt-poster" src="${_traktEsc(s.poster)}" alt="" />`
+            : '<div class="sc-trakt-poster sc-trakt-noposter">🎬</div>';
+        let body = '';
+        switch (c.view) {
+            case 'prompt':
+                body = `
+                    <div class="sc-trakt-q">You reached the end. Log it on Trakt?</div>
+                    <div class="sc-trakt-stars" role="group" aria-label="Optional rating">${_traktStars(c.rating)}</div>
+                    <div class="sc-trakt-rating-label">${c.rating ? c.rating + ' / 10' : 'Optional rating'}</div>
+                    <div class="sc-trakt-actions">
+                        <button type="button" class="sc-trakt-btn sc-trakt-primary" data-act="scrobble">Scrobble to Trakt</button>
+                        <button type="button" class="sc-trakt-btn" data-act="skip">Not now</button>
+                    </div>
+                    ${traktLoadToken() ? '<a href="#" class="sc-trakt-link" data-act="disconnect">Disconnect Trakt</a>' : ''}`;
+                break;
+            case 'submitting':
+                body = '<div class="sc-trakt-q">Logging to Trakt…</div>';
+                break;
+            case 'success':
+                body = `
+                    <div class="sc-trakt-q sc-trakt-ok">Logged ✓${c.ratingFailed ? ' <span class="sc-trakt-note">(rating didn\'t save)</span>' : ''}</div>
+                    <a class="sc-trakt-link" href="https://trakt.tv/search/imdb/${_traktEsc(s.imdbId)}" target="_blank" rel="noopener">View on Trakt ↗</a>`;
+                break;
+            case 'notfound':
+                body = `
+                    <div class="sc-trakt-q sc-trakt-bad">Trakt couldn't match this movie.</div>
+                    <div class="sc-trakt-actions"><button type="button" class="sc-trakt-btn" data-act="skip">Close</button></div>`;
+                break;
+            case 'error':
+                body = `
+                    <div class="sc-trakt-q sc-trakt-bad">${_traktEsc(c.message || 'Something went wrong.')}</div>
+                    <div class="sc-trakt-actions">
+                        <button type="button" class="sc-trakt-btn sc-trakt-primary" data-act="retry">Retry</button>
+                        <button type="button" class="sc-trakt-btn" data-act="skip">Close</button>
+                    </div>`;
+                break;
+            case 'connect':
+                body = c.dev ? `
+                    <div class="sc-trakt-q">Connect your Trakt account</div>
+                    <div class="sc-trakt-help">Open <a class="sc-trakt-link" href="${_traktEsc(c.dev.verification_url)}" target="_blank" rel="noopener">${_traktEsc(String(c.dev.verification_url).replace(/^https?:\/\//, ''))}</a> and enter:</div>
+                    <div class="sc-trakt-code">${_traktEsc(c.dev.user_code)}</div>
+                    <div class="sc-trakt-help">Waiting for approval… <span class="sc-trakt-expiry"></span></div>
+                    <div class="sc-trakt-actions"><button type="button" class="sc-trakt-btn" data-act="cancelconnect">Cancel</button></div>`
+                : '<div class="sc-trakt-q">Contacting Trakt…</div>';
+                break;
+            case 'needsconfig':
+                body = `
+                    <div class="sc-trakt-q">Trakt isn't set up yet</div>
+                    <div class="sc-trakt-help">Add your Trakt Client ID and Secret in Settings to log movies.</div>
+                    <div class="sc-trakt-actions">
+                        <button type="button" class="sc-trakt-btn sc-trakt-primary" data-act="settings">Open Settings</button>
+                        <button type="button" class="sc-trakt-btn" data-act="skip">Dismiss</button>
+                    </div>`;
+                break;
+        }
+        el.innerHTML = `
+            <div class="sc-trakt-row">
+                ${poster}
+                <div class="sc-trakt-main">
+                    <div class="sc-trakt-title">${title}</div>
+                    ${body}
+                </div>
+            </div>
+            <div class="sc-trakt-life"><div class="sc-trakt-life-bar"></div></div>`;
+        _traktPaintLife();
+    }
+
+    // opts.life (ms) restarts the countdown for the new view; opts.message feeds the 'error' view.
+    function _traktSetView(view, opts = {}) {
+        const c = _traktCtx;
+        if (!c) return;
+        c.view = view;
+        c.message = opts.message || '';
+        if (opts.life) { c.remaining = opts.life; c.lifeTotal = opts.life; }
+        _traktRender();
+    }
+
+    function _traktLifeTick() {
+        const c = _traktCtx;
+        if (!c || !_traktPanelEl) return;
+        const paused = c.hover || c.view === 'submitting' || c.view === 'connect';
+        c.remaining = traktTickLifetime(c.remaining, TRAKT_LIFE_TICK_MS, paused);
+        _traktReposition();
+        _traktPaintLife();
+        const exp = _traktPanelEl.querySelector('.sc-trakt-expiry');
+        if (exp && c.devExpiresAt) {
+            const secs = Math.max(0, Math.round((c.devExpiresAt - Date.now()) / 1000));
+            exp.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+        }
+        if (c.remaining <= 0) traktClosePanel();   // auto-dismiss: the 'shown' outcome recorded at show time stands
+    }
+
+    function traktClosePanel() {
+        const el = _traktPanelEl, c = _traktCtx;
+        if (c && c.poll) c.poll.cancelled = true;
+        clearInterval(_traktLifeTimer); _traktLifeTimer = null;
+        if (_traktKeyHandler) { document.removeEventListener('keydown', _traktKeyHandler); _traktKeyHandler = null; }
+        _traktCtx = null; _traktPanelEl = null;
+        if (el) {
+            el.classList.remove('sc-trakt-in');
+            el.classList.add('sc-trakt-out');
+            setTimeout(() => el.remove(), 350);
+        }
+    }
+
+    async function _traktBeginConnect() {
+        const c = _traktCtx;
+        if (!c) return;
+        _traktSetView('connect');                        // no c.dev yet -> "Contacting Trakt…"
+        let dev;
+        try { dev = await traktStartDeviceAuth(); }
+        catch (e) {
+            if (_traktCtx !== c) return;
+            _traktSetView('error', { message: 'Couldn\'t start Trakt sign-in. Check your Client ID in Settings.', life: TRAKT_PANEL_LIFETIME_MS });
+            return;
+        }
+        if (_traktCtx !== c) return;
+        c.dev = dev;
+        c.devExpiresAt = Date.now() + dev.expires_in * 1000;
+        c.poll = { cancelled: false };
+        _traktSetView('connect');
+        const r = await traktPollDeviceToken(dev, c.poll);
+        if (_traktCtx !== c || r === 'cancelled') return;
+        c.dev = null; c.devExpiresAt = 0; c.poll = null;
+        if (r === 'ok') { _traktBeginSubmit(); return; }
+        const message = r === 'denied' ? 'Trakt sign-in was denied.'
+            : r === 'expired' ? 'The code expired -- try again.'
+            : 'Trakt sign-in failed. Check your Client Secret in Settings.';
+        _traktSetView('error', { message, life: TRAKT_PANEL_LIFETIME_MS });
+    }
+
+    async function _traktBeginSubmit() {
+        const c = _traktCtx;
+        if (!c) return;
+        if (!traktUsableToken(traktLoadToken(), traktClientId())) { _traktBeginConnect(); return; }
+        _traktSetView('submitting');
+        const out = await traktSubmit(c.snap, c.rating);
+        if (_traktCtx !== c) return;                     // panel was closed while we waited
+        if (out.result === 'added') {
+            traktMarkPrompted(c.snap.imdbId, 'scrobbled');
+            c.ratingFailed = out.ratingFailed;
+            _traktSetView('success', { life: TRAKT_SUCCESS_MS });
+        } else if (out.result === 'not_found') {
+            _traktSetView('notfound', { life: TRAKT_PANEL_LIFETIME_MS });
+        } else if (out.result === 'auth') {
+            _traktBeginConnect();
+        } else {
+            _traktSetView('error', { message: 'Couldn\'t reach Trakt -- try again.', life: TRAKT_PANEL_LIFETIME_MS });
+        }
+    }
+
+    function _traktOnAction(act) {
+        const c = _traktCtx;
+        if (!c) return;
+        if (act === 'skip')          { traktMarkPrompted(c.snap.imdbId, 'skipped'); traktClosePanel(); return; }
+        if (act === 'settings')      { traktClosePanel(); openSettingsModal(); return; }
+        if (act === 'disconnect')    { traktClearToken(); _traktRender(); return; }
+        if (act === 'cancelconnect') { if (c.poll) c.poll.cancelled = true; c.dev = null; c.devExpiresAt = 0; _traktSetView('prompt'); return; }
+        if (act === 'scrobble' || act === 'retry') { _traktBeginSubmit(); }
+    }
+
+    function traktShowPanel(snap) {
+        traktMarkPrompted(snap.imdbId, 'shown');         // survives reloads: no re-prompt for this movie for 12 h
+        const el = document.createElement('div');
+        el.id = 'sc-trakt-panel';
+        el.setAttribute('role', 'dialog');
+        el.setAttribute('aria-label', 'Log this movie on Trakt');
+        _traktPanelEl = el;
+        const configured = !!(traktClientId() && traktSecret());
+        _traktCtx = {
+            snap, rating: 0, view: configured ? 'prompt' : 'needsconfig', message: '',
+            remaining: TRAKT_PANEL_LIFETIME_MS, lifeTotal: TRAKT_PANEL_LIFETIME_MS,
+            hover: false, dev: null, devExpiresAt: 0, poll: null, ratingFailed: false,
+        };
+        el.addEventListener('mouseenter', () => { if (_traktCtx) _traktCtx.hover = true; });
+        el.addEventListener('mouseleave', () => { if (_traktCtx) _traktCtx.hover = false; });
+        el.addEventListener('click', e => {
+            if (!_traktCtx) return;
+            const star = e.target.closest('[data-r]');
+            if (star) {
+                const n = parseInt(star.dataset.r, 10);
+                _traktCtx.rating = _traktCtx.rating === n ? 0 : n;   // click the selected star again to clear
+                _traktRender();
+                return;
+            }
+            const a = e.target.closest('[data-act]');
+            if (a) { e.preventDefault(); _traktOnAction(a.dataset.act); }
+        });
+        _traktKeyHandler = e => {
+            if (e.key !== 'Escape' || !_traktCtx || _traktCtx.view === 'submitting') return;
+            const t = e.target;
+            if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;   // don't steal Esc from chat/settings
+            _traktOnAction('skip');
+        };
+        document.addEventListener('keydown', _traktKeyHandler);
+        _traktHost().appendChild(el);
+        _traktRender();
+        _traktReposition();
+        requestAnimationFrame(() => el.classList.add('sc-trakt-in'));
+        _traktLifeTimer = setInterval(_traktLifeTick, TRAKT_LIFE_TICK_MS);
+    }
+
+    /* ==========================================================
+       HEARTBEAT — same idiom as trivia-popup: poll shared state,
+       re-read the settings every time (Save only writes localStorage).
+    ========================================================== */
+    function traktTick() {
+        if (_traktPanelEl) return;
+        const v = document.querySelector('#ytapiplayer video');   // strictly the player's own <video> (not preview/gif clones)
+        if (!v) return;
+        const eligible = traktShouldPrompt({
+            enabled: traktEnabled(),
+            isYouTube: isYouTubeMedia(),
+            imdbId: _currentImdbId,
+            duration: v.duration,
+            currentTime: v.currentTime,
+            thresholdPct: traktThreshold(),
+            prompted: traktLoadPrompted(),
+            now: Date.now(),
+        });
+        if (eligible) traktShowPanel(traktSnapshot());
+    }
+
+    function traktBoot() { setInterval(traktTick, TRAKT_POLL_MS); }
+    scRegisterInit(traktBoot);
+
+    /* ==========================================================
        SETTINGS ROWS — order 13-16 (12 is imdb-link-preview).
     ========================================================== */
     scRegisterSetting({

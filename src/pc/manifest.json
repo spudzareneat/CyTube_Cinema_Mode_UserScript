@@ -1,7 +1,7 @@
 {
   "scriptId": "cytube.pc",
   "displayName": "Spuds Grindhouse Experience",
-  "baseVersion": "4.13.18",
+  "baseVersion": "4.13.19",
   "headerTemplate": "src/pc/header.template.js",
   "match": [
     "https://cytu.be/r/420Grindhouse",
@@ -341,6 +341,9 @@
       "defaultOn": true,
       "files": [
         "src/pc/modules/trakt-scrobble/index.js"
+      ],
+      "cssFiles": [
+        "src/pc/modules/trakt-scrobble/style.css"
       ],
       "dependsOn": ["core", "movie-title-links"],
       "grants": [
