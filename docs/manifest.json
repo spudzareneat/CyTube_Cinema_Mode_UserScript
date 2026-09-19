@@ -334,16 +334,16 @@
       ]
     },
     {
-      "id": "trakt-scrobble",
-      "name": "Trakt Scrobble Prompt",
+      "id": "simkl-scrobble",
+      "name": "Simkl Scrobble Prompt",
       "category": "Movie Info",
       "locked": false,
       "defaultOn": true,
       "files": [
-        "src/pc/modules/trakt-scrobble/index.js"
+        "src/pc/modules/simkl-scrobble/index.js"
       ],
       "cssFiles": [
-        "src/pc/modules/trakt-scrobble/style.css"
+        "src/pc/modules/simkl-scrobble/style.css"
       ],
       "dependsOn": ["core", "movie-title-links"],
       "grants": [
@@ -354,10 +354,10 @@
       ],
       "features": [
         "At the end of a movie, a dark semi-transparent card appears at the bottom-right of the video for a minute offering to log the watch on trakt.tv",
-        "Optional 1–10 rating sent with the watch; sign in to Trakt right from the card (device code — no redirect setup)",
-        "Uses your own Trakt app Client ID + Secret from Settings; prompt point is configurable (default 90% of the movie)",
+        "Optional 1–10 rating sent with the watch; sign in to Simkl right from the card (device code — no redirect setup)",
+        "Uses your own Simkl app Client ID + Secret from Settings; prompt point is configurable (default 90% of the movie)",
         "Movies only (not YouTube / TV episodes); off by default — opt in from Settings",
-        "Press Alt+S at any time to open the card for the current movie (handy for testing); Settings has a Trakt section with a Connect & verify button"
+        "Press Alt+S at any time to open the card for the current movie (handy for testing); Settings has a Simkl section with a Connect & verify button"
       ]
     },
     {

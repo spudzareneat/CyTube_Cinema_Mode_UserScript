@@ -1,14 +1,14 @@
-// scripts/test-trakt-scrobble.mjs
+// scripts/test-simkl-scrobble.mjs
 //
-// Standalone assertions for the trakt-scrobble module in
-// src/pc/modules/trakt-scrobble/index.js:
-//   - the PURE helper slice  ("trakt-helpers")  -- thresholds, eligibility, tokens, payloads, layout math
-//   - the CLIENT slice       ("trakt-client")   -- Trakt HTTP + token store + device auth + submit,
+// Standalone assertions for the simkl-scrobble module in
+// src/pc/modules/simkl-scrobble/index.js:
+//   - the PURE helper slice  ("simkl-helpers")  -- thresholds, eligibility, tokens, payloads, layout math
+//   - the CLIENT slice       ("simkl-client")   -- Simkl HTTP + token store + device auth + submit,
 //                                                  run against a fake GM_xmlhttpRequest / localStorage
 //
 // No test harness in this repo (no package.json, no runner), so this is a plain node script:
 //
-//   node scripts/test-trakt-scrobble.mjs
+//   node scripts/test-simkl-scrobble.mjs
 //
 // Exits non-zero on the first failing assertion; prints a one-line pass summary otherwise.
 // src/pc/** files are script fragments concatenated inside one IIFE, not ES modules, so the file
@@ -21,7 +21,7 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const srcPath = path.join(__dirname, '..', 'src', 'pc', 'modules', 'trakt-scrobble', 'index.js');
+const srcPath = path.join(__dirname, '..', 'src', 'pc', 'modules', 'simkl-scrobble', 'index.js');
 const src = fs.readFileSync(srcPath, 'utf8');
 
 function slice(name) {
@@ -30,7 +30,7 @@ function slice(name) {
     const a = src.indexOf(START);
     const b = src.indexOf(END);
     if (a === -1 || b === -1 || b < a) {
-        console.error(`FAIL: could not locate the "${name}" test-marker slice in trakt-scrobble/index.js`);
+        console.error(`FAIL: could not locate the "${name}" test-marker slice in simkl-scrobble/index.js`);
         process.exit(1);
     }
     return src.slice(a, b);
@@ -51,23 +51,23 @@ async function test(name, fn) {
 // ── helper slice ─────────────────────────────────────────────────────────────
 
 const HELPER_NAMES = [
-    'traktClampThreshold', 'traktShouldPrompt', 'traktUsableToken', 'traktTokenNeedsRefresh',
-    'traktTokenFromResponse', 'traktBuildHistoryPayload', 'traktBuildRatingPayload',
-    'traktInterpretSyncResponse', 'traktTickLifetime', 'traktPanelPosition',
-    '_traktEsc', 'traktPastThreshold', 'traktIsHotkey',
-    'TRAKT_THRESHOLD_DEFAULT', 'TRAKT_PROMPT_TTL_MS', 'TRAKT_REFRESH_WINDOW_MS',
+    'simklClampThreshold', 'simklShouldPrompt', 'simklUsableToken', 'simklTokenNeedsRefresh',
+    'simklTokenFromResponse', 'simklBuildHistoryPayload', 'simklBuildRatingPayload',
+    'simklInterpretSyncResponse', 'simklTickLifetime', 'simklPanelPosition',
+    '_simklEsc', 'simklPastThreshold', 'simklIsHotkey',
+    'SIMKL_THRESHOLD_DEFAULT', 'SIMKL_PROMPT_TTL_MS', 'SIMKL_REFRESH_WINDOW_MS',
 ];
 // eslint-disable-next-line no-new-func
-const H = new Function(`${slice('trakt-helpers')}\n;return { ${HELPER_NAMES.join(', ')} };`)();
+const H = new Function(`${slice('simkl-helpers')}\n;return { ${HELPER_NAMES.join(', ')} };`)();
 
-await test('traktClampThreshold clamps and defaults', () => {
-    assert.equal(H.traktClampThreshold('90'), 90);
-    assert.equal(H.traktClampThreshold(75), 75);
-    assert.equal(H.traktClampThreshold('10'), 50);
-    assert.equal(H.traktClampThreshold('250'), 100);
-    assert.equal(H.traktClampThreshold(''), H.TRAKT_THRESHOLD_DEFAULT);
-    assert.equal(H.traktClampThreshold(null), H.TRAKT_THRESHOLD_DEFAULT);
-    assert.equal(H.traktClampThreshold('abc'), H.TRAKT_THRESHOLD_DEFAULT);
+await test('simklClampThreshold clamps and defaults', () => {
+    assert.equal(H.simklClampThreshold('90'), 90);
+    assert.equal(H.simklClampThreshold(75), 75);
+    assert.equal(H.simklClampThreshold('10'), 50);
+    assert.equal(H.simklClampThreshold('250'), 100);
+    assert.equal(H.simklClampThreshold(''), H.SIMKL_THRESHOLD_DEFAULT);
+    assert.equal(H.simklClampThreshold(null), H.SIMKL_THRESHOLD_DEFAULT);
+    assert.equal(H.simklClampThreshold('abc'), H.SIMKL_THRESHOLD_DEFAULT);
 });
 
 const NOW = 1_800_000_000_000;
@@ -76,138 +76,138 @@ const BASE = {
     duration: 7200, currentTime: 6600, thresholdPct: 90, prompted: null, now: NOW,
 };
 
-await test('traktShouldPrompt: happy path and exact threshold boundary', () => {
-    assert.equal(H.traktShouldPrompt(BASE), true);
-    assert.equal(H.traktShouldPrompt({ ...BASE, currentTime: 6480 }), true);   // exactly 90%
-    assert.equal(H.traktShouldPrompt({ ...BASE, currentTime: 6479 }), false);  // just under
+await test('simklShouldPrompt: happy path and exact threshold boundary', () => {
+    assert.equal(H.simklShouldPrompt(BASE), true);
+    assert.equal(H.simklShouldPrompt({ ...BASE, currentTime: 6480 }), true);   // exactly 90%
+    assert.equal(H.simklShouldPrompt({ ...BASE, currentTime: 6479 }), false);  // just under
 });
 
-await test('traktShouldPrompt: threshold 100 needs the very end', () => {
-    assert.equal(H.traktShouldPrompt({ ...BASE, thresholdPct: 100, currentTime: 7200 }), true);
-    assert.equal(H.traktShouldPrompt({ ...BASE, thresholdPct: 100, currentTime: 7199 }), false);
+await test('simklShouldPrompt: threshold 100 needs the very end', () => {
+    assert.equal(H.simklShouldPrompt({ ...BASE, thresholdPct: 100, currentTime: 7200 }), true);
+    assert.equal(H.simklShouldPrompt({ ...BASE, thresholdPct: 100, currentTime: 7199 }), false);
 });
 
-await test('traktShouldPrompt: gate conditions', () => {
-    assert.equal(H.traktShouldPrompt({ ...BASE, enabled: false }), false);
-    assert.equal(H.traktShouldPrompt({ ...BASE, isYouTube: true }), false);
-    assert.equal(H.traktShouldPrompt({ ...BASE, isEpisode: true }), false);
-    assert.equal(H.traktShouldPrompt({ ...BASE, isEpisode: false }), true);
-    assert.equal(H.traktShouldPrompt({ ...BASE, imdbId: null }), false);
-    assert.equal(H.traktShouldPrompt({ ...BASE, imdbId: '' }), false);
-    assert.equal(H.traktShouldPrompt({ ...BASE, duration: 599, currentTime: 599 }), false); // < 10 min
-    assert.equal(H.traktShouldPrompt({ ...BASE, duration: NaN }), false);
-    assert.equal(H.traktShouldPrompt({ ...BASE, duration: Infinity }), false);
-    assert.equal(H.traktShouldPrompt({ ...BASE, currentTime: NaN }), false);
+await test('simklShouldPrompt: gate conditions', () => {
+    assert.equal(H.simklShouldPrompt({ ...BASE, enabled: false }), false);
+    assert.equal(H.simklShouldPrompt({ ...BASE, isYouTube: true }), false);
+    assert.equal(H.simklShouldPrompt({ ...BASE, isEpisode: true }), false);
+    assert.equal(H.simklShouldPrompt({ ...BASE, isEpisode: false }), true);
+    assert.equal(H.simklShouldPrompt({ ...BASE, imdbId: null }), false);
+    assert.equal(H.simklShouldPrompt({ ...BASE, imdbId: '' }), false);
+    assert.equal(H.simklShouldPrompt({ ...BASE, duration: 599, currentTime: 599 }), false); // < 10 min
+    assert.equal(H.simklShouldPrompt({ ...BASE, duration: NaN }), false);
+    assert.equal(H.simklShouldPrompt({ ...BASE, duration: Infinity }), false);
+    assert.equal(H.simklShouldPrompt({ ...BASE, currentTime: NaN }), false);
 });
 
-await test('traktShouldPrompt: already-handled TTL is per movie and expires', () => {
+await test('simklShouldPrompt: already-handled TTL is per movie and expires', () => {
     const recent = { imdbId: 'tt0087332', ts: NOW - 60_000, outcome: 'shown' };
-    assert.equal(H.traktShouldPrompt({ ...BASE, prompted: recent }), false);
-    const stale = { imdbId: 'tt0087332', ts: NOW - H.TRAKT_PROMPT_TTL_MS - 1, outcome: 'skipped' };
-    assert.equal(H.traktShouldPrompt({ ...BASE, prompted: stale }), true);
+    assert.equal(H.simklShouldPrompt({ ...BASE, prompted: recent }), false);
+    const stale = { imdbId: 'tt0087332', ts: NOW - H.SIMKL_PROMPT_TTL_MS - 1, outcome: 'skipped' };
+    assert.equal(H.simklShouldPrompt({ ...BASE, prompted: stale }), true);
     const other = { imdbId: 'tt0000001', ts: NOW - 60_000, outcome: 'scrobbled' };
-    assert.equal(H.traktShouldPrompt({ ...BASE, prompted: other }), true);
+    assert.equal(H.simklShouldPrompt({ ...BASE, prompted: other }), true);
 });
 
-await test('traktUsableToken requires access token and matching client id', () => {
+await test('simklUsableToken requires access token and matching client id', () => {
     const t = { access: 'A', refresh: 'R', expiresAt: NOW + 1000, clientId: 'cid' };
-    assert.equal(H.traktUsableToken(t, 'cid'), t);
-    assert.equal(H.traktUsableToken(t, 'other'), null);
-    assert.equal(H.traktUsableToken(t, ''), null);
-    assert.equal(H.traktUsableToken(null, 'cid'), null);
-    assert.equal(H.traktUsableToken({ ...t, access: '' }, 'cid'), null);
+    assert.equal(H.simklUsableToken(t, 'cid'), t);
+    assert.equal(H.simklUsableToken(t, 'other'), null);
+    assert.equal(H.simklUsableToken(t, ''), null);
+    assert.equal(H.simklUsableToken(null, 'cid'), null);
+    assert.equal(H.simklUsableToken({ ...t, access: '' }, 'cid'), null);
 });
 
-await test('traktTokenNeedsRefresh triggers inside the 1-day window', () => {
-    const day = H.TRAKT_REFRESH_WINDOW_MS;
-    assert.equal(H.traktTokenNeedsRefresh({ expiresAt: NOW + day + 5000 }, NOW), false);
-    assert.equal(H.traktTokenNeedsRefresh({ expiresAt: NOW + day - 5000 }, NOW), true);
-    assert.equal(H.traktTokenNeedsRefresh({ expiresAt: NOW - 1 }, NOW), true);
-    assert.equal(H.traktTokenNeedsRefresh(null, NOW), false);
+await test('simklTokenNeedsRefresh triggers inside the 1-day window', () => {
+    const day = H.SIMKL_REFRESH_WINDOW_MS;
+    assert.equal(H.simklTokenNeedsRefresh({ expiresAt: NOW + day + 5000 }, NOW), false);
+    assert.equal(H.simklTokenNeedsRefresh({ expiresAt: NOW + day - 5000 }, NOW), true);
+    assert.equal(H.simklTokenNeedsRefresh({ expiresAt: NOW - 1 }, NOW), true);
+    assert.equal(H.simklTokenNeedsRefresh(null, NOW), false);
 });
 
-await test('traktTokenFromResponse computes expiresAt from created_at + expires_in', () => {
+await test('simklTokenFromResponse computes expiresAt from created_at + expires_in', () => {
     const json = { access_token: 'A', refresh_token: 'R', expires_in: 7776000, created_at: 1_700_000_000 };
-    assert.deepEqual(H.traktTokenFromResponse(json, 'cid', NOW), {
+    assert.deepEqual(H.simklTokenFromResponse(json, 'cid', NOW), {
         access: 'A', refresh: 'R', expiresAt: (1_700_000_000 + 7776000) * 1000, clientId: 'cid',
     });
     const noCreated = { access_token: 'A', refresh_token: 'R', expires_in: 100 };
-    assert.equal(H.traktTokenFromResponse(noCreated, 'cid', NOW).expiresAt, NOW + 100_000);
+    assert.equal(H.simklTokenFromResponse(noCreated, 'cid', NOW).expiresAt, NOW + 100_000);
 });
 
 await test('payload builders target the IMDb id', () => {
     const snap = { imdbId: 'tt0087332', title: 'Ghostbusters', year: '1984', poster: '' };
-    assert.deepEqual(H.traktBuildHistoryPayload(snap, '2026-09-18T20:00:00.000Z'),
+    assert.deepEqual(H.simklBuildHistoryPayload(snap, '2026-09-18T20:00:00.000Z'),
         { movies: [{ watched_at: '2026-09-18T20:00:00.000Z', ids: { imdb: 'tt0087332' } }] });
-    assert.deepEqual(H.traktBuildRatingPayload(snap, 8, '2026-09-18T20:00:00.000Z'),
+    assert.deepEqual(H.simklBuildRatingPayload(snap, 8, '2026-09-18T20:00:00.000Z'),
         { movies: [{ rated_at: '2026-09-18T20:00:00.000Z', rating: 8, ids: { imdb: 'tt0087332' } }] });
 });
 
-await test('traktInterpretSyncResponse', () => {
-    assert.equal(H.traktInterpretSyncResponse({ added: { movies: 1 }, not_found: { movies: [] } }), 'added');
-    assert.equal(H.traktInterpretSyncResponse({ added: { movies: 0 }, not_found: { movies: [{ ids: { imdb: 'tt1' } }] } }), 'not_found');
-    assert.equal(H.traktInterpretSyncResponse({ added: { movies: 0 }, not_found: { movies: [] } }), 'unknown');
-    assert.equal(H.traktInterpretSyncResponse({}), 'unknown');
-    assert.equal(H.traktInterpretSyncResponse(null), 'unknown');
+await test('simklInterpretSyncResponse', () => {
+    assert.equal(H.simklInterpretSyncResponse({ added: { movies: 1 }, not_found: { movies: [] } }), 'added');
+    assert.equal(H.simklInterpretSyncResponse({ added: { movies: 0 }, not_found: { movies: [{ ids: { imdb: 'tt1' } }] } }), 'not_found');
+    assert.equal(H.simklInterpretSyncResponse({ added: { movies: 0 }, not_found: { movies: [] } }), 'unknown');
+    assert.equal(H.simklInterpretSyncResponse({}), 'unknown');
+    assert.equal(H.simklInterpretSyncResponse(null), 'unknown');
 });
 
-await test('traktTickLifetime counts down unless paused, floors at 0', () => {
-    assert.equal(H.traktTickLifetime(60000, 250, false), 59750);
-    assert.equal(H.traktTickLifetime(60000, 250, true), 60000);
-    assert.equal(H.traktTickLifetime(100, 250, false), 0);
+await test('simklTickLifetime counts down unless paused, floors at 0', () => {
+    assert.equal(H.simklTickLifetime(60000, 250, false), 59750);
+    assert.equal(H.simklTickLifetime(60000, 250, true), 60000);
+    assert.equal(H.simklTickLifetime(100, 250, false), 0);
 });
 
-await test('traktPanelPosition anchors to the video rect and never goes negative', () => {
+await test('simklPanelPosition anchors to the video rect and never goes negative', () => {
     const vp = { width: 1600, height: 900 };
-    assert.deepEqual(H.traktPanelPosition({ right: 1200, bottom: 700 }, vp), { right: 416, bottom: 256 });
-    assert.deepEqual(H.traktPanelPosition(null, vp), { right: 16, bottom: 56 });
-    assert.deepEqual(H.traktPanelPosition({ right: 1700, bottom: 950 }, vp), { right: 16, bottom: 56 });
+    assert.deepEqual(H.simklPanelPosition({ right: 1200, bottom: 700 }, vp), { right: 416, bottom: 256 });
+    assert.deepEqual(H.simklPanelPosition(null, vp), { right: 16, bottom: 56 });
+    assert.deepEqual(H.simklPanelPosition({ right: 1700, bottom: 950 }, vp), { right: 16, bottom: 56 });
 });
 
-await test('_traktEsc escapes markup characters and blanks null/undefined', () => {
-    assert.equal(H._traktEsc('a & b < c > d "e"'), 'a &amp; b &lt; c &gt; d &quot;e&quot;');
-    assert.equal(H._traktEsc('<img src="x" onerror="1">'), '&lt;img src=&quot;x&quot; onerror=&quot;1&quot;&gt;');
-    assert.equal(H._traktEsc(null), '');
-    assert.equal(H._traktEsc(undefined), '');
-    assert.equal(H._traktEsc(0), '0');
-    assert.equal(H._traktEsc('plain'), 'plain');
+await test('_simklEsc escapes markup characters and blanks null/undefined', () => {
+    assert.equal(H._simklEsc('a & b < c > d "e"'), 'a &amp; b &lt; c &gt; d &quot;e&quot;');
+    assert.equal(H._simklEsc('<img src="x" onerror="1">'), '&lt;img src=&quot;x&quot; onerror=&quot;1&quot;&gt;');
+    assert.equal(H._simklEsc(null), '');
+    assert.equal(H._simklEsc(undefined), '');
+    assert.equal(H._simklEsc(0), '0');
+    assert.equal(H._simklEsc('plain'), 'plain');
 });
 
-await test('traktPastThreshold: exact boundary, under, bad inputs, threshold 100', () => {
-    assert.equal(H.traktPastThreshold(6480, 7200, 90), true);    // exactly 90%
-    assert.equal(H.traktPastThreshold(6479, 7200, 90), false);   // just under
-    assert.equal(H.traktPastThreshold(7200, 7200, 100), true);
-    assert.equal(H.traktPastThreshold(7199, 7200, 100), false);
-    assert.equal(H.traktPastThreshold(7300, 7200, 90), true);    // past the end still counts
-    assert.equal(H.traktPastThreshold(0, 7200, 90), false);
-    assert.equal(H.traktPastThreshold(100, NaN, 90), false);
-    assert.equal(H.traktPastThreshold(100, Infinity, 90), false);
-    assert.equal(H.traktPastThreshold(100, 0, 90), false);
-    assert.equal(H.traktPastThreshold(100, -50, 90), false);
-    assert.equal(H.traktPastThreshold(NaN, 7200, 90), false);
-    assert.equal(H.traktPastThreshold(-1, 7200, 90), false);
-    assert.equal(H.traktPastThreshold(undefined, 7200, 90), false);
+await test('simklPastThreshold: exact boundary, under, bad inputs, threshold 100', () => {
+    assert.equal(H.simklPastThreshold(6480, 7200, 90), true);    // exactly 90%
+    assert.equal(H.simklPastThreshold(6479, 7200, 90), false);   // just under
+    assert.equal(H.simklPastThreshold(7200, 7200, 100), true);
+    assert.equal(H.simklPastThreshold(7199, 7200, 100), false);
+    assert.equal(H.simklPastThreshold(7300, 7200, 90), true);    // past the end still counts
+    assert.equal(H.simklPastThreshold(0, 7200, 90), false);
+    assert.equal(H.simklPastThreshold(100, NaN, 90), false);
+    assert.equal(H.simklPastThreshold(100, Infinity, 90), false);
+    assert.equal(H.simklPastThreshold(100, 0, 90), false);
+    assert.equal(H.simklPastThreshold(100, -50, 90), false);
+    assert.equal(H.simklPastThreshold(NaN, 7200, 90), false);
+    assert.equal(H.simklPastThreshold(-1, 7200, 90), false);
+    assert.equal(H.simklPastThreshold(undefined, 7200, 90), false);
 });
 
-await test('traktIsHotkey is true only for a bare Alt+S', () => {
-    assert.equal(H.traktIsHotkey({ altKey: true, code: 'KeyS' }), true);
-    assert.equal(H.traktIsHotkey({ altKey: false, code: 'KeyS' }), false);
-    assert.equal(H.traktIsHotkey({ code: 'KeyS' }), false);
-    assert.equal(H.traktIsHotkey({ altKey: true, ctrlKey: true, code: 'KeyS' }), false);
-    assert.equal(H.traktIsHotkey({ altKey: true, metaKey: true, code: 'KeyS' }), false);
-    assert.equal(H.traktIsHotkey({ altKey: true, shiftKey: true, code: 'KeyS' }), false);
-    assert.equal(H.traktIsHotkey({ altKey: true, code: 'KeyD' }), false);
-    assert.equal(H.traktIsHotkey(null), false);
-    assert.equal(H.traktIsHotkey(undefined), false);
+await test('simklIsHotkey is true only for a bare Alt+S', () => {
+    assert.equal(H.simklIsHotkey({ altKey: true, code: 'KeyS' }), true);
+    assert.equal(H.simklIsHotkey({ altKey: false, code: 'KeyS' }), false);
+    assert.equal(H.simklIsHotkey({ code: 'KeyS' }), false);
+    assert.equal(H.simklIsHotkey({ altKey: true, ctrlKey: true, code: 'KeyS' }), false);
+    assert.equal(H.simklIsHotkey({ altKey: true, metaKey: true, code: 'KeyS' }), false);
+    assert.equal(H.simklIsHotkey({ altKey: true, shiftKey: true, code: 'KeyS' }), false);
+    assert.equal(H.simklIsHotkey({ altKey: true, code: 'KeyD' }), false);
+    assert.equal(H.simklIsHotkey(null), false);
+    assert.equal(H.simklIsHotkey(undefined), false);
 });
 
 // ── client slice ─────────────────────────────────────────────────────────────
 
 const CLIENT_NAMES = [
-    'traktEnabled', 'traktThreshold', 'traktRequest', 'validateTraktClientId',
-    'traktLoadToken', 'traktSaveToken', 'traktClearToken', 'traktLoadPrompted', 'traktMarkPrompted',
-    'traktStartDeviceAuth', 'traktPollDeviceToken', 'traktRefreshToken', 'traktEnsureToken', 'traktSubmit',
-    'traktFetchUsername', 'traktConnectAndVerify',
+    'simklEnabled', 'simklThreshold', 'simklRequest', 'validateSimklClientId',
+    'simklLoadToken', 'simklSaveToken', 'simklClearToken', 'simklLoadPrompted', 'simklMarkPrompted',
+    'simklStartDeviceAuth', 'simklPollDeviceToken', 'simklRefreshToken', 'simklEnsureToken', 'simklSubmit',
+    'simklFetchUsername', 'simklConnectAndVerify',
 ];
 
 // Fresh fake environment per test: Map-backed localStorage, a scripted GM_xmlhttpRequest that
@@ -231,7 +231,7 @@ function loadClient() {
             opts.onload({ status: next.status, responseText: next.body === undefined ? '' : JSON.stringify(next.body) });
         });
     };
-    const code = `${slice('trakt-helpers')}\n${slice('trakt-client')}\n;return { ${CLIENT_NAMES.join(', ')} };`;
+    const code = `${slice('simkl-helpers')}\n${slice('simkl-client')}\n;return { ${CLIENT_NAMES.join(', ')} };`;
     // eslint-disable-next-line no-new-func
     const api = new Function('GM_xmlhttpRequest', 'localStorage', 'getKey', 'setKey', code)(GM_xmlhttpRequest, localStorage, getKey, setKey);
     return { api, store, replies, requests };
@@ -241,12 +241,12 @@ const SNAP = { imdbId: 'tt0087332', title: 'Ghostbusters', year: '1984', poster:
 const ADDED = { status: 201, body: { added: { movies: 1 }, not_found: { movies: [] } } };
 const DAY = 24 * 60 * 60 * 1000;
 function withKeys(env) {
-    env.store.set('sc_trakt_client_id', 'cid');
-    env.store.set('sc_trakt_client_secret', 'sec');
+    env.store.set('sc_simkl_client_id', 'cid');
+    env.store.set('sc_simkl_client_secret', 'sec');
 }
 function withToken(env, over = {}) {
     withKeys(env);
-    env.store.set('sc_trakt_token', JSON.stringify({ access: 'A1', refresh: 'R1', expiresAt: Date.now() + 30 * DAY, clientId: 'cid', ...over }));
+    env.store.set('sc_simkl_token', JSON.stringify({ access: 'A1', refresh: 'R1', expiresAt: Date.now() + 30 * DAY, clientId: 'cid', ...over }));
 }
 const tokenReply = (access, refresh) => ({
     status: 200,
@@ -255,70 +255,70 @@ const tokenReply = (access, refresh) => ({
 
 await test('config accessors read settings', () => {
     const env = loadClient();
-    assert.equal(env.api.traktEnabled(), false);
-    env.store.set('sc_trakt_enabled', 'on');
-    assert.equal(env.api.traktEnabled(), true);
-    assert.equal(env.api.traktThreshold(), 90);
-    env.store.set('sc_trakt_threshold', '75');
-    assert.equal(env.api.traktThreshold(), 75);
+    assert.equal(env.api.simklEnabled(), false);
+    env.store.set('sc_simkl_enabled', 'on');
+    assert.equal(env.api.simklEnabled(), true);
+    assert.equal(env.api.simklThreshold(), 90);
+    env.store.set('sc_simkl_threshold', '75');
+    assert.equal(env.api.simklThreshold(), 75);
 });
 
 await test('prompted slot round-trips and tolerates corrupt JSON', () => {
     const env = loadClient();
-    assert.equal(env.api.traktLoadPrompted(), null);
-    env.api.traktMarkPrompted('tt1', 'shown');
-    const p = env.api.traktLoadPrompted();
+    assert.equal(env.api.simklLoadPrompted(), null);
+    env.api.simklMarkPrompted('tt1', 'shown');
+    const p = env.api.simklLoadPrompted();
     assert.equal(p.imdbId, 'tt1');
     assert.equal(p.outcome, 'shown');
     assert.ok(Math.abs(p.ts - Date.now()) < 2000);
-    env.store.set('sc_trakt_prompted', '{not json');
-    assert.equal(env.api.traktLoadPrompted(), null);
+    env.store.set('sc_simkl_prompted', '{not json');
+    assert.equal(env.api.simklLoadPrompted(), null);
 });
 
-await test('validateTraktClientId maps status codes', async () => {
+await test('validateSimklClientId maps status codes', async () => {
     for (const [reply, expected] of [[{ status: 200, body: [] }, 'valid'], [{ status: 403, body: {} }, 'invalid'],
                                      [{ status: 401, body: {} }, 'invalid'], [{ status: 500, body: {} }, 'error'], ['error', 'error']]) {
         const env = loadClient();
         env.replies.push(reply);
-        assert.equal(await env.api.validateTraktClientId('cid'), expected);
+        assert.equal(await env.api.validateSimklClientId('cid'), expected);
         assert.match(env.requests[0].url, /\/movies\/trending\?limit=1$/);
-        assert.equal(env.requests[0].headers['trakt-api-key'], 'cid');
+        assert.equal(env.requests[0].headers['simkl-api-key'], 'cid');
     }
 });
 
-await test('traktSubmit: no token -> auth without touching the network', async () => {
+await test('simklSubmit: no token -> auth without touching the network', async () => {
     const env = loadClient();
     withKeys(env);
-    assert.deepEqual(await env.api.traktSubmit(SNAP, 0), { result: 'auth', ratingFailed: false });
+    assert.deepEqual(await env.api.simklSubmit(SNAP, 0), { result: 'auth', ratingFailed: false });
     assert.equal(env.requests.length, 0);
 });
 
-await test('traktSubmit: token for a different client id is unusable', async () => {
+await test('simklSubmit: token for a different client id is unusable', async () => {
     const env = loadClient();
     withToken(env, { clientId: 'someone-else' });
-    assert.equal((await env.api.traktSubmit(SNAP, 0)).result, 'auth');
+    assert.equal((await env.api.simklSubmit(SNAP, 0)).result, 'auth');
     assert.equal(env.requests.length, 0);
 });
 
-await test('traktSubmit: success sends one authorized history request', async () => {
+await test('simklSubmit: success sends one authorized history request', async () => {
     const env = loadClient();
     withToken(env);
     env.replies.push(ADDED);
-    assert.deepEqual(await env.api.traktSubmit(SNAP, 0), { result: 'added', ratingFailed: false });
+    assert.deepEqual(await env.api.simklSubmit(SNAP, 0), { result: 'added', ratingFailed: false });
     assert.equal(env.requests.length, 1);
     assert.match(env.requests[0].url, /^https:\/\/api\.trakt\.tv\/sync\/history$/);
     assert.equal(env.requests[0].method, 'POST');
     assert.equal(env.requests[0].headers['Authorization'], 'Bearer A1');
-    assert.equal(env.requests[0].headers['trakt-api-key'], 'cid');
-    assert.equal(env.requests[0].headers['trakt-api-version'], '2');
+    assert.equal(env.requests[0].headers['simkl-api-key'], 'cid');
+    assert.equal(env.requests[0].headers['simkl-api-version'], '2');
     assert.equal(JSON.parse(env.requests[0].data).movies[0].ids.imdb, 'tt0087332');
 });
 
-await test('traktSubmit: rating goes to /sync/ratings; a failed rating does not fail the watch', async () => {
+await test('simklSubmit: rating goes to /sync/ratings; a failed rating does not fail the watch', async () => {
     let env = loadClient();
     withToken(env);
     env.replies.push(ADDED, ADDED);
-    assert.deepEqual(await env.api.traktSubmit(SNAP, 8), { result: 'added', ratingFailed: false });
+    assert.deepEqual(await env.api.simklSubmit(SNAP, 8), { result: 'added', ratingFailed: false });
     assert.equal(env.requests.length, 2);
     assert.match(env.requests[1].url, /\/sync\/ratings$/);
     assert.equal(JSON.parse(env.requests[1].data).movies[0].rating, 8);
@@ -326,31 +326,31 @@ await test('traktSubmit: rating goes to /sync/ratings; a failed rating does not 
     env = loadClient();
     withToken(env);
     env.replies.push(ADDED, { status: 500, body: {} });
-    assert.deepEqual(await env.api.traktSubmit(SNAP, 8), { result: 'added', ratingFailed: true });
+    assert.deepEqual(await env.api.simklSubmit(SNAP, 8), { result: 'added', ratingFailed: true });
 });
 
-await test('traktSubmit: not_found, http error and network error', async () => {
+await test('simklSubmit: not_found, http error and network error', async () => {
     let env = loadClient();
     withToken(env);
     env.replies.push({ status: 201, body: { added: { movies: 0 }, not_found: { movies: [{ ids: { imdb: 'tt0087332' } }] } } });
-    assert.equal((await env.api.traktSubmit(SNAP, 0)).result, 'not_found');
+    assert.equal((await env.api.simklSubmit(SNAP, 0)).result, 'not_found');
 
     env = loadClient();
     withToken(env);
     env.replies.push({ status: 500, body: {} });
-    assert.equal((await env.api.traktSubmit(SNAP, 0)).result, 'error');
+    assert.equal((await env.api.simklSubmit(SNAP, 0)).result, 'error');
 
     env = loadClient();
     withToken(env);
     env.replies.push('error');
-    assert.equal((await env.api.traktSubmit(SNAP, 0)).result, 'error');
+    assert.equal((await env.api.simklSubmit(SNAP, 0)).result, 'error');
 });
 
-await test('traktSubmit: 401 triggers one refresh then a retry with the new token', async () => {
+await test('simklSubmit: 401 triggers one refresh then a retry with the new token', async () => {
     const env = loadClient();
     withToken(env);
     env.replies.push({ status: 401, body: {} }, tokenReply('A2', 'R2'), ADDED);
-    assert.equal((await env.api.traktSubmit(SNAP, 0)).result, 'added');
+    assert.equal((await env.api.simklSubmit(SNAP, 0)).result, 'added');
     assert.match(env.requests[1].url, /\/oauth\/token$/);
     const refreshBody = JSON.parse(env.requests[1].data);
     assert.equal(refreshBody.grant_type, 'refresh_token');
@@ -358,70 +358,70 @@ await test('traktSubmit: 401 triggers one refresh then a retry with the new toke
     assert.equal(refreshBody.client_secret, 'sec');
     assert.equal(refreshBody.redirect_uri, 'urn:ietf:wg:oauth:2.0:oob');
     assert.equal(env.requests[2].headers['Authorization'], 'Bearer A2');
-    assert.equal(JSON.parse(env.store.get('sc_trakt_token')).access, 'A2');
+    assert.equal(JSON.parse(env.store.get('sc_simkl_token')).access, 'A2');
 });
 
-await test('traktSubmit: 401 then rejected refresh -> auth and token cleared', async () => {
+await test('simklSubmit: 401 then rejected refresh -> auth and token cleared', async () => {
     const env = loadClient();
     withToken(env);
     env.replies.push({ status: 401, body: {} }, { status: 401, body: {} });
-    assert.equal((await env.api.traktSubmit(SNAP, 0)).result, 'auth');
-    assert.equal(env.store.has('sc_trakt_token'), false);
+    assert.equal((await env.api.simklSubmit(SNAP, 0)).result, 'auth');
+    assert.equal(env.store.has('sc_simkl_token'), false);
 });
 
-await test('traktSubmit: 401 then transient refresh failure -> error (Retry), token kept', async () => {
+await test('simklSubmit: 401 then transient refresh failure -> error (Retry), token kept', async () => {
     const env = loadClient();
     withToken(env);
     env.replies.push({ status: 401, body: {} }, 'error');
-    assert.deepEqual(await env.api.traktSubmit(SNAP, 0), { result: 'error', ratingFailed: false });
-    assert.equal(env.store.has('sc_trakt_token'), true);
-    assert.equal(JSON.parse(env.store.get('sc_trakt_token')).access, 'A1');
+    assert.deepEqual(await env.api.simklSubmit(SNAP, 0), { result: 'error', ratingFailed: false });
+    assert.equal(env.store.has('sc_simkl_token'), true);
+    assert.equal(JSON.parse(env.store.get('sc_simkl_token')).access, 'A1');
 });
 
-await test('traktSubmit: hard-expired token with transient refresh failure -> error, token kept', async () => {
+await test('simklSubmit: hard-expired token with transient refresh failure -> error, token kept', async () => {
     const env = loadClient();
     withToken(env, { expiresAt: Date.now() - 1000 });
     env.replies.push('error');
-    assert.equal((await env.api.traktSubmit(SNAP, 0)).result, 'error');
-    assert.equal(env.store.has('sc_trakt_token'), true);
+    assert.equal((await env.api.simklSubmit(SNAP, 0)).result, 'error');
+    assert.equal(env.store.has('sc_simkl_token'), true);
 });
 
-await test('traktEnsureToken: refresh network failure keeps a not-yet-expired token, drops an expired one', async () => {
+await test('simklEnsureToken: refresh network failure keeps a not-yet-expired token, drops an expired one', async () => {
     let env = loadClient();
     withToken(env, { expiresAt: Date.now() + 60 * 60 * 1000 });   // inside the 1-day window, still valid
     env.replies.push('error');
-    assert.equal((await env.api.traktEnsureToken()).access, 'A1');
+    assert.equal((await env.api.simklEnsureToken()).access, 'A1');
 
     env = loadClient();
     withToken(env, { expiresAt: Date.now() - 1000 });             // already expired
     env.replies.push('error');
-    assert.equal(await env.api.traktEnsureToken(), null);
+    assert.equal(await env.api.simklEnsureToken(), null);
 });
 
-await test('traktStartDeviceAuth returns the device payload or throws', async () => {
+await test('simklStartDeviceAuth returns the device payload or throws', async () => {
     let env = loadClient();
     withKeys(env);
     const dev = { device_code: 'D', user_code: 'ABCD1234', verification_url: 'https://trakt.tv/activate', expires_in: 600, interval: 5 };
     env.replies.push({ status: 200, body: dev });
-    assert.deepEqual(await env.api.traktStartDeviceAuth(), dev);
+    assert.deepEqual(await env.api.simklStartDeviceAuth(), dev);
     assert.equal(JSON.parse(env.requests[0].data).client_id, 'cid');
 
     env = loadClient();
     withKeys(env);
     env.replies.push({ status: 403, body: {} });
-    await assert.rejects(() => env.api.traktStartDeviceAuth());
+    await assert.rejects(() => env.api.simklStartDeviceAuth());
 });
 
-await test('traktPollDeviceToken: pending, slow-down, then success saves the token', async () => {
+await test('simklPollDeviceToken: pending, slow-down, then success saves the token', async () => {
     const env = loadClient();
     withKeys(env);
     env.replies.push({ status: 400, body: {} }, { status: 429, body: {} }, tokenReply('A9', 'R9'));
     const sleeps = [];
     const handle = { cancelled: false };
-    const result = await env.api.traktPollDeviceToken({ device_code: 'D', expires_in: 600, interval: 5 }, handle, async ms => { sleeps.push(ms); });
+    const result = await env.api.simklPollDeviceToken({ device_code: 'D', expires_in: 600, interval: 5 }, handle, async ms => { sleeps.push(ms); });
     assert.equal(result, 'ok');
     assert.deepEqual(sleeps, [5000, 5000, 6000]);   // 429 adds 1 s to the interval
-    const saved = JSON.parse(env.store.get('sc_trakt_token'));
+    const saved = JSON.parse(env.store.get('sc_simkl_token'));
     assert.equal(saved.access, 'A9');
     assert.equal(saved.clientId, 'cid');
     const body = JSON.parse(env.requests[2].data);
@@ -429,12 +429,12 @@ await test('traktPollDeviceToken: pending, slow-down, then success saves the tok
     assert.equal(body.client_secret, 'sec');
 });
 
-await test('traktPollDeviceToken: denied, expired, error and cancel', async () => {
+await test('simklPollDeviceToken: denied, expired, error and cancel', async () => {
     const run = async reply => {
         const env = loadClient();
         withKeys(env);
         env.replies.push(reply);
-        return env.api.traktPollDeviceToken({ device_code: 'D', expires_in: 600, interval: 5 }, { cancelled: false }, async () => {});
+        return env.api.simklPollDeviceToken({ device_code: 'D', expires_in: 600, interval: 5 }, { cancelled: false }, async () => {});
     };
     assert.equal(await run({ status: 418, body: {} }), 'denied');
     assert.equal(await run({ status: 410, body: {} }), 'expired');
@@ -444,19 +444,19 @@ await test('traktPollDeviceToken: denied, expired, error and cancel', async () =
     const env = loadClient();
     withKeys(env);
     const handle = { cancelled: false };
-    const r = await env.api.traktPollDeviceToken({ device_code: 'D', expires_in: 600, interval: 5 }, handle, async () => { handle.cancelled = true; });
+    const r = await env.api.simklPollDeviceToken({ device_code: 'D', expires_in: 600, interval: 5 }, handle, async () => { handle.cancelled = true; });
     assert.equal(r, 'cancelled');
     assert.equal(env.requests.length, 0);
 });
 
-// ── Settings: traktFetchUsername + Connect & verify ──────────────────────────
+// ── Settings: simklFetchUsername + Connect & verify ──────────────────────────
 
-const TOKEN_KEY = 'sc_trakt_token';
+const TOKEN_KEY = 'sc_simkl_token';
 const DEV = { device_code: 'DEV123', user_code: 'ABCD1234', verification_url: 'https://trakt.tv/activate', expires_in: 600, interval: 5 };
 const TRENDING_OK = { status: 200, body: [] };
 const SETTINGS_OK = { status: 200, body: { user: { username: 'spud' } } };
-const F_ID = 'sc-input-trakt-clientid';
-const F_SECRET = 'sc-input-trakt-secret';
+const F_ID = 'sc-input-simkl-clientid';
+const F_SECRET = 'sc-input-simkl-secret';
 const CREDS = { [F_ID]: 'cid', [F_SECRET]: 'sec' };
 
 // Fake Task-A ctx: records every setStatus/setDetail call; `open.v` flips isOpen().
@@ -474,24 +474,24 @@ function makeCtx(values, open = { v: true }) {
 const instantSleep = async () => {};
 const urlsOf = env => env.requests.map(r => r.method + ' ' + r.url.replace('https://api.trakt.tv', ''));
 
-await test('traktFetchUsername: 200 returns the name and sends the Bearer token', async () => {
+await test('simklFetchUsername: 200 returns the name and sends the Bearer token', async () => {
     const env = loadClient();
     withKeys(env);
     env.replies.push(SETTINGS_OK);
-    assert.equal(await env.api.traktFetchUsername({ access: 'A1' }), 'spud');
+    assert.equal(await env.api.simklFetchUsername({ access: 'A1' }), 'spud');
     assert.equal(env.requests.length, 1);
     assert.equal(env.requests[0].method, 'GET');
     assert.equal(env.requests[0].url, 'https://api.trakt.tv/users/settings');
     assert.equal(env.requests[0].headers['Authorization'], 'Bearer A1');
-    assert.equal(env.requests[0].headers['trakt-api-key'], 'cid');
+    assert.equal(env.requests[0].headers['simkl-api-key'], 'cid');
 });
 
-await test('traktFetchUsername: 401, missing name and network error all give null', async () => {
+await test('simklFetchUsername: 401, missing name and network error all give null', async () => {
     for (const reply of [{ status: 401, body: {} }, { status: 200, body: { user: {} } }, { status: 200, body: { user: { username: 42 } } }, 'error']) {
         const env = loadClient();
         withKeys(env);
         env.replies.push(reply);
-        assert.equal(await env.api.traktFetchUsername({ access: 'A1' }), null);
+        assert.equal(await env.api.simklFetchUsername({ access: 'A1' }), null);
     }
 });
 
@@ -499,7 +499,7 @@ await test('connect: empty Client ID or Secret -> bad status, no requests, nothi
     for (const values of [{}, { [F_ID]: 'cid' }, { [F_SECRET]: 'sec' }, { [F_ID]: '   ', [F_SECRET]: 'sec' }]) {
         const env = loadClient();
         const t = makeCtx(values);
-        await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+        await env.api.simklConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
         assert.deepEqual(t.statuses, [{ text: 'Enter your Client ID and Client Secret first', kind: 'bad' }]);
         assert.equal(env.requests.length, 0);
         assert.equal(env.store.size, 0);
@@ -511,30 +511,30 @@ await test('connect: typed credentials are trimmed and saved before anything els
     const env = loadClient();
     const t = makeCtx({ [F_ID]: '  typed-id  ', [F_SECRET]: ' typed-sec ' });
     env.replies.push({ status: 403, body: {} });
-    await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
-    assert.equal(env.store.get('sc_trakt_client_id'), 'typed-id');
-    assert.equal(env.store.get('sc_trakt_client_secret'), 'typed-sec');
-    assert.equal(env.requests[0].headers['trakt-api-key'], 'typed-id');
+    await env.api.simklConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+    assert.equal(env.store.get('sc_simkl_client_id'), 'typed-id');
+    assert.equal(env.store.get('sc_simkl_client_secret'), 'typed-sec');
+    assert.equal(env.requests[0].headers['simkl-api-key'], 'typed-id');
     assert.deepEqual(t.statuses[0], { text: 'Checking Client ID…', kind: 'pending' });
     assert.equal(t.details[0], '');
 });
 
-await test('connect: a Client ID Trakt rejects stops with a bad status', async () => {
+await test('connect: a Client ID Simkl rejects stops with a bad status', async () => {
     const env = loadClient();
     const t = makeCtx(CREDS);
     env.replies.push({ status: 403, body: {} });
-    await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
-    assert.deepEqual(t.last(), { text: '✗ Client ID rejected by Trakt', kind: 'bad' });
+    await env.api.simklConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+    assert.deepEqual(t.last(), { text: '✗ Client ID rejected by Simkl', kind: 'bad' });
     assert.deepEqual(urlsOf(env), ['GET /movies/trending?limit=1']);
 });
 
-await test('connect: Trakt unreachable stops with a bad status', async () => {
+await test('connect: Simkl unreachable stops with a bad status', async () => {
     for (const reply of ['error', { status: 500, body: {} }]) {
         const env = loadClient();
         const t = makeCtx(CREDS);
         env.replies.push(reply);
-        await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
-        assert.deepEqual(t.last(), { text: '⚠ Couldn\'t reach Trakt', kind: 'bad' });
+        await env.api.simklConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+        assert.deepEqual(t.last(), { text: '⚠ Couldn\'t reach Simkl', kind: 'bad' });
         assert.deepEqual(urlsOf(env), ['GET /movies/trending?limit=1']);
     }
 });
@@ -544,7 +544,7 @@ await test('connect: already connected -> verifies the stored token and never st
     withToken(env);
     const t = makeCtx(CREDS);
     env.replies.push(TRENDING_OK, SETTINGS_OK);
-    await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+    await env.api.simklConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
     assert.deepEqual(t.last(), { text: '✓ Connected as spud', kind: 'ok' });
     assert.deepEqual(urlsOf(env), ['GET /movies/trending?limit=1', 'GET /users/settings']);
     assert.equal(env.requests[1].headers['Authorization'], 'Bearer A1');
@@ -557,7 +557,7 @@ await test('connect: a stored token that /users/settings rejects falls through t
     withToken(env);
     const t = makeCtx(CREDS);
     env.replies.push(TRENDING_OK, { status: 401, body: {} }, { status: 200, body: DEV }, tokenReply('A5', 'R5'), SETTINGS_OK);
-    await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+    await env.api.simklConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
     assert.deepEqual(urlsOf(env), ['GET /movies/trending?limit=1', 'GET /users/settings', 'POST /oauth/device/code',
         'POST /oauth/device/token', 'GET /users/settings']);
     assert.equal(env.requests[4].headers['Authorization'], 'Bearer A5');
@@ -569,7 +569,7 @@ await test('connect: full fresh sign-in shows the code + link, polls, saves the 
     const t = makeCtx(CREDS);
     env.replies.push(TRENDING_OK, { status: 200, body: DEV }, { status: 400, body: {} }, tokenReply('A7', 'R7'), SETTINGS_OK);
     const sleeps = [];
-    await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, async ms => { sleeps.push(ms); });
+    await env.api.simklConnectAndVerify(t.ctx, { cancelled: false }, async ms => { sleeps.push(ms); });
     assert.deepEqual(urlsOf(env), ['GET /movies/trending?limit=1', 'POST /oauth/device/code',
         'POST /oauth/device/token', 'POST /oauth/device/token', 'GET /users/settings']);
     assert.deepEqual(JSON.parse(env.requests[1].data), { client_id: 'cid' });
@@ -584,7 +584,7 @@ await test('connect: full fresh sign-in shows the code + link, polls, saves the 
     // detail: shown with the code and the activate link, cleared at the end
     const shown = t.details.find(d => d.includes('ABCD1234'));
     assert.ok(shown, 'detail HTML should contain the user code');
-    assert.ok(shown.includes('class="sc-trakt-set-code">ABCD1234</div>'));
+    assert.ok(shown.includes('class="sc-simkl-set-code">ABCD1234</div>'));
     assert.ok(shown.includes('href="https://trakt.tv/activate"'));
     assert.ok(shown.includes('>trakt.tv/activate</a>'));
     assert.ok(shown.includes('target="_blank" rel="noopener"'));
@@ -601,7 +601,7 @@ await test('connect: signed in but the username lookup fails -> plain Connected'
     const env = loadClient();
     const t = makeCtx(CREDS);
     env.replies.push(TRENDING_OK, { status: 200, body: DEV }, tokenReply('A8', 'R8'), 'error');
-    await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+    await env.api.simklConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
     assert.deepEqual(t.last(), { text: '✓ Connected', kind: 'ok' });
     assert.equal(JSON.parse(env.store.get(TOKEN_KEY)).access, 'A8');
 });
@@ -610,8 +610,8 @@ await test('connect: the user code is HTML-escaped in the detail', async () => {
     const env = loadClient();
     const t = makeCtx(CREDS);
     env.replies.push(TRENDING_OK, { status: 200, body: { ...DEV, user_code: '<b>X&"' } }, { status: 418, body: {} });
-    await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
-    const shown = t.details.find(d => d.includes('sc-trakt-set-code'));
+    await env.api.simklConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+    const shown = t.details.find(d => d.includes('sc-simkl-set-code'));
     assert.ok(shown.includes('&lt;b&gt;X&amp;&quot;'));
     assert.equal(shown.includes('<b>X'), false);
 });
@@ -625,7 +625,7 @@ await test('connect: denied, expired and wrong-secret sign-ins report and clear 
         const env = loadClient();
         const t = makeCtx(CREDS);
         env.replies.push(TRENDING_OK, { status: 200, body: DEV }, reply);
-        await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+        await env.api.simklConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
         assert.deepEqual(t.last(), { text: expected, kind: 'bad' });
         assert.equal(t.details[t.details.length - 1], '');
         assert.equal(env.store.has(TOKEN_KEY), false);
@@ -637,7 +637,7 @@ await test('connect: device-code start failure reports a bad status and shows no
     const env = loadClient();
     const t = makeCtx(CREDS);
     env.replies.push(TRENDING_OK, { status: 403, body: {} });
-    await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+    await env.api.simklConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
     assert.deepEqual(t.last(), { text: '✗ Couldn\'t start sign-in — check the Client ID', kind: 'bad' });
     assert.deepEqual(urlsOf(env), ['GET /movies/trending?limit=1', 'POST /oauth/device/code']);
     assert.equal(t.details.some(d => d !== ''), false);
@@ -648,7 +648,7 @@ await test('connect: user cancel stops the poll and reports Cancelled with no ki
     const t = makeCtx(CREDS);
     const handle = { cancelled: false };
     env.replies.push(TRENDING_OK, { status: 200, body: DEV });
-    await env.api.traktConnectAndVerify(t.ctx, handle, async () => { handle.cancelled = true; });
+    await env.api.simklConnectAndVerify(t.ctx, handle, async () => { handle.cancelled = true; });
     assert.deepEqual(t.last(), { text: 'Cancelled', kind: undefined });
     assert.equal(t.details[t.details.length - 1], '');
     assert.deepEqual(urlsOf(env), ['GET /movies/trending?limit=1', 'POST /oauth/device/code']);   // no token request
@@ -660,11 +660,11 @@ await test('connect: closing Settings mid-wait cancels the poll before any token
     const open = { v: true };
     const t = makeCtx(CREDS, open);
     const origSetDetail = t.ctx.setDetail;
-    t.ctx.setDetail = html => { origSetDetail(html); if (html.includes('sc-trakt-set-code')) open.v = false; };   // user closes Settings once the code is up
+    t.ctx.setDetail = html => { origSetDetail(html); if (html.includes('sc-simkl-set-code')) open.v = false; };   // user closes Settings once the code is up
     const handle = { cancelled: false };
     let slept = 0;
     env.replies.push(TRENDING_OK, { status: 200, body: DEV });
-    await env.api.traktConnectAndVerify(t.ctx, handle, async () => { slept++; });
+    await env.api.simklConnectAndVerify(t.ctx, handle, async () => { slept++; });
     assert.equal(handle.cancelled, true);
     assert.equal(slept, 0);
     assert.deepEqual(t.last(), { text: 'Cancelled', kind: undefined });
@@ -675,11 +675,11 @@ await test('connect: a non-https verification_url falls back to trakt.tv/activat
     const env = loadClient();
     const t = makeCtx(CREDS);
     env.replies.push(TRENDING_OK, { status: 200, body: { ...DEV, verification_url: 'javascript:alert(1)' } }, { status: 418, body: {} });
-    await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
-    const shown = t.details.find(d => d.includes('sc-trakt-set-code'));
+    await env.api.simklConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+    const shown = t.details.find(d => d.includes('sc-simkl-set-code'));
     assert.ok(shown.includes('href="https://trakt.tv/activate"'));
     assert.ok(shown.includes('>trakt.tv/activate</a>'));
     assert.equal(shown.includes('javascript'), false);
 });
 
-console.log(`OK: ${passed} trakt-scrobble test groups passed`);
+console.log(`OK: ${passed} simkl-scrobble test groups passed`);
