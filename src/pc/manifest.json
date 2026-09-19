@@ -1,7 +1,7 @@
 {
   "scriptId": "cytube.pc",
   "displayName": "Spuds Grindhouse Experience",
-  "baseVersion": "4.13.22",
+  "baseVersion": "4.13.23",
   "headerTemplate": "src/pc/header.template.js",
   "match": [
     "https://cytu.be/r/420Grindhouse",
@@ -357,7 +357,7 @@
         "At the end of a movie, a dark semi-transparent card appears at the bottom-right of the video for a minute offering to log the watch on simkl.com",
         "Optional 1–10 rating sent with the watch in a single call; sign in to Simkl right from the card (device code — no secret to manage)",
         "Uses your own free Simkl app Client ID from Settings; prompt point is configurable (default 90% of the movie)",
-        "Press Alt+S at any time to open the card for the current movie (handy for testing); Settings has a Simkl section with a Test connection (Connect & verify) button",
+        "Press Alt+Shift+S at any time to open the card for the current movie (handy for testing); Settings has a Simkl section with a Test connection (Connect & verify) button",
         "Movies only (not YouTube / TV episodes); off by default — opt in from Settings"
       ]
     },

@@ -265,14 +265,15 @@ await test('simklPastThreshold: exact boundary, under, bad inputs, threshold 100
     assert.equal(H.simklPastThreshold(undefined, 7200, 90), false);
 });
 
-await test('simklIsHotkey is true only for a bare Alt+S', () => {
-    assert.equal(H.simklIsHotkey({ altKey: true, code: 'KeyS' }), true);
-    assert.equal(H.simklIsHotkey({ altKey: false, code: 'KeyS' }), false);
+await test('simklIsHotkey is true only for Alt+Shift+S', () => {
+    assert.equal(H.simklIsHotkey({ altKey: true, shiftKey: true, code: 'KeyS' }), true);
+    // The old combo must NOT match: bare Alt+S is Firefox's History-menu accelerator.
+    assert.equal(H.simklIsHotkey({ altKey: true, code: 'KeyS' }), false);
+    assert.equal(H.simklIsHotkey({ shiftKey: true, code: 'KeyS' }), false);
     assert.equal(H.simklIsHotkey({ code: 'KeyS' }), false);
-    assert.equal(H.simklIsHotkey({ altKey: true, ctrlKey: true, code: 'KeyS' }), false);
-    assert.equal(H.simklIsHotkey({ altKey: true, metaKey: true, code: 'KeyS' }), false);
-    assert.equal(H.simklIsHotkey({ altKey: true, shiftKey: true, code: 'KeyS' }), false);
-    assert.equal(H.simklIsHotkey({ altKey: true, code: 'KeyD' }), false);
+    assert.equal(H.simklIsHotkey({ altKey: true, shiftKey: true, ctrlKey: true, code: 'KeyS' }), false);
+    assert.equal(H.simklIsHotkey({ altKey: true, shiftKey: true, metaKey: true, code: 'KeyS' }), false);
+    assert.equal(H.simklIsHotkey({ altKey: true, shiftKey: true, code: 'KeyD' }), false);
     assert.equal(H.simklIsHotkey(null), false);
     assert.equal(H.simklIsHotkey(undefined), false);
 });

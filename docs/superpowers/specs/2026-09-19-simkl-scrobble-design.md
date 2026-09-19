@@ -30,8 +30,9 @@ was switched to Simkl rather than kept on a dead path.
 - **Replace Trakt**, don't support both.
 - **Client ID entered in Settings only** — no built-in default ID, no secret.
 - **No Letterboxd export** for now (see findings below).
-- Unchanged from the Trakt design: opt-in, movies only, default 90% prompt point, Alt+S manual card,
+- Unchanged from the Trakt design: opt-in, movies only, default 90% prompt point, Alt+Shift+S manual card,
   poll-per-use settings, 12 h "already handled" slot.
+- Hotkey is Alt+Shift+S (bare Alt+S is Firefox's History-menu accelerator).
 
 ## Letterboxd findings
 Letterboxd's API is private / by request only, and the community tools around it are fragile HTML

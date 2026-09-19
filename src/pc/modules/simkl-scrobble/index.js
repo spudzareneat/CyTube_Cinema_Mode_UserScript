@@ -10,7 +10,7 @@
        (the Client ID alone is enough), and the prompt-point threshold. Its
        "Test connection" button (Connect & verify) saves the typed Client
        ID and runs Simkl's device-code sign-in inline, ending in
-       "Connected as <user>". Alt+S opens the card for the current movie
+       "Connected as <user>". Alt+Shift+S opens the card for the current movie
        at any time (handy for testing; pressing it again closes it) -- a
        "manual" card, which doesn't touch the already-handled slot unless
        it scrobbles.
@@ -68,9 +68,9 @@
             && currentTime / duration >= thresholdPct / 100;
     }
 
-    // The manual-card hotkey: a bare Alt+S (physical key, so layouts / Alt-composed characters don't matter).
+    // The manual-card hotkey: Alt+Shift+S (physical key, so layouts / Alt-composed characters don't matter). NOT bare Alt+S — that is Firefox's History-menu accelerator.
     function simklIsHotkey(e) {
-        return !!e && e.altKey === true && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === 'KeyS';
+        return !!e && e.altKey === true && e.shiftKey === true && !e.ctrlKey && !e.metaKey && e.code === 'KeyS';
     }
 
     // s = { enabled, isYouTube, isEpisode, imdbId, duration, currentTime, thresholdPct, prompted, now }
@@ -404,7 +404,7 @@
     /* ==========================================================
        PANEL — #sc-simkl-panel, a single card whose body is re-rendered
        per view: 'prompt' | 'submitting' | 'success' | 'notfound' |
-       'error' | 'connect' | 'needsconfig' | 'nomatch' (manual Alt+S card
+       'error' | 'connect' | 'needsconfig' | 'nomatch' (manual Alt+Shift+S card
        with no IMDb match yet). Events are delegated from
        the card itself (data-act / data-r), so re-rendering the body
        never needs re-binding.
@@ -640,7 +640,7 @@
         if (act === 'scrobble' || act === 'retry') { _simklBeginSubmit(); }
     }
 
-    // opts.manual = opened by the Alt+S hotkey (any time, any progress). A manual card records nothing in the
+    // opts.manual = opened by the Alt+Shift+S hotkey (any time, any progress). A manual card records nothing in the
     // prompted slot -- except when the movie is already past the prompt point, where it records 'shown' (or
     // 'needsconfig' when the keys are missing, which stops counting once keys exist) so the auto card doesn't
     // re-pop 3 s after a manual Esc. A successful scrobble still records 'scrobbled'.
@@ -716,7 +716,7 @@
         if (eligible) simklShowPanel(simklSnapshot());
     }
 
-    // Alt+S: opens the card for the current movie right now (handy for testing) or closes it if it's open.
+    // Alt+Shift+S: opens the card for the current movie right now (handy for testing) or closes it if it's open.
     function simklManualTrigger() {
         if (_simklPanelEl) { simklClosePanel(); return; }
         simklShowPanel(simklSnapshot(), { manual: true });
@@ -724,7 +724,7 @@
 
     function simklBoot() {
         setInterval(simklTick, SIMKL_POLL_MS);
-        // Capture phase, and deliberately not ignored while typing in chat: Alt+S types nothing on Windows/Linux.
+        // Capture phase, and deliberately not ignored while typing in chat: Alt+Shift+S types nothing on Windows/Linux.
         document.addEventListener('keydown', e => {
             if (!simklIsHotkey(e) || e.repeat) return;
             if (!simklEnabled()) return;
@@ -746,7 +746,7 @@
         group: 'simkl-scrobble',
         type: 'section',
         label: 'Simkl',
-        note: 'Log movies you finish on simkl.com. Register a free app at <a href="https://simkl.com/settings/developer/" target="_blank" rel="noopener">simkl.com/settings/developer</a> (choose <b>TV, devices &amp; command line</b>), paste its Client ID below, then press <b>Test connection</b>. Press <b>Alt+S</b> any time to open the scrobble card for the current movie — handy for testing.',
+        note: 'Log movies you finish on simkl.com. Register a free app at <a href="https://simkl.com/settings/developer/" target="_blank" rel="noopener">simkl.com/settings/developer</a> (choose <b>TV, devices &amp; command line</b>), paste its Client ID below, then press <b>Test connection</b>. Press <b>Alt+Shift+S</b> any time to open the scrobble card for the current movie — handy for testing.',
         order: 13,
     });
     scRegisterSetting({
