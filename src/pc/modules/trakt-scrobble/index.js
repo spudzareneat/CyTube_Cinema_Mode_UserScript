@@ -598,8 +598,9 @@
     }
 
     // opts.manual = opened by the Alt+S hotkey (any time, any progress). A manual card records nothing in the
-    // prompted slot -- except when the movie is already past the prompt point, where it records 'shown' so the
-    // auto card doesn't re-pop 3 s after a manual Esc. A successful scrobble still records 'scrobbled'.
+    // prompted slot -- except when the movie is already past the prompt point, where it records 'shown' (or
+    // 'needsconfig' when the keys are missing, which stops counting once keys exist) so the auto card doesn't
+    // re-pop 3 s after a manual Esc. A successful scrobble still records 'scrobbled'.
     function traktShowPanel(snap, opts = {}) {
         const manual = !!(opts && opts.manual);
         const configured = !!(traktClientId() && traktSecret());
@@ -607,7 +608,7 @@
             traktMarkPrompted(snap.imdbId, configured ? 'shown' : 'needsconfig');   // survives reloads: no re-prompt for this movie for 12 h (a needsconfig record stops counting once keys are added)
         } else if (snap.imdbId) {
             const v = document.querySelector('#ytapiplayer video');
-            if (v && traktPastThreshold(v.currentTime, v.duration, traktThreshold())) traktMarkPrompted(snap.imdbId, 'shown');
+            if (v && traktPastThreshold(v.currentTime, v.duration, traktThreshold())) traktMarkPrompted(snap.imdbId, configured ? 'shown' : 'needsconfig');
         }
         const el = document.createElement('div');
         el.id = 'sc-trakt-panel';
