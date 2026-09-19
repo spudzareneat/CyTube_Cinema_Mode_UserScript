@@ -50,6 +50,7 @@
     const SIMKL_PANEL_LIFETIME_MS = 60 * 1000;            // how long the prompt stays up
     const SIMKL_SUCCESS_MS        = 6 * 1000;             // how long the "Logged" confirmation stays up
     const SIMKL_PANEL_INSET       = { right: 16, bottom: 56 }; // px from the video's corner; bottom clears the control bar
+    const SIMKL_APP_NAME          = 'spuds-grindhouse';         // sent as app-name + User-Agent on every Simkl request
 
     function simklClampThreshold(raw) {
         const n = parseInt(raw, 10);
@@ -90,26 +91,44 @@
         return !!token && Number.isFinite(token.expiresAt) && nowMs >= token.expiresAt - SIMKL_REFRESH_WINDOW_MS;
     }
 
-    // Simkl's token response: { access_token, refresh_token, expires_in (s), created_at (unix s), ... }
-    function simklTokenFromResponse(json, clientId, nowMs) {
+    // Simkl's token response: { access_token, token_type, expires_in (s), refresh_token, scope } -- no created_at,
+    // so the lifetime counts from nowMs. A refresh response may omit refresh_token: keep prevRefresh then.
+    function simklTokenFromResponse(json, clientId, nowMs, prevRefresh) {
         const createdMs = Number.isFinite(json.created_at) ? json.created_at * 1000 : nowMs;
-        return { access: json.access_token, refresh: json.refresh_token, expiresAt: createdMs + json.expires_in * 1000, clientId };
+        return { access: json.access_token, refresh: json.refresh_token || prevRefresh, expiresAt: createdMs + json.expires_in * 1000, clientId };
     }
 
-    function simklBuildHistoryPayload(snap, nowIso) {
-        return { movies: [{ watched_at: nowIso, ids: { imdb: snap.imdbId } }] };
+    // One /sync/history entry: logs the watch and (optionally) rates it in the same call -- Simkl allows
+    // 1 POST/second, so we never follow up with a separate ratings request. rating: integer 1..10 or omitted.
+    function simklBuildHistoryPayload(snap, nowIso, rating) {
+        const movie = { ids: { imdb: snap.imdbId }, watched_at: nowIso };
+        if (Number.isInteger(rating) && rating >= 1 && rating <= 10) movie.rating = rating;
+        return { movies: [movie] };
     }
 
-    function simklBuildRatingPayload(snap, rating, nowIso) {
-        return { movies: [{ rated_at: nowIso, rating, ids: { imdb: snap.imdbId } }] };
-    }
-
-    // Simkl's /sync/* reply: { added: { movies: n }, not_found: { movies: [...] } }
+    // Simkl's /sync/history reply: { added: { movies: n, ... }, not_found: { movies: [...], ... } }.
+    // A 201 alone proves nothing: not_found says the id didn't match. added.movies 0 with nothing
+    // not_found means the movie is already in the user's history (a server-side no-op) -> 'exists'.
     function simklInterpretSyncResponse(json) {
         const nf = json && json.not_found && json.not_found.movies;
-        if (nf && nf.length) return 'not_found';
-        const added = json && json.added && json.added.movies;
-        return added > 0 ? 'added' : 'unknown';
+        if (Array.isArray(nf) && nf.length) return 'not_found';
+        const added = json && json.added;
+        if (added && typeof added === 'object') return added.movies > 0 ? 'added' : 'exists';
+        return 'unknown';
+    }
+
+    // The query string every Simkl request carries.
+    function simklAuthQuery(clientId, appName, appVersion) {
+        return 'client_id=' + encodeURIComponent(clientId) + '&app-name=' + encodeURIComponent(appName)
+            + '&app-version=' + encodeURIComponent(appVersion);
+    }
+
+    // application/x-www-form-urlencoded body (Simkl's /oauth2/* endpoints); null/undefined values are skipped.
+    function simklFormBody(obj) {
+        return Object.keys(obj)
+            .filter(k => obj[k] !== undefined && obj[k] !== null)
+            .map(k => encodeURIComponent(k) + '=' + encodeURIComponent(obj[k]))
+            .join('&');
     }
 
     function simklTickLifetime(remainingMs, dtMs, paused) {
@@ -129,31 +148,35 @@
     // ── test marker: simkl-helpers slice end ──
 
     // ── test marker: simkl-client slice start ──
-    const SIMKL_API          = 'https://api.trakt.tv';
-    const SIMKL_OOB_REDIRECT = 'urn:ietf:wg:oauth:2.0:oob';
+    const SIMKL_API = 'https://api.simkl.com';
 
     const simklEnabled   = () => getKey(LS_SIMKL_ENABLED) === 'on';   // opt-in
     const simklThreshold = () => simklClampThreshold(getKey(LS_SIMKL_THRESHOLD));
     const simklClientId  = () => getKey(LS_SIMKL_CLIENT_ID);
-    const simklSecret    = () => getKey(LS_SIMKL_SECRET);
+    const simklSecret    = () => getKey(LS_SIMKL_SECRET);   // legacy (Trakt-era): unused by the Simkl device flow; removed together with its settings row
+
+    // The userscript's own version, sent to Simkl as app-version / in the User-Agent ('0' outside Tampermonkey).
+    function simklAppVersion() {
+        return (typeof GM_info !== 'undefined' && GM_info && GM_info.script && GM_info.script.version) || '0';
+    }
 
     // Resolves { status, json } for any HTTP response (json is null when the body isn't JSON);
-    // rejects only on a network error / timeout. `opts.clientId` overrides the saved Client ID
-    // (used by the Settings "Test" button, which validates the value currently typed in the box).
+    // rejects only on a network error / timeout. Every call carries Simkl's required client_id / app-name /
+    // app-version query and a User-Agent. opts = { body, form, token, clientId }: `form` sends the body
+    // urlencoded (the /oauth2/* endpoints) instead of JSON (/sync/*); `token` adds the Bearer header;
+    // `clientId` overrides the saved Client ID.
     function simklRequest(method, path, opts = {}) {
-        const { body, token, clientId } = opts;
+        const { body, form, token, clientId } = opts;
         return new Promise((resolve, reject) => {
-            const headers = {
-                'Content-Type': 'application/json',
-                'simkl-api-version': '2',
-                'simkl-api-key': clientId || simklClientId(),
-            };
+            const version = simklAppVersion();
+            const headers = { 'User-Agent': SIMKL_APP_NAME + '/' + version };
+            if (body) headers['Content-Type'] = form ? 'application/x-www-form-urlencoded' : 'application/json';
             if (token && token.access) headers['Authorization'] = 'Bearer ' + token.access;
             GM_xmlhttpRequest({
                 method,
-                url: SIMKL_API + path,
+                url: SIMKL_API + path + (path.includes('?') ? '&' : '?') + simklAuthQuery(clientId || simklClientId(), SIMKL_APP_NAME, version),
                 headers,
-                data: body ? JSON.stringify(body) : undefined,
+                data: body ? (form ? simklFormBody(body) : JSON.stringify(body)) : undefined,
                 timeout: 15000,
                 onload: r => {
                     let json = null;
@@ -166,17 +189,6 @@
         });
     }
 
-    // Settings "Test" button handler: an unauthenticated public endpoint that still requires a valid
-    // simkl-api-key. 200 = key accepted, 401/403 = rejected, anything else = couldn't tell.
-    async function validateSimklClientId(clientId) {
-        try {
-            const res = await simklRequest('GET', '/movies/trending?limit=1', { clientId });
-            if (res.status === 200) return 'valid';
-            if (res.status === 401 || res.status === 403) return 'invalid';
-            return 'error';
-        } catch (e) { return 'error'; }
-    }
-
     function simklLoadToken() { try { return JSON.parse(localStorage.getItem(LS_SIMKL_TOKEN)); } catch (e) { return null; } }
     function simklSaveToken(t) { try { localStorage.setItem(LS_SIMKL_TOKEN, JSON.stringify(t)); } catch (e) {} }
     function simklClearToken() { try { localStorage.removeItem(LS_SIMKL_TOKEN); } catch (e) {} }
@@ -187,16 +199,26 @@
         try { localStorage.setItem(LS_SIMKL_PROMPTED, JSON.stringify({ imdbId, ts: Date.now(), outcome })); } catch (e) {}
     }
 
-    // Device flow step 1. Resolves { device_code, user_code, verification_url, expires_in, interval }; throws on failure.
+    // Device flow step 1 (Simkl AUTH V2 -- needs only the Client ID). Resolves { device_code, user_code,
+    // verification_uri, verification_uri_complete, expires_in, interval }. Throws an Error whose .kind is
+    // 'network' (the request itself failed) or 'rejected' (Simkl answered but not with a usable code --
+    // the way a bad Client ID shows up, since there is no separate key-check endpoint).
     async function simklStartDeviceAuth() {
-        const res = await simklRequest('POST', '/oauth/device/code', { body: { client_id: simklClientId() } });
-        if (res.status !== 200 || !res.json || !res.json.device_code) throw new Error('device-code HTTP ' + res.status);
+        let res;
+        try {
+            res = await simklRequest('POST', '/oauth2/device', { form: true, body: { client_id: simklClientId(), scope: 'media:read media:write' } });
+        } catch (e) { const err = new Error('device-code request failed: ' + e.message); err.kind = 'network'; throw err; }
+        if (res.status !== 200 || !res.json || !res.json.device_code || !res.json.user_code) {
+            const err = new Error('device-code HTTP ' + res.status); err.kind = 'rejected'; throw err;
+        }
         return res.json;
     }
 
-    // Device flow step 2: polls at Simkl's interval until approved / denied / expired / cancelled.
-    // `handle` is { cancelled: boolean } -- set it true to stop. `sleep` is injectable for tests.
-    // Saves the token and resolves 'ok' on success; else 'denied' | 'expired' | 'cancelled' | 'error'.
+    // Device flow step 2: polls at Simkl's interval until approved / expired / cancelled. `handle` is
+    // { cancelled: boolean } -- set it true to stop. `sleep` is injectable for tests. Saves the token and
+    // resolves 'ok' on success; else 'expired' | 'cancelled' | 'scope' | 'error'. Simkl has no "denied" signal:
+    // declining just leaves the code pending until our own deadline. 'scope' = approved, but without
+    // media:write (a typo'd scope silently downgrades to read-only), so nothing is saved.
     async function simklPollDeviceToken(dev, handle, sleep = ms => new Promise(r => setTimeout(r, ms))) {
         let intervalMs = Math.max(1, dev.interval || 5) * 1000;
         const deadline = Date.now() + dev.expires_in * 1000;
@@ -205,34 +227,35 @@
             if (handle.cancelled) break;
             let res;
             try {
-                res = await simklRequest('POST', '/oauth/device/token',
-                    { body: { code: dev.device_code, client_id: simklClientId(), client_secret: simklSecret() } });
+                res = await simklRequest('POST', '/oauth2/token', { form: true,
+                    body: { grant_type: 'urn:ietf:params:oauth:grant-type:device_code', client_id: simklClientId(), device_code: dev.device_code } });
             } catch (e) { continue; }                                   // transient network error: keep polling until expiry
-            if (res.status === 200 && res.json && res.json.access_token) {
-                simklSaveToken(simklTokenFromResponse(res.json, simklClientId(), Date.now()));
+            const json = res.json;
+            if (res.status === 200 && json && json.access_token) {
+                if (typeof json.scope === 'string' && !json.scope.split(/\s+/).includes('media:write')) return 'scope';
+                simklSaveToken(simklTokenFromResponse(json, simklClientId(), Date.now()));
                 return 'ok';
             }
-            if (res.status === 400) continue;                            // pending: user hasn't approved yet
-            if (res.status === 429) { intervalMs += 1000; continue; }    // polling too fast
-            if (res.status === 418) return 'denied';
-            if (res.status === 404 || res.status === 409 || res.status === 410) return 'expired';
-            return 'error';                                              // e.g. 401 = wrong Client Secret
+            const err = json && json.error;
+            if (res.status === 400 && err === 'authorization_pending') continue;      // user hasn't approved yet
+            if (res.status === 400 && err === 'slow_down') { intervalMs += 5000; continue; }
+            if (res.status === 400 && err === 'expired_token') return 'expired';
+            return 'error';                                              // any other 400, 401 invalid_client, 5xx...
         }
         return handle.cancelled ? 'cancelled' : 'expired';
     }
 
-    // Exchanges the refresh token. Saves + returns the fresh token, or null. A definitive rejection
-    // (400/401/403) also clears the stored token so the next attempt goes through Connect.
+    // Exchanges the refresh token (device-flow clients need no secret). Saves + returns the fresh token, or
+    // null. A definitive rejection (400/401/403) also clears the stored token so the next attempt goes
+    // through Connect; network errors / 5xx keep it.
     async function simklRefreshToken(token) {
         try {
-            const res = await simklRequest('POST', '/oauth/token', {
-                body: {
-                    refresh_token: token.refresh, client_id: simklClientId(), client_secret: simklSecret(),
-                    redirect_uri: SIMKL_OOB_REDIRECT, grant_type: 'refresh_token',
-                },
+            const res = await simklRequest('POST', '/oauth2/token', {
+                form: true,
+                body: { grant_type: 'refresh_token', client_id: simklClientId(), refresh_token: token.refresh },
             });
             if (res.status === 200 && res.json && res.json.access_token) {
-                const fresh = simklTokenFromResponse(res.json, simklClientId(), Date.now());
+                const fresh = simklTokenFromResponse(res.json, simklClientId(), Date.now(), token.refresh);
                 simklSaveToken(fresh);
                 return fresh;
             }
@@ -258,38 +281,32 @@
     // token/refresh step was transient (network, timeout, 5xx), so report 'error' and let Retry work.
     const simklNoTokenResult = () => ({
         result: simklUsableToken(simklLoadToken(), simklClientId()) ? 'error' : 'auth',
-        ratingFailed: false,
     });
 
-    // Logs the watch (+ rating). Resolves { result, ratingFailed }; result is
-    // 'added' | 'not_found' | 'auth' (needs Connect) | 'error'. A failed rating never fails the watch.
-    // NOTE: a Retry after a lost *response* can log the watch twice -- Simkl doesn't dedupe history adds.
+    // Logs the watch (+ rating) with ONE POST /sync/history (Simkl allows 1 POST/second, so the rating rides
+    // along in the same call). Resolves { result }: 'added' | 'exists' (already in the user's history -- a
+    // server-side no-op) | 'not_found' | 'auth' (needs Connect) | 'error'. A 201 is never trusted on its own:
+    // the reply body decides (simklInterpretSyncResponse).
     async function simklSubmit(snap, rating) {
         let token = await simklEnsureToken();
         if (!token) return simklNoTokenResult();
         const nowIso = new Date().toISOString();
-        const post = (path, body) => simklRequest('POST', path, { body, token });
+        const post = () => simklRequest('POST', '/sync/history', { body: simklBuildHistoryPayload(snap, nowIso, rating), token });
         try {
-            let res = await post('/sync/history', simklBuildHistoryPayload(snap, nowIso));
+            let res = await post();
             if (res.status === 401) {                           // token rejected: one refresh, one retry
                 token = await simklRefreshToken(token);
                 if (!token) return simklNoTokenResult();
-                res = await post('/sync/history', simklBuildHistoryPayload(snap, nowIso));
+                res = await post();
             }
-            if (res.status !== 200 && res.status !== 201) return { result: 'error', ratingFailed: false };
+            if (res.status !== 200 && res.status !== 201) return { result: 'error' };   // 429 / 400 RATE_LIMIT / 412 / 5xx ...
             const verdict = simklInterpretSyncResponse(res.json);
-            if (verdict === 'not_found') return { result: 'not_found', ratingFailed: false };
-            if (verdict !== 'added') return { result: 'error', ratingFailed: false };
-            let ratingFailed = false;
-            if (rating) {
-                try {
-                    const rr = await post('/sync/ratings', simklBuildRatingPayload(snap, rating, nowIso));
-                    ratingFailed = !((rr.status === 200 || rr.status === 201) && simklInterpretSyncResponse(rr.json) === 'added');
-                } catch (e) { ratingFailed = true; }
-            }
-            return { result: 'added', ratingFailed };
+            if (verdict === 'not_found') return { result: 'not_found' };
+            if (verdict === 'added') return { result: 'added' };
+            if (verdict === 'exists') return { result: 'exists' };
+            return { result: 'error' };
         } catch (e) {
-            return { result: 'error', ratingFailed: false };
+            return { result: 'error' };
         }
     }
 
@@ -297,27 +314,20 @@
     async function simklFetchUsername(token) {
         try {
             const res = await simklRequest('GET', '/users/settings', { token });
-            const name = res.status === 200 && res.json && res.json.user && res.json.user.username;
+            const name = res.status === 200 && res.json && res.json.user && res.json.user.name;
             return (typeof name === 'string' && name) ? name : null;
         } catch (e) { return null; }
     }
 
-    // The Settings "Test connection" flow: saves the typed credentials, validates the Client ID, then
-    // either confirms the stored token or runs a device sign-in right in the row. `ctx` is the settings
-    // shell's action context ({ getValue, setStatus, setDetail, isOpen }); `handle` is { cancelled };
-    // `sleep` is injectable for tests and forwarded to the poll.
+    // The Settings "Test connection" flow: saves the typed Client ID, then either confirms the stored token
+    // or runs a device sign-in right in the row (a Client ID Simkl rejects fails the device-code request).
+    // `ctx` is the settings shell's action context ({ getValue, setStatus, setDetail, isOpen }); `handle`
+    // is { cancelled }; `sleep` is injectable for tests and forwarded to the poll.
     async function simklConnectAndVerify(ctx, handle, sleep) {
         const clientId = ctx.getValue('sc-input-simkl-clientid');
-        const secret = ctx.getValue('sc-input-simkl-secret');
-        if (!clientId || !secret) { ctx.setStatus('Enter your Client ID and Client Secret first', 'bad'); return; }
+        if (!clientId) { ctx.setStatus('Enter your Client ID first', 'bad'); return; }
         setKey(LS_SIMKL_CLIENT_ID, clientId);
-        setKey(LS_SIMKL_SECRET, secret);
         ctx.setDetail('');
-        ctx.setStatus('Checking Client ID…', 'pending');
-        const v = await validateSimklClientId(clientId);
-        if (v === 'invalid') { ctx.setStatus('✗ Client ID rejected by Simkl', 'bad'); return; }
-        if (v === 'error')   { ctx.setStatus('⚠ Couldn\'t reach Simkl', 'bad'); return; }
-
         ctx.setStatus('Checking sign-in…', 'pending');
         const token = await simklEnsureToken();
         if (token) {
@@ -327,9 +337,13 @@
 
         let dev;
         try { dev = await simklStartDeviceAuth(); }
-        catch (e) { ctx.setStatus('✗ Couldn\'t start sign-in — check the Client ID', 'bad'); return; }
-        const url = /^https?:\/\//.test(dev.verification_url) ? dev.verification_url : 'https://trakt.tv/activate';
-        const shown = url.replace(/^https?:\/\//, '');
+        catch (e) {
+            if (e.kind === 'network') ctx.setStatus('⚠ Couldn\'t reach Simkl', 'bad');
+            else ctx.setStatus('✗ Client ID rejected by Simkl — check it at simkl.com/settings/developer', 'bad');
+            return;
+        }
+        const url = /^https:\/\//.test(dev.verification_uri_complete) ? dev.verification_uri_complete : (/^https:\/\//.test(dev.verification_uri) ? dev.verification_uri : 'https://simkl.com/pin');
+        const shown = (/^https:\/\//.test(dev.verification_uri) ? dev.verification_uri : 'https://simkl.com/pin').replace(/^https?:\/\//, '');
         ctx.setDetail(`<div class="sc-simkl-set-code">${_simklEsc(dev.user_code)}</div><div>Open <a class="sc-settings-link" href="${_simklEsc(url)}" target="_blank" rel="noopener">${_simklEsc(shown)}</a> and enter the code above.</div>`);
 
         const expiresAt = Date.now() + dev.expires_in * 1000;
@@ -352,9 +366,9 @@
 
         ctx.setDetail('');
         if (r === 'cancelled')    ctx.setStatus('Cancelled');
-        else if (r === 'denied')  ctx.setStatus('✗ Sign-in was denied', 'bad');
         else if (r === 'expired') ctx.setStatus('✗ Code expired — click Test again', 'bad');
-        else if (r === 'error')   ctx.setStatus('✗ Sign-in failed — check the Client Secret', 'bad');
+        else if (r === 'scope')   ctx.setStatus('✗ Simkl granted read-only access — click Test again and approve all permissions', 'bad');
+        else if (r === 'error')   ctx.setStatus('✗ Sign-in failed — check the Client ID', 'bad');
         else if (r === 'ok') {
             const name = await simklFetchUsername(simklLoadToken());
             ctx.setStatus(name ? '✓ Connected as ' + name : '✓ Connected', 'ok');
