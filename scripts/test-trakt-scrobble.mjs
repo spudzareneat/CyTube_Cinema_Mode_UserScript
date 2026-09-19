@@ -327,6 +327,23 @@ await test('traktSubmit: 401 then rejected refresh -> auth and token cleared', a
     assert.equal(env.store.has('sc_trakt_token'), false);
 });
 
+await test('traktSubmit: 401 then transient refresh failure -> error (Retry), token kept', async () => {
+    const env = loadClient();
+    withToken(env);
+    env.replies.push({ status: 401, body: {} }, 'error');
+    assert.deepEqual(await env.api.traktSubmit(SNAP, 0), { result: 'error', ratingFailed: false });
+    assert.equal(env.store.has('sc_trakt_token'), true);
+    assert.equal(JSON.parse(env.store.get('sc_trakt_token')).access, 'A1');
+});
+
+await test('traktSubmit: hard-expired token with transient refresh failure -> error, token kept', async () => {
+    const env = loadClient();
+    withToken(env, { expiresAt: Date.now() - 1000 });
+    env.replies.push('error');
+    assert.equal((await env.api.traktSubmit(SNAP, 0)).result, 'error');
+    assert.equal(env.store.has('sc_trakt_token'), true);
+});
+
 await test('traktEnsureToken: refresh network failure keeps a not-yet-expired token, drops an expired one', async () => {
     let env = loadClient();
     withToken(env, { expiresAt: Date.now() + 60 * 60 * 1000 });   // inside the 1-day window, still valid

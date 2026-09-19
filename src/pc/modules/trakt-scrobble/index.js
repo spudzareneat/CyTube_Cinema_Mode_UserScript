@@ -234,19 +234,26 @@
         return token;                                           // near expiry but refresh failed transiently: still valid
     }
 
+    // 'auth' (=> Connect) only when no usable token remains stored; if one is still there the failed
+    // token/refresh step was transient (network, timeout, 5xx), so report 'error' and let Retry work.
+    const traktNoTokenResult = () => ({
+        result: traktUsableToken(traktLoadToken(), traktClientId()) ? 'error' : 'auth',
+        ratingFailed: false,
+    });
+
     // Logs the watch (+ rating). Resolves { result, ratingFailed }; result is
     // 'added' | 'not_found' | 'auth' (needs Connect) | 'error'. A failed rating never fails the watch.
     // NOTE: a Retry after a lost *response* can log the watch twice -- Trakt doesn't dedupe history adds.
     async function traktSubmit(snap, rating) {
         let token = await traktEnsureToken();
-        if (!token) return { result: 'auth', ratingFailed: false };
+        if (!token) return traktNoTokenResult();
         const nowIso = new Date().toISOString();
         const post = (path, body) => traktRequest('POST', path, { body, token });
         try {
             let res = await post('/sync/history', traktBuildHistoryPayload(snap, nowIso));
             if (res.status === 401) {                           // token rejected: one refresh, one retry
                 token = await traktRefreshToken(token);
-                if (!token) return { result: 'auth', ratingFailed: false };
+                if (!token) return traktNoTokenResult();
                 res = await post('/sync/history', traktBuildHistoryPayload(snap, nowIso));
             }
             if (res.status !== 200 && res.status !== 201) return { result: 'error', ratingFailed: false };
