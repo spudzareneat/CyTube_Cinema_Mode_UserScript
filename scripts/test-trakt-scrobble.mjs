@@ -54,6 +54,7 @@ const HELPER_NAMES = [
     'traktClampThreshold', 'traktShouldPrompt', 'traktUsableToken', 'traktTokenNeedsRefresh',
     'traktTokenFromResponse', 'traktBuildHistoryPayload', 'traktBuildRatingPayload',
     'traktInterpretSyncResponse', 'traktTickLifetime', 'traktPanelPosition',
+    '_traktEsc', 'traktPastThreshold', 'traktIsHotkey',
     'TRAKT_THRESHOLD_DEFAULT', 'TRAKT_PROMPT_TTL_MS', 'TRAKT_REFRESH_WINDOW_MS',
 ];
 // eslint-disable-next-line no-new-func
@@ -163,12 +164,50 @@ await test('traktPanelPosition anchors to the video rect and never goes negative
     assert.deepEqual(H.traktPanelPosition({ right: 1700, bottom: 950 }, vp), { right: 16, bottom: 56 });
 });
 
+await test('_traktEsc escapes markup characters and blanks null/undefined', () => {
+    assert.equal(H._traktEsc('a & b < c > d "e"'), 'a &amp; b &lt; c &gt; d &quot;e&quot;');
+    assert.equal(H._traktEsc('<img src="x" onerror="1">'), '&lt;img src=&quot;x&quot; onerror=&quot;1&quot;&gt;');
+    assert.equal(H._traktEsc(null), '');
+    assert.equal(H._traktEsc(undefined), '');
+    assert.equal(H._traktEsc(0), '0');
+    assert.equal(H._traktEsc('plain'), 'plain');
+});
+
+await test('traktPastThreshold: exact boundary, under, bad inputs, threshold 100', () => {
+    assert.equal(H.traktPastThreshold(6480, 7200, 90), true);    // exactly 90%
+    assert.equal(H.traktPastThreshold(6479, 7200, 90), false);   // just under
+    assert.equal(H.traktPastThreshold(7200, 7200, 100), true);
+    assert.equal(H.traktPastThreshold(7199, 7200, 100), false);
+    assert.equal(H.traktPastThreshold(7300, 7200, 90), true);    // past the end still counts
+    assert.equal(H.traktPastThreshold(0, 7200, 90), false);
+    assert.equal(H.traktPastThreshold(100, NaN, 90), false);
+    assert.equal(H.traktPastThreshold(100, Infinity, 90), false);
+    assert.equal(H.traktPastThreshold(100, 0, 90), false);
+    assert.equal(H.traktPastThreshold(100, -50, 90), false);
+    assert.equal(H.traktPastThreshold(NaN, 7200, 90), false);
+    assert.equal(H.traktPastThreshold(-1, 7200, 90), false);
+    assert.equal(H.traktPastThreshold(undefined, 7200, 90), false);
+});
+
+await test('traktIsHotkey is true only for a bare Alt+S', () => {
+    assert.equal(H.traktIsHotkey({ altKey: true, code: 'KeyS' }), true);
+    assert.equal(H.traktIsHotkey({ altKey: false, code: 'KeyS' }), false);
+    assert.equal(H.traktIsHotkey({ code: 'KeyS' }), false);
+    assert.equal(H.traktIsHotkey({ altKey: true, ctrlKey: true, code: 'KeyS' }), false);
+    assert.equal(H.traktIsHotkey({ altKey: true, metaKey: true, code: 'KeyS' }), false);
+    assert.equal(H.traktIsHotkey({ altKey: true, shiftKey: true, code: 'KeyS' }), false);
+    assert.equal(H.traktIsHotkey({ altKey: true, code: 'KeyD' }), false);
+    assert.equal(H.traktIsHotkey(null), false);
+    assert.equal(H.traktIsHotkey(undefined), false);
+});
+
 // ── client slice ─────────────────────────────────────────────────────────────
 
 const CLIENT_NAMES = [
     'traktEnabled', 'traktThreshold', 'traktRequest', 'validateTraktClientId',
     'traktLoadToken', 'traktSaveToken', 'traktClearToken', 'traktLoadPrompted', 'traktMarkPrompted',
     'traktStartDeviceAuth', 'traktPollDeviceToken', 'traktRefreshToken', 'traktEnsureToken', 'traktSubmit',
+    'traktFetchUsername', 'traktConnectAndVerify',
 ];
 
 // Fresh fake environment per test: Map-backed localStorage, a scripted GM_xmlhttpRequest that
@@ -181,6 +220,7 @@ function loadClient() {
         removeItem: k => { store.delete(k); },
     };
     const getKey = id => localStorage.getItem(id) || '';
+    const setKey = (id, v) => localStorage.setItem(id, String(v).trim());   // core helper: trims on write
     const replies = [];
     const requests = [];
     const GM_xmlhttpRequest = opts => {
@@ -193,7 +233,7 @@ function loadClient() {
     };
     const code = `${slice('trakt-helpers')}\n${slice('trakt-client')}\n;return { ${CLIENT_NAMES.join(', ')} };`;
     // eslint-disable-next-line no-new-func
-    const api = new Function('GM_xmlhttpRequest', 'localStorage', 'getKey', code)(GM_xmlhttpRequest, localStorage, getKey);
+    const api = new Function('GM_xmlhttpRequest', 'localStorage', 'getKey', 'setKey', code)(GM_xmlhttpRequest, localStorage, getKey, setKey);
     return { api, store, replies, requests };
 }
 
@@ -407,6 +447,239 @@ await test('traktPollDeviceToken: denied, expired, error and cancel', async () =
     const r = await env.api.traktPollDeviceToken({ device_code: 'D', expires_in: 600, interval: 5 }, handle, async () => { handle.cancelled = true; });
     assert.equal(r, 'cancelled');
     assert.equal(env.requests.length, 0);
+});
+
+// ── Settings: traktFetchUsername + Connect & verify ──────────────────────────
+
+const TOKEN_KEY = 'sc_trakt_token';
+const DEV = { device_code: 'DEV123', user_code: 'ABCD1234', verification_url: 'https://trakt.tv/activate', expires_in: 600, interval: 5 };
+const TRENDING_OK = { status: 200, body: [] };
+const SETTINGS_OK = { status: 200, body: { user: { username: 'spud' } } };
+const F_ID = 'sc-input-trakt-clientid';
+const F_SECRET = 'sc-input-trakt-secret';
+const CREDS = { [F_ID]: 'cid', [F_SECRET]: 'sec' };
+
+// Fake Task-A ctx: records every setStatus/setDetail call; `open.v` flips isOpen().
+function makeCtx(values, open = { v: true }) {
+    const statuses = [];
+    const details = [];
+    const ctx = {
+        getValue: id => String(values[id] == null ? '' : values[id]).trim(),
+        setStatus: (text, kind) => { statuses.push({ text, kind }); },
+        setDetail: html => { details.push(html); },
+        isOpen: () => open.v,
+    };
+    return { ctx, statuses, details, open, last: () => statuses[statuses.length - 1] };
+}
+const instantSleep = async () => {};
+const urlsOf = env => env.requests.map(r => r.method + ' ' + r.url.replace('https://api.trakt.tv', ''));
+
+await test('traktFetchUsername: 200 returns the name and sends the Bearer token', async () => {
+    const env = loadClient();
+    withKeys(env);
+    env.replies.push(SETTINGS_OK);
+    assert.equal(await env.api.traktFetchUsername({ access: 'A1' }), 'spud');
+    assert.equal(env.requests.length, 1);
+    assert.equal(env.requests[0].method, 'GET');
+    assert.equal(env.requests[0].url, 'https://api.trakt.tv/users/settings');
+    assert.equal(env.requests[0].headers['Authorization'], 'Bearer A1');
+    assert.equal(env.requests[0].headers['trakt-api-key'], 'cid');
+});
+
+await test('traktFetchUsername: 401, missing name and network error all give null', async () => {
+    for (const reply of [{ status: 401, body: {} }, { status: 200, body: { user: {} } }, { status: 200, body: { user: { username: 42 } } }, 'error']) {
+        const env = loadClient();
+        withKeys(env);
+        env.replies.push(reply);
+        assert.equal(await env.api.traktFetchUsername({ access: 'A1' }), null);
+    }
+});
+
+await test('connect: empty Client ID or Secret -> bad status, no requests, nothing saved', async () => {
+    for (const values of [{}, { [F_ID]: 'cid' }, { [F_SECRET]: 'sec' }, { [F_ID]: '   ', [F_SECRET]: 'sec' }]) {
+        const env = loadClient();
+        const t = makeCtx(values);
+        await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+        assert.deepEqual(t.statuses, [{ text: 'Enter your Client ID and Client Secret first', kind: 'bad' }]);
+        assert.equal(env.requests.length, 0);
+        assert.equal(env.store.size, 0);
+        assert.equal(t.details.length, 0);
+    }
+});
+
+await test('connect: typed credentials are trimmed and saved before anything else happens', async () => {
+    const env = loadClient();
+    const t = makeCtx({ [F_ID]: '  typed-id  ', [F_SECRET]: ' typed-sec ' });
+    env.replies.push({ status: 403, body: {} });
+    await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+    assert.equal(env.store.get('sc_trakt_client_id'), 'typed-id');
+    assert.equal(env.store.get('sc_trakt_client_secret'), 'typed-sec');
+    assert.equal(env.requests[0].headers['trakt-api-key'], 'typed-id');
+    assert.deepEqual(t.statuses[0], { text: 'Checking Client ID…', kind: 'pending' });
+    assert.equal(t.details[0], '');
+});
+
+await test('connect: a Client ID Trakt rejects stops with a bad status', async () => {
+    const env = loadClient();
+    const t = makeCtx(CREDS);
+    env.replies.push({ status: 403, body: {} });
+    await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+    assert.deepEqual(t.last(), { text: '✗ Client ID rejected by Trakt', kind: 'bad' });
+    assert.deepEqual(urlsOf(env), ['GET /movies/trending?limit=1']);
+});
+
+await test('connect: Trakt unreachable stops with a bad status', async () => {
+    for (const reply of ['error', { status: 500, body: {} }]) {
+        const env = loadClient();
+        const t = makeCtx(CREDS);
+        env.replies.push(reply);
+        await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+        assert.deepEqual(t.last(), { text: '⚠ Couldn\'t reach Trakt', kind: 'bad' });
+        assert.deepEqual(urlsOf(env), ['GET /movies/trending?limit=1']);
+    }
+});
+
+await test('connect: already connected -> verifies the stored token and never starts a sign-in', async () => {
+    const env = loadClient();
+    withToken(env);
+    const t = makeCtx(CREDS);
+    env.replies.push(TRENDING_OK, SETTINGS_OK);
+    await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+    assert.deepEqual(t.last(), { text: '✓ Connected as spud', kind: 'ok' });
+    assert.deepEqual(urlsOf(env), ['GET /movies/trending?limit=1', 'GET /users/settings']);
+    assert.equal(env.requests[1].headers['Authorization'], 'Bearer A1');
+    assert.ok(t.statuses.some(s => s.text === 'Checking sign-in…' && s.kind === 'pending'));
+    assert.equal(env.requests.some(r => /oauth\/device/.test(r.url)), false);
+});
+
+await test('connect: a stored token that /users/settings rejects falls through to a fresh sign-in', async () => {
+    const env = loadClient();
+    withToken(env);
+    const t = makeCtx(CREDS);
+    env.replies.push(TRENDING_OK, { status: 401, body: {} }, { status: 200, body: DEV }, tokenReply('A5', 'R5'), SETTINGS_OK);
+    await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+    assert.deepEqual(urlsOf(env), ['GET /movies/trending?limit=1', 'GET /users/settings', 'POST /oauth/device/code',
+        'POST /oauth/device/token', 'GET /users/settings']);
+    assert.equal(env.requests[4].headers['Authorization'], 'Bearer A5');
+    assert.deepEqual(t.last(), { text: '✓ Connected as spud', kind: 'ok' });
+});
+
+await test('connect: full fresh sign-in shows the code + link, polls, saves the token and connects', async () => {
+    const env = loadClient();
+    const t = makeCtx(CREDS);
+    env.replies.push(TRENDING_OK, { status: 200, body: DEV }, { status: 400, body: {} }, tokenReply('A7', 'R7'), SETTINGS_OK);
+    const sleeps = [];
+    await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, async ms => { sleeps.push(ms); });
+    assert.deepEqual(urlsOf(env), ['GET /movies/trending?limit=1', 'POST /oauth/device/code',
+        'POST /oauth/device/token', 'POST /oauth/device/token', 'GET /users/settings']);
+    assert.deepEqual(JSON.parse(env.requests[1].data), { client_id: 'cid' });
+    for (const i of [2, 3]) {
+        assert.deepEqual(JSON.parse(env.requests[i].data), { code: 'DEV123', client_id: 'cid', client_secret: 'sec' });
+    }
+    assert.equal(env.requests[4].headers['Authorization'], 'Bearer A7');
+    assert.deepEqual(sleeps, [5000, 5000]);
+    const saved = JSON.parse(env.store.get(TOKEN_KEY));
+    assert.equal(saved.access, 'A7');
+    assert.equal(saved.clientId, 'cid');
+    // detail: shown with the code and the activate link, cleared at the end
+    const shown = t.details.find(d => d.includes('ABCD1234'));
+    assert.ok(shown, 'detail HTML should contain the user code');
+    assert.ok(shown.includes('class="sc-trakt-set-code">ABCD1234</div>'));
+    assert.ok(shown.includes('href="https://trakt.tv/activate"'));
+    assert.ok(shown.includes('>trakt.tv/activate</a>'));
+    assert.ok(shown.includes('target="_blank" rel="noopener"'));
+    assert.equal(t.details[t.details.length - 1], '');
+    // status walked through the expected phases and ended connected
+    const texts = t.statuses.map(s => s.text);
+    assert.ok(texts.includes('Checking Client ID…'));
+    assert.ok(texts.includes('Checking sign-in…'));
+    assert.ok(texts.some(x => /^Waiting for approval… \d+:\d\d$/.test(x)));
+    assert.deepEqual(t.last(), { text: '✓ Connected as spud', kind: 'ok' });
+});
+
+await test('connect: signed in but the username lookup fails -> plain Connected', async () => {
+    const env = loadClient();
+    const t = makeCtx(CREDS);
+    env.replies.push(TRENDING_OK, { status: 200, body: DEV }, tokenReply('A8', 'R8'), 'error');
+    await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+    assert.deepEqual(t.last(), { text: '✓ Connected', kind: 'ok' });
+    assert.equal(JSON.parse(env.store.get(TOKEN_KEY)).access, 'A8');
+});
+
+await test('connect: the user code is HTML-escaped in the detail', async () => {
+    const env = loadClient();
+    const t = makeCtx(CREDS);
+    env.replies.push(TRENDING_OK, { status: 200, body: { ...DEV, user_code: '<b>X&"' } }, { status: 418, body: {} });
+    await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+    const shown = t.details.find(d => d.includes('sc-trakt-set-code'));
+    assert.ok(shown.includes('&lt;b&gt;X&amp;&quot;'));
+    assert.equal(shown.includes('<b>X'), false);
+});
+
+await test('connect: denied, expired and wrong-secret sign-ins report and clear the detail', async () => {
+    for (const [reply, expected] of [
+        [{ status: 418, body: {} }, '✗ Sign-in was denied'],
+        [{ status: 410, body: {} }, '✗ Code expired — click Test again'],
+        [{ status: 401, body: {} }, '✗ Sign-in failed — check the Client Secret'],
+    ]) {
+        const env = loadClient();
+        const t = makeCtx(CREDS);
+        env.replies.push(TRENDING_OK, { status: 200, body: DEV }, reply);
+        await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+        assert.deepEqual(t.last(), { text: expected, kind: 'bad' });
+        assert.equal(t.details[t.details.length - 1], '');
+        assert.equal(env.store.has(TOKEN_KEY), false);
+        assert.deepEqual(urlsOf(env), ['GET /movies/trending?limit=1', 'POST /oauth/device/code', 'POST /oauth/device/token']);
+    }
+});
+
+await test('connect: device-code start failure reports a bad status and shows no code', async () => {
+    const env = loadClient();
+    const t = makeCtx(CREDS);
+    env.replies.push(TRENDING_OK, { status: 403, body: {} });
+    await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+    assert.deepEqual(t.last(), { text: '✗ Couldn\'t start sign-in — check the Client ID', kind: 'bad' });
+    assert.deepEqual(urlsOf(env), ['GET /movies/trending?limit=1', 'POST /oauth/device/code']);
+    assert.equal(t.details.some(d => d !== ''), false);
+});
+
+await test('connect: user cancel stops the poll and reports Cancelled with no kind', async () => {
+    const env = loadClient();
+    const t = makeCtx(CREDS);
+    const handle = { cancelled: false };
+    env.replies.push(TRENDING_OK, { status: 200, body: DEV });
+    await env.api.traktConnectAndVerify(t.ctx, handle, async () => { handle.cancelled = true; });
+    assert.deepEqual(t.last(), { text: 'Cancelled', kind: undefined });
+    assert.equal(t.details[t.details.length - 1], '');
+    assert.deepEqual(urlsOf(env), ['GET /movies/trending?limit=1', 'POST /oauth/device/code']);   // no token request
+    assert.equal(env.store.has(TOKEN_KEY), false);
+});
+
+await test('connect: closing Settings mid-wait cancels the poll before any token request', async () => {
+    const env = loadClient();
+    const open = { v: true };
+    const t = makeCtx(CREDS, open);
+    const origSetDetail = t.ctx.setDetail;
+    t.ctx.setDetail = html => { origSetDetail(html); if (html.includes('sc-trakt-set-code')) open.v = false; };   // user closes Settings once the code is up
+    const handle = { cancelled: false };
+    let slept = 0;
+    env.replies.push(TRENDING_OK, { status: 200, body: DEV });
+    await env.api.traktConnectAndVerify(t.ctx, handle, async () => { slept++; });
+    assert.equal(handle.cancelled, true);
+    assert.equal(slept, 0);
+    assert.deepEqual(t.last(), { text: 'Cancelled', kind: undefined });
+    assert.deepEqual(urlsOf(env), ['GET /movies/trending?limit=1', 'POST /oauth/device/code']);
+});
+
+await test('connect: a non-https verification_url falls back to trakt.tv/activate', async () => {
+    const env = loadClient();
+    const t = makeCtx(CREDS);
+    env.replies.push(TRENDING_OK, { status: 200, body: { ...DEV, verification_url: 'javascript:alert(1)' } }, { status: 418, body: {} });
+    await env.api.traktConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);
+    const shown = t.details.find(d => d.includes('sc-trakt-set-code'));
+    assert.ok(shown.includes('href="https://trakt.tv/activate"'));
+    assert.ok(shown.includes('>trakt.tv/activate</a>'));
+    assert.equal(shown.includes('javascript'), false);
 });
 
 console.log(`OK: ${passed} trakt-scrobble test groups passed`);

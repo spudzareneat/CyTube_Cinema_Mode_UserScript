@@ -1,7 +1,7 @@
 {
   "scriptId": "cytube.pc",
   "displayName": "Spuds Grindhouse Experience",
-  "baseVersion": "4.13.20",
+  "baseVersion": "4.13.21",
   "headerTemplate": "src/pc/header.template.js",
   "match": [
     "https://cytu.be/r/420Grindhouse",
@@ -356,7 +356,8 @@
         "At the end of a movie, a dark semi-transparent card appears at the bottom-right of the video for a minute offering to log the watch on trakt.tv",
         "Optional 1–10 rating sent with the watch; sign in to Trakt right from the card (device code — no redirect setup)",
         "Uses your own Trakt app Client ID + Secret from Settings; prompt point is configurable (default 90% of the movie)",
-        "Movies only (not YouTube / TV episodes); off by default — opt in from Settings"
+        "Movies only (not YouTube / TV episodes); off by default — opt in from Settings",
+        "Press Alt+S at any time to open the card for the current movie (handy for testing); Settings has a Trakt section with a Connect & verify button"
       ]
     },
     {

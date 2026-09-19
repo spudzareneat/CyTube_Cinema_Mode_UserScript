@@ -6,7 +6,13 @@
        the bottom-right of the video for one minute offering to record
        the watch (and an optional 1-10 rating) on trakt.tv. Everything
        is configured in the Settings modal: an opt-in toggle, the
-       user's own Trakt app Client ID + Secret, and the threshold.
+       user's own Trakt app Client ID + Secret, and the threshold, all
+       under one "Trakt" section. Its "Test connection" button saves the
+       typed credentials, validates the Client ID and runs the Trakt
+       sign-in (device code) inline, ending in "Connected as <user>".
+       Alt+S opens the card for the current movie at any time (handy for
+       testing; pressing it again closes it) -- a "manual" card, which
+       doesn't touch the already-handled slot unless it scrobbles.
 
        Movies only (matched by the IMDb id movie-title-links resolves:
        _currentImdbId / _npData); YouTube items are skipped. Auth is
@@ -51,12 +57,26 @@
         return Math.min(TRAKT_THRESHOLD_MAX, Math.max(TRAKT_THRESHOLD_MIN, v));
     }
 
+    function _traktEsc(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // True once playback has reached thresholdPct % of a known, positive duration.
+    function traktPastThreshold(currentTime, duration, thresholdPct) {
+        return Number.isFinite(duration) && duration > 0 && Number.isFinite(currentTime) && currentTime >= 0
+            && currentTime / duration >= thresholdPct / 100;
+    }
+
+    // The manual-card hotkey: a bare Alt+S (physical key, so layouts / Alt-composed characters don't matter).
+    function traktIsHotkey(e) {
+        return !!e && e.altKey === true && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === 'KeyS';
+    }
+
     // s = { enabled, isYouTube, isEpisode, imdbId, duration, currentTime, thresholdPct, prompted, now }
     function traktShouldPrompt(s) {
         if (!s.enabled || s.isYouTube || s.isEpisode || !s.imdbId) return false;
         if (!Number.isFinite(s.duration) || s.duration < TRAKT_MIN_DURATION_SEC) return false;
-        if (!Number.isFinite(s.currentTime) || s.currentTime < 0) return false;
-        if (s.currentTime / s.duration < s.thresholdPct / 100) return false;
+        if (!traktPastThreshold(s.currentTime, s.duration, s.thresholdPct)) return false;
         const p = s.prompted;
         if (p && p.imdbId === s.imdbId && s.now - p.ts < TRAKT_PROMPT_TTL_MS) return false;
         return true;
@@ -272,12 +292,81 @@
             return { result: 'error', ratingFailed: false };
         }
     }
+
+    // The signed-in account's username (proves the token works end to end), or null on any failure.
+    async function traktFetchUsername(token) {
+        try {
+            const res = await traktRequest('GET', '/users/settings', { token });
+            const name = res.status === 200 && res.json && res.json.user && res.json.user.username;
+            return (typeof name === 'string' && name) ? name : null;
+        } catch (e) { return null; }
+    }
+
+    // The Settings "Test connection" flow: saves the typed credentials, validates the Client ID, then
+    // either confirms the stored token or runs a device sign-in right in the row. `ctx` is the settings
+    // shell's action context ({ getValue, setStatus, setDetail, isOpen }); `handle` is { cancelled };
+    // `sleep` is injectable for tests and forwarded to the poll.
+    async function traktConnectAndVerify(ctx, handle, sleep) {
+        const clientId = ctx.getValue('sc-input-trakt-clientid');
+        const secret = ctx.getValue('sc-input-trakt-secret');
+        if (!clientId || !secret) { ctx.setStatus('Enter your Client ID and Client Secret first', 'bad'); return; }
+        setKey(LS_TRAKT_CLIENT_ID, clientId);
+        setKey(LS_TRAKT_SECRET, secret);
+        ctx.setDetail('');
+        ctx.setStatus('Checking Client ID…', 'pending');
+        const v = await validateTraktClientId(clientId);
+        if (v === 'invalid') { ctx.setStatus('✗ Client ID rejected by Trakt', 'bad'); return; }
+        if (v === 'error')   { ctx.setStatus('⚠ Couldn\'t reach Trakt', 'bad'); return; }
+
+        ctx.setStatus('Checking sign-in…', 'pending');
+        const token = await traktEnsureToken();
+        if (token) {
+            const name = await traktFetchUsername(token);
+            if (name) { ctx.setStatus('✓ Connected as ' + name, 'ok'); return; }
+        }
+
+        let dev;
+        try { dev = await traktStartDeviceAuth(); }
+        catch (e) { ctx.setStatus('✗ Couldn\'t start sign-in — check the Client ID', 'bad'); return; }
+        const url = /^https?:\/\//.test(dev.verification_url) ? dev.verification_url : 'https://trakt.tv/activate';
+        const shown = url.replace(/^https?:\/\//, '');
+        ctx.setDetail(`<div class="sc-trakt-set-code">${_traktEsc(dev.user_code)}</div><div>Open <a class="sc-settings-link" href="${_traktEsc(url)}" target="_blank" rel="noopener">${_traktEsc(shown)}</a> and enter the code above.</div>`);
+
+        const expiresAt = Date.now() + dev.expires_in * 1000;
+        const tick = () => {
+            const secs = Math.max(0, Math.round((expiresAt - Date.now()) / 1000));
+            const m = Math.floor(secs / 60);
+            const ss = String(secs % 60).padStart(2, '0');
+            ctx.setStatus('Waiting for approval… ' + m + ':' + ss, 'pending');
+        };
+        tick();
+        const iv = setInterval(tick, 1000);
+        let r;
+        try {
+            const wrappedSleep = ms => {
+                if (!ctx.isOpen()) { handle.cancelled = true; return Promise.resolve(); }   // Settings closed mid-wait: stop polling
+                return sleep ? sleep(ms) : new Promise(res => setTimeout(res, ms));
+            };
+            r = await traktPollDeviceToken(dev, handle, wrappedSleep);
+        } finally { clearInterval(iv); }
+
+        ctx.setDetail('');
+        if (r === 'cancelled')    ctx.setStatus('Cancelled');
+        else if (r === 'denied')  ctx.setStatus('✗ Sign-in was denied', 'bad');
+        else if (r === 'expired') ctx.setStatus('✗ Code expired — click Test again', 'bad');
+        else if (r === 'error')   ctx.setStatus('✗ Sign-in failed — check the Client Secret', 'bad');
+        else if (r === 'ok') {
+            const name = await traktFetchUsername(traktLoadToken());
+            ctx.setStatus(name ? '✓ Connected as ' + name : '✓ Connected', 'ok');
+        }
+    }
     // ── test marker: trakt-client slice end ──
 
     /* ==========================================================
        PANEL — #sc-trakt-panel, a single card whose body is re-rendered
        per view: 'prompt' | 'submitting' | 'success' | 'notfound' |
-       'error' | 'connect' | 'needsconfig'. Events are delegated from
+       'error' | 'connect' | 'needsconfig' | 'nomatch' (manual Alt+S card
+       with no IMDb match yet). Events are delegated from
        the card itself (data-act / data-r), so re-rendering the body
        never needs re-binding.
     ========================================================== */
@@ -285,13 +374,9 @@
     const TRAKT_LIFE_TICK_MS = 250;
 
     let _traktPanelEl    = null;  // live panel node, or null when closed
-    let _traktCtx        = null;  // { snap, rating, view, message, remaining, lifeTotal, hover, dev, devExpiresAt, poll, ratingFailed }
+    let _traktCtx        = null;  // { snap, manual, rating, view, message, remaining, lifeTotal, hover, dev, devExpiresAt, poll, ratingFailed }
     let _traktLifeTimer  = null;
     let _traktKeyHandler = null;
-
-    function _traktEsc(s) {
-        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
 
     // Everything the panel needs about the movie, captured once at trigger time so a queue advance
     // while the card is open can't change what gets submitted.
@@ -354,7 +439,7 @@
         switch (c.view) {
             case 'prompt':
                 body = `
-                    <div class="sc-trakt-q">You reached the end. Log it on Trakt?</div>
+                    <div class="sc-trakt-q">${c.manual ? 'Log this movie on Trakt?' : 'You reached the end. Log it on Trakt?'}</div>
                     <div class="sc-trakt-stars" role="group" aria-label="Optional rating">${_traktStars(c.rating)}</div>
                     <div class="sc-trakt-rating-label">${c.rating ? c.rating + ' / 10' : 'Optional rating'}</div>
                     <div class="sc-trakt-actions">
@@ -401,6 +486,9 @@
                         <button type="button" class="sc-trakt-btn sc-trakt-primary" data-act="settings">Open Settings</button>
                         <button type="button" class="sc-trakt-btn" data-act="skip">Dismiss</button>
                     </div>`;
+                break;
+            case 'nomatch':
+                body = '<div class="sc-trakt-q">No movie matched yet</div><div class="sc-trakt-help">Nothing to log yet — wait for the Now Playing card to identify the movie (YouTube videos can\'t be logged).</div><div class="sc-trakt-actions"><button type="button" class="sc-trakt-btn" data-act="skip">Close</button></div>';
                 break;
         }
         el.innerHTML = `
@@ -502,23 +590,33 @@
     function _traktOnAction(act) {
         const c = _traktCtx;
         if (!c) return;
-        if (act === 'skip')          { traktMarkPrompted(c.snap.imdbId, 'skipped'); traktClosePanel(); return; }
+        if (act === 'skip')          { if (!c.manual) traktMarkPrompted(c.snap.imdbId, 'skipped'); traktClosePanel(); return; }
         if (act === 'settings')      { traktClosePanel(); openSettingsModal(); return; }
         if (act === 'disconnect')    { traktClearToken(); _traktRender(); return; }
         if (act === 'cancelconnect') { if (c.poll) c.poll.cancelled = true; c.dev = null; c.devExpiresAt = 0; _traktSetView('prompt'); return; }
         if (act === 'scrobble' || act === 'retry') { _traktBeginSubmit(); }
     }
 
-    function traktShowPanel(snap) {
+    // opts.manual = opened by the Alt+S hotkey (any time, any progress). A manual card records nothing in the
+    // prompted slot -- except when the movie is already past the prompt point, where it records 'shown' so the
+    // auto card doesn't re-pop 3 s after a manual Esc. A successful scrobble still records 'scrobbled'.
+    function traktShowPanel(snap, opts = {}) {
+        const manual = !!(opts && opts.manual);
         const configured = !!(traktClientId() && traktSecret());
-        traktMarkPrompted(snap.imdbId, configured ? 'shown' : 'needsconfig');   // survives reloads: no re-prompt for this movie for 12 h (a needsconfig record stops counting once keys are added)
+        if (!manual) {
+            traktMarkPrompted(snap.imdbId, configured ? 'shown' : 'needsconfig');   // survives reloads: no re-prompt for this movie for 12 h (a needsconfig record stops counting once keys are added)
+        } else if (snap.imdbId) {
+            const v = document.querySelector('#ytapiplayer video');
+            if (v && traktPastThreshold(v.currentTime, v.duration, traktThreshold())) traktMarkPrompted(snap.imdbId, 'shown');
+        }
         const el = document.createElement('div');
         el.id = 'sc-trakt-panel';
         el.setAttribute('role', 'dialog');
         el.setAttribute('aria-label', 'Log this movie on Trakt');
         _traktPanelEl = el;
         _traktCtx = {
-            snap, rating: 0, view: configured ? 'prompt' : 'needsconfig', message: '',
+            snap, manual, rating: 0,
+            view: !configured ? 'needsconfig' : (manual && !snap.imdbId) ? 'nomatch' : 'prompt', message: '',
             remaining: TRAKT_PANEL_LIFETIME_MS, lifeTotal: TRAKT_PANEL_LIFETIME_MS,
             hover: false, dev: null, devExpiresAt: 0, poll: null, ratingFailed: false,
         };
@@ -574,20 +672,47 @@
         if (eligible) traktShowPanel(traktSnapshot());
     }
 
-    function traktBoot() { setInterval(traktTick, TRAKT_POLL_MS); }
+    // Alt+S: opens the card for the current movie right now (handy for testing) or closes it if it's open.
+    function traktManualTrigger() {
+        if (_traktPanelEl) { traktClosePanel(); return; }
+        traktShowPanel(traktSnapshot(), { manual: true });
+    }
+
+    function traktBoot() {
+        setInterval(traktTick, TRAKT_POLL_MS);
+        // Capture phase, and deliberately not ignored while typing in chat: Alt+S types nothing on Windows/Linux.
+        document.addEventListener('keydown', e => {
+            if (!traktIsHotkey(e) || e.repeat) return;
+            if (!traktEnabled()) return;
+            e.preventDefault();
+            traktManualTrigger();
+        }, true);
+    }
     scRegisterInit(traktBoot);
 
     /* ==========================================================
-       SETTINGS ROWS — order 13-16 (12 is imdb-link-preview).
+       SETTINGS ROWS — order 13-18 (12 is imdb-link-preview): one Trakt
+       section (header, enable toggle, Client ID, Client Secret, the
+       "Test connection" action row, prompt-point threshold).
     ========================================================== */
+    let _traktConnectHandle = null;   // { cancelled } of the in-flight Test connection run, or null
+
+    scRegisterSetting({
+        id: 'sc-section-trakt',
+        group: 'trakt-scrobble',
+        type: 'section',
+        label: 'Trakt',
+        note: 'Log movies you finish on trakt.tv. Uses your own Trakt app (Client ID + Secret). Press <b>Alt+S</b> any time to open the scrobble card for the current movie — handy for testing.',
+        order: 13,
+    });
     scRegisterSetting({
         id: 'sc-input-trakt-enabled',
         group: 'trakt-scrobble',
         label: 'Trakt: offer to log movies at the end',
-        note: 'When you reach the end of a movie, a small card appears at the bottom-right of the video for a minute asking if you want to log the watch (and an optional rating) on trakt.tv. Off by default. Needs your own Trakt app credentials below. Movies only -- not YouTube or TV episodes.',
+        note: 'When you reach the end of a movie, a small card appears at the bottom-right of the video for a minute asking if you want to log the watch (and an optional rating) on trakt.tv. Off by default. Needs your own Trakt app credentials (fields below). Movies only -- not YouTube or TV episodes.',
         key: LS_TRAKT_ENABLED,
         defaultOn: false,
-        order: 13,
+        order: 14,
     });
     scRegisterSetting({
         id: 'sc-input-trakt-clientid',
@@ -597,14 +722,9 @@
         note: 'Create a Trakt app (any name; set the Redirect URI to urn:ietf:wg:oauth:2.0:oob), then paste its Client ID here.',
         key: LS_TRAKT_CLIENT_ID,
         placeholder: 'Paste Trakt Client ID…',
-        testHandler: validateTraktClientId,
-        testEmptyMessage: 'Enter a Client ID first',
-        testValidMessage: '✓ Valid Client ID',
-        testInvalidMessage: '✗ Invalid Client ID',
-        testErrorMessage: '⚠ Couldn\'t reach Trakt',
         link: 'https://trakt.tv/oauth/applications',
         linkText: 'Create a Trakt app ↗',
-        order: 14,
+        order: 15,
     });
     scRegisterSetting({
         id: 'sc-input-trakt-secret',
@@ -612,18 +732,32 @@
         type: 'text',
         mask: true,
         label: 'Trakt Client Secret',
-        note: 'From the same Trakt app page. Stored in this browser only, like the other keys. You sign in to Trakt from the pop-up card the first time it appears.',
+        note: 'From the same Trakt app page. Stored in this browser only, like the other keys. Press Test connection below to sign in to Trakt and verify it all works.',
         key: LS_TRAKT_SECRET,
         placeholder: 'Paste Trakt Client Secret…',
-        order: 15,
+        order: 16,
+    });
+    scRegisterSetting({
+        id: 'sc-action-trakt-test',
+        group: 'trakt-scrobble',
+        type: 'action',
+        buttonLabel: 'Test connection',
+        cancelLabel: 'Cancel',
+        actionHandler: async (ctx) => {
+            _traktConnectHandle = { cancelled: false };
+            try { await traktConnectAndVerify(ctx, _traktConnectHandle); }
+            finally { _traktConnectHandle = null; }
+        },
+        cancelHandler: () => { if (_traktConnectHandle) _traktConnectHandle.cancelled = true; },
+        order: 17,
     });
     scRegisterSetting({
         id: 'sc-input-trakt-threshold',
         group: 'trakt-scrobble',
         type: 'number',
-        label: 'Trakt prompt point (% of the movie)',
+        label: 'Scrobble prompt point (% of the movie)',
         note: 'How far into the movie the card appears. 90 leaves room for the end credits; 100 waits for the very last second.',
         key: LS_TRAKT_THRESHOLD,
         min: TRAKT_THRESHOLD_MIN, max: TRAKT_THRESHOLD_MAX, step: 1, defaultValue: TRAKT_THRESHOLD_DEFAULT,
-        order: 16,
+        order: 18,
     });

@@ -128,3 +128,26 @@ global "don't ask again", check-in, watchlist sync.
 Execute Subagent-Driven (the user's standing default). Subagents must verify `pwd`, HEAD and branch
 first. Beyond the surgical settings-shell edit and the manifest additions, do not touch the files that
 already have uncommitted changes.
+
+## Addendum (2026-09-19)
+Settings section, connection test and a manual card.
+- **Settings section.** The four Trakt rows are now one "Trakt" section, orders 13-18: a section
+  header (13), the enable toggle (14), Client ID (15), Client Secret (16), a "Test connection"
+  action row (17) and the prompt-point threshold (18). The old per-field Test button on the Client
+  ID row is gone.
+- **Shell row types.** The shared settings shell gained two generic row types: `section` (a header
+  with a label and note) and `action` (a button with a status line and a detail area under it; the
+  handler receives `{ getValue, setStatus, setDetail, isOpen }`, and an optional cancel handler
+  turns the button into Cancel while it runs). Save ignores both.
+- **Connect & verify.** The button saves the typed Client ID and Secret, then validates the Client ID
+  against a public endpoint. If a stored token is usable and `/users/settings` answers with a
+  username it stops at "Connected as <name>". Otherwise it starts a device sign-in: the code and the
+  activate link appear under the button, the status counts down the code's lifetime, and the poll
+  stops on Cancel or when Settings is closed. It ends with connected / denied / expired / "check the
+  Client Secret" / cancelled. A non-https `verification_url` falls back to trakt.tv/activate.
+- **Alt+S manual card.** The hotkey (bare Alt+S, works while typing in chat, needs the feature
+  enabled) opens the card for the current movie regardless of the threshold or the 12 h TTL, and
+  pressing it again closes the card. A manual card writes nothing to the already-handled slot,
+  except `'shown'` when the movie is already past the prompt point (so Esc doesn't let the auto card
+  re-pop) and `'scrobbled'` after a successful log. "Skip" on a manual card records nothing. With no
+  IMDb match yet the card says "No movie matched yet"; without keys it shows the needs-config view.
