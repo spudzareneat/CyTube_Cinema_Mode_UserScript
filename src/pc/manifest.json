@@ -1,7 +1,7 @@
 {
   "scriptId": "cytube.pc",
   "displayName": "Spuds Grindhouse Experience",
-  "baseVersion": "4.13.17",
+  "baseVersion": "4.13.18",
   "headerTemplate": "src/pc/header.template.js",
   "match": [
     "https://cytu.be/r/420Grindhouse",
@@ -331,6 +331,29 @@
         "Hovering an imdb.com/title/ link posted in chat shows a floating poster/title/rating/description card",
         "Hover-intent delay avoids firing a lookup for every link the mouse passes over while scrolling",
         "Cached per-title for the session so repeat hovers don't re-hit the network"
+      ]
+    },
+    {
+      "id": "trakt-scrobble",
+      "name": "Trakt Scrobble Prompt",
+      "category": "Movie Info",
+      "locked": false,
+      "defaultOn": true,
+      "files": [
+        "src/pc/modules/trakt-scrobble/index.js"
+      ],
+      "dependsOn": ["core", "movie-title-links"],
+      "grants": [
+        "GM_xmlhttpRequest"
+      ],
+      "connects": [
+        "api.trakt.tv"
+      ],
+      "features": [
+        "At the end of a movie, a dark semi-transparent card appears at the bottom-right of the video for a minute offering to log the watch on trakt.tv",
+        "Optional 1–10 rating sent with the watch; sign in to Trakt right from the card (device code — no redirect setup)",
+        "Uses your own Trakt app Client ID + Secret from Settings; prompt point is configurable (default 90% of the movie)",
+        "Movies only (not YouTube / TV episodes); off by default — opt in from Settings"
       ]
     },
     {

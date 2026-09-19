@@ -14,6 +14,7 @@
     //   'checkbox' (default) — <input type="checkbox">, persisted 'on'/'off'.
     //   'text'    — <input type="text">, optional Test button when `testHandler`
     //               (async (value) => 'valid'|'invalid'|'error') is provided.
+    //               Set `mask: true` to render it as a password field (e.g. secrets).
     //   'number'  — <input type="number"> using `min`/`max`/`step` from the row.
     // Existing callers that omit `type` keep rendering as checkboxes unchanged.
     function scRegisterSetting(row) { SC_SETTINGS_ROWS.push({ type: 'checkbox', ...row }); }

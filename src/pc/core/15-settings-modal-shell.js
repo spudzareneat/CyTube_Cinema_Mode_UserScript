@@ -68,7 +68,7 @@
                         <span class="sc-settings-note">${r.note}</span>
                     </label>
                     <div class="sc-settings-input-row">
-                        <input id="${r.id}" class="sc-settings-input" type="text"
+                        <input id="${r.id}" class="sc-settings-input" ${r.mask ? 'type="password" autocomplete="off"' : 'type="text"'}
                             placeholder="${r.placeholder || ''}" value="${val}" spellcheck="false" />
                         ${r.testHandler ? `<button id="${r.id}-test" class="sc-settings-test" type="button">Test</button>` : ''}
                     </div>

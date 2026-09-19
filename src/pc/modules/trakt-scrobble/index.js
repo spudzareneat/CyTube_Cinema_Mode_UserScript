@@ -273,3 +273,54 @@
         }
     }
     // ── test marker: trakt-client slice end ──
+
+    /* ==========================================================
+       SETTINGS ROWS — order 13-16 (12 is imdb-link-preview).
+    ========================================================== */
+    scRegisterSetting({
+        id: 'sc-input-trakt-enabled',
+        group: 'trakt-scrobble',
+        label: 'Trakt: offer to log movies at the end',
+        note: 'When you reach the end of a movie, a small card appears at the bottom-right of the video for a minute asking if you want to log the watch (and an optional rating) on trakt.tv. Off by default. Needs your own Trakt app credentials below. Movies only -- not YouTube or TV episodes.',
+        key: LS_TRAKT_ENABLED,
+        defaultOn: false,
+        order: 13,
+    });
+    scRegisterSetting({
+        id: 'sc-input-trakt-clientid',
+        group: 'trakt-scrobble',
+        type: 'text',
+        label: 'Trakt Client ID',
+        note: 'Create a Trakt app (any name; set the Redirect URI to urn:ietf:wg:oauth:2.0:oob), then paste its Client ID here.',
+        key: LS_TRAKT_CLIENT_ID,
+        placeholder: 'Paste Trakt Client ID…',
+        testHandler: validateTraktClientId,
+        testEmptyMessage: 'Enter a Client ID first',
+        testValidMessage: '✓ Valid Client ID',
+        testInvalidMessage: '✗ Invalid Client ID',
+        testErrorMessage: '⚠ Couldn\'t reach Trakt',
+        link: 'https://trakt.tv/oauth/applications',
+        linkText: 'Create a Trakt app ↗',
+        order: 14,
+    });
+    scRegisterSetting({
+        id: 'sc-input-trakt-secret',
+        group: 'trakt-scrobble',
+        type: 'text',
+        mask: true,
+        label: 'Trakt Client Secret',
+        note: 'From the same Trakt app page. Stored in this browser only, like the other keys. You sign in to Trakt from the pop-up card the first time it appears.',
+        key: LS_TRAKT_SECRET,
+        placeholder: 'Paste Trakt Client Secret…',
+        order: 15,
+    });
+    scRegisterSetting({
+        id: 'sc-input-trakt-threshold',
+        group: 'trakt-scrobble',
+        type: 'number',
+        label: 'Trakt prompt point (% of the movie)',
+        note: 'How far into the movie the card appears. 90 leaves room for the end credits; 100 waits for the very last second.',
+        key: LS_TRAKT_THRESHOLD,
+        min: TRAKT_THRESHOLD_MIN, max: TRAKT_THRESHOLD_MAX, step: 1, defaultValue: TRAKT_THRESHOLD_DEFAULT,
+        order: 16,
+    });
