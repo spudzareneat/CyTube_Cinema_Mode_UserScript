@@ -264,11 +264,14 @@
         return null;
     }
 
-    // A token that can be used right now, or null (=> the panel must run Connect).
-    async function simklEnsureToken() {
+    // A token that can be used right now, or null (=> the panel must run Connect). `out` is an optional
+    // object: `out.refreshed` is set true when a refresh POST was sent (so a caller that POSTs next can
+    // keep to Simkl's 1 POST/second limit), whether or not the refresh succeeded.
+    async function simklEnsureToken(out) {
         const token = simklUsableToken(simklLoadToken(), simklClientId());
         if (!token) return null;
         if (simklTokenNeedsRefresh(token, Date.now())) {
+            if (out) out.refreshed = true;
             const fresh = await simklRefreshToken(token);
             if (fresh) return fresh;
             if (!simklLoadToken()) return null;                 // refresh was rejected and the token was cleared
@@ -287,9 +290,14 @@
     // along in the same call). Resolves { result }: 'added' | 'exists' (already in the user's history -- a
     // server-side no-op) | 'not_found' | 'auth' (needs Connect) | 'error'. A 201 is never trusted on its own:
     // the reply body decides (simklInterpretSyncResponse).
-    async function simklSubmit(snap, rating) {
-        let token = await simklEnsureToken();
+    // Simkl allows 1 POST/second, so a POST that follows another (a token refresh, or a 429'd attempt) waits
+    // first: 1100 ms after a refresh, 1200 ms before the single automatic retry of a 429. `sleep` is injectable
+    // for tests; the ordinary path (valid token, first attempt succeeds) never waits.
+    async function simklSubmit(snap, rating, sleep = ms => new Promise(r => setTimeout(r, ms))) {
+        const ensured = {};
+        let token = await simklEnsureToken(ensured);
         if (!token) return simklNoTokenResult();
+        if (ensured.refreshed) await sleep(1100);               // proactive refresh POST just went out
         const nowIso = new Date().toISOString();
         const post = () => simklRequest('POST', '/sync/history', { body: simklBuildHistoryPayload(snap, nowIso, rating), token });
         try {
@@ -297,6 +305,11 @@
             if (res.status === 401) {                           // token rejected: one refresh, one retry
                 token = await simklRefreshToken(token);
                 if (!token) return simklNoTokenResult();
+                await sleep(1100);                              // keep clear of the refresh POST
+                res = await post();
+            }
+            if (res.status === 429) {                           // per-second rate limit: clears in ~1 s, retry once
+                await sleep(1200);
                 res = await post();
             }
             if (res.status !== 200 && res.status !== 201) return { result: 'error' };   // 429 / 400 RATE_LIMIT / 412 / 5xx ...

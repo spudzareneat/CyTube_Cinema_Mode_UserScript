@@ -744,6 +744,15 @@ await test('simklFetchUsername: 401, network error, missing/blank/non-string nam
 
 // ── simklSubmit ──────────────────────────────────────────────────────────────
 
+// Injectable sleep for simklSubmit: resolves instantly, recording each requested delay and how many
+// requests had already gone out when it was asked (proves WHERE in the POST sequence the gap sits).
+function sleepRecorder(env) {
+    const calls = [];
+    const fn = async ms => { calls.push({ ms, sent: env.requests.length }); };
+    fn.calls = calls;
+    return fn;
+}
+
 await test('simklSubmit: no token -> auth without touching the network', async () => {
     const env = loadClient();
     withKeys(env);
@@ -763,8 +772,10 @@ await test('simklSubmit: success is exactly ONE authorized JSON POST to /sync/hi
     withToken(env);
     env.replies.push(ADDED);
     const before = Date.now();
-    assert.deepEqual(await env.api.simklSubmit(SNAP, 0), { result: 'added' });
+    const sleep = sleepRecorder(env);
+    assert.deepEqual(await env.api.simklSubmit(SNAP, 0, sleep), { result: 'added' });
     assert.equal(env.requests.length, 1);
+    assert.deepEqual(sleep.calls, [], 'the ordinary success path must not wait');
     const r = env.requests[0];
     assert.equal(r.method, 'POST');
     assert.equal(r.url, `${API}/sync/history?${AUTHQ}`);
@@ -824,9 +835,8 @@ await test('simklSubmit: an empty / unrecognised 2xx body is "error"', async () 
     }
 });
 
-await test('simklSubmit: 429, 400 RATE_LIMIT, 412, 500 and a network error are all "error" after a single attempt', async () => {
+await test('simklSubmit: 400 RATE_LIMIT, 412, 500 and a network error are all "error" after a single attempt, with no wait/retry', async () => {
     for (const reply of [
-        { status: 429, body: { error: 'rate_limit' } },
         { status: 400, body: { error: 'RATE_LIMIT' } },
         { status: 412, body: { error: 'client_id_failed' } },
         { status: 500, body: {} },
@@ -836,8 +846,10 @@ await test('simklSubmit: 429, 400 RATE_LIMIT, 412, 500 and a network error are a
         const env = loadClient();
         withToken(env);
         env.replies.push(reply);
-        assert.deepEqual(await env.api.simklSubmit(SNAP, 0), { result: 'error' }, JSON.stringify(reply));
+        const sleep = sleepRecorder(env);
+        assert.deepEqual(await env.api.simklSubmit(SNAP, 0, sleep), { result: 'error' }, JSON.stringify(reply));
         assert.equal(env.requests.length, 1);
+        assert.deepEqual(sleep.calls, [], JSON.stringify(reply));
         assert.equal(env.store.has('sc_simkl_token'), true);   // none of these are a reason to sign out
     }
 });
@@ -846,9 +858,14 @@ await test('simklSubmit: 401 triggers one refresh then a retry with the new toke
     const env = loadClient();
     withToken(env);
     env.replies.push({ status: 401, body: {} }, tokenReply('A2', 'R2'), ADDED);
-    assert.deepEqual(await env.api.simklSubmit(SNAP, 7), { result: 'added' });
+    const sleep = sleepRecorder(env);
+    assert.deepEqual(await env.api.simklSubmit(SNAP, 7, sleep), { result: 'added' });
     assert.equal(env.requests.length, 3);
     assert.deepEqual(urlsOf(env), ['POST /sync/history', 'POST /oauth2/token', 'POST /sync/history']);
+    // Simkl allows 1 POST/second: the retry must wait >= ~1 s after the refresh POST (2 requests already sent), not before it
+    assert.equal(sleep.calls.length, 1);
+    assert.ok(sleep.calls[0].ms >= 1000, 'gap after the refresh should be >= 1000 ms, got ' + sleep.calls[0].ms);
+    assert.equal(sleep.calls[0].sent, 2);
     assert.deepEqual(form(env.requests[1]), { grant_type: 'refresh_token', client_id: 'cid', refresh_token: 'R1' });
     assert.equal(new URLSearchParams(env.requests[1].data).has('client_secret'), false);
     assert.equal(env.requests[0].headers['Authorization'], 'Bearer A1');
@@ -861,7 +878,7 @@ await test('simklSubmit: 401, refresh ok, then 401 again -> error (no refresh lo
     const env = loadClient();
     withToken(env);
     env.replies.push({ status: 401, body: {} }, tokenReply('A2', 'R2'), { status: 401, body: {} });
-    assert.deepEqual(await env.api.simklSubmit(SNAP, 0), { result: 'error' });
+    assert.deepEqual(await env.api.simklSubmit(SNAP, 0, sleepRecorder(env)), { result: 'error' });
     assert.equal(env.requests.length, 3);
 });
 
@@ -869,25 +886,107 @@ await test('simklSubmit: 401 then rejected refresh -> auth and token cleared', a
     const env = loadClient();
     withToken(env);
     env.replies.push({ status: 401, body: {} }, { status: 401, body: {} });
-    assert.deepEqual(await env.api.simklSubmit(SNAP, 0), { result: 'auth' });
+    const sleep = sleepRecorder(env);
+    assert.deepEqual(await env.api.simklSubmit(SNAP, 0, sleep), { result: 'auth' });
     assert.equal(env.store.has('sc_simkl_token'), false);
+    assert.deepEqual(sleep.calls, [], 'no follow-up POST, so no wait');
 });
 
 await test('simklSubmit: 401 then transient refresh failure -> error (Retry), token kept', async () => {
     const env = loadClient();
     withToken(env);
     env.replies.push({ status: 401, body: {} }, 'error');
-    assert.deepEqual(await env.api.simklSubmit(SNAP, 0), { result: 'error' });
+    const sleep = sleepRecorder(env);
+    assert.deepEqual(await env.api.simklSubmit(SNAP, 0, sleep), { result: 'error' });
     assert.equal(env.store.has('sc_simkl_token'), true);
     assert.equal(JSON.parse(env.store.get('sc_simkl_token')).access, 'A1');
+    assert.deepEqual(sleep.calls, [], 'no follow-up POST, so no wait');
 });
 
 await test('simklSubmit: hard-expired token with transient refresh failure -> error, token kept', async () => {
     const env = loadClient();
     withToken(env, { expiresAt: Date.now() - 1000 });
     env.replies.push('error');
-    assert.deepEqual(await env.api.simklSubmit(SNAP, 0), { result: 'error' });
+    const sleep = sleepRecorder(env);
+    assert.deepEqual(await env.api.simklSubmit(SNAP, 0, sleep), { result: 'error' });
     assert.equal(env.store.has('sc_simkl_token'), true);
+    assert.equal(env.requests.length, 1);   // only the failed refresh; no history POST
+    assert.deepEqual(sleep.calls, []);
+});
+
+// ── simklSubmit: Simkl's 1 POST/second limit ─────────────────────────────────
+
+await test('simklSubmit: a proactive (near-expiry) refresh is followed by a >= 1 s gap before /sync/history', async () => {
+    const env = loadClient();
+    withToken(env, { expiresAt: Date.now() + 60 * 60 * 1000 });   // inside the 1-day refresh window
+    env.replies.push(tokenReply('A2', 'R2'), ADDED);
+    const sleep = sleepRecorder(env);
+    assert.deepEqual(await env.api.simklSubmit(SNAP, 9, sleep), { result: 'added' });
+    assert.deepEqual(urlsOf(env), ['POST /oauth2/token', 'POST /sync/history']);
+    assert.equal(sleep.calls.length, 1);
+    assert.ok(sleep.calls[0].ms >= 1000, 'gap after the refresh should be >= 1000 ms, got ' + sleep.calls[0].ms);
+    assert.equal(sleep.calls[0].sent, 1);                          // asked after the refresh POST, before the history POST
+    assert.equal(env.requests[1].headers['Authorization'], 'Bearer A2');
+});
+
+await test('simklSubmit: a failed proactive refresh on a still-valid token also waits before the history POST', async () => {
+    const env = loadClient();
+    withToken(env, { expiresAt: Date.now() + 60 * 60 * 1000 });
+    env.replies.push('error', ADDED);                              // the refresh POST may have reached Simkl: don't fire straight after it
+    const sleep = sleepRecorder(env);
+    assert.deepEqual(await env.api.simklSubmit(SNAP, 0, sleep), { result: 'added' });
+    assert.deepEqual(urlsOf(env), ['POST /oauth2/token', 'POST /sync/history']);
+    assert.equal(sleep.calls.length, 1);
+    assert.ok(sleep.calls[0].ms >= 1000);
+    assert.equal(sleep.calls[0].sent, 1);
+    assert.equal(env.requests[1].headers['Authorization'], 'Bearer A1');
+});
+
+await test('simklSubmit: a 429 is retried once after >= 1 s, and a 201 then counts as added', async () => {
+    const env = loadClient();
+    withToken(env);
+    env.replies.push({ status: 429, body: { error: 'rate_limit' } }, ADDED);
+    const sleep = sleepRecorder(env);
+    assert.deepEqual(await env.api.simklSubmit(SNAP, 6, sleep), { result: 'added' });
+    assert.deepEqual(urlsOf(env), ['POST /sync/history', 'POST /sync/history']);
+    assert.equal(sleep.calls.length, 1);
+    assert.ok(sleep.calls[0].ms >= 1000, 'retry gap should be >= 1000 ms, got ' + sleep.calls[0].ms);
+    assert.equal(sleep.calls[0].sent, 1);                          // waited after the 429, before the retry
+    assert.equal(env.requests[1].data, env.requests[0].data);      // the retry re-sends the same body (same watched_at, rating)
+    assert.equal(JSON.parse(env.requests[1].data).movies[0].rating, 6);
+});
+
+await test('simklSubmit: 429 twice -> error after exactly two POSTs (no third), token kept', async () => {
+    const env = loadClient();
+    withToken(env);
+    env.replies.push({ status: 429, body: { error: 'rate_limit' } }, { status: 429, body: { error: 'user_limit_exceeded' } }, ADDED);
+    const sleep = sleepRecorder(env);
+    assert.deepEqual(await env.api.simklSubmit(SNAP, 0, sleep), { result: 'error' });
+    assert.equal(env.requests.length, 2);
+    assert.equal(sleep.calls.length, 1);
+    assert.equal(env.store.has('sc_simkl_token'), true);
+});
+
+await test('simklSubmit: 429 then a network error / 500 on the retry is still just "error"', async () => {
+    for (const second of ['error', { status: 500, body: {} }]) {
+        const env = loadClient();
+        withToken(env);
+        env.replies.push({ status: 429, body: {} }, second);
+        assert.deepEqual(await env.api.simklSubmit(SNAP, 0, sleepRecorder(env)), { result: 'error' });
+        assert.equal(env.requests.length, 2);
+    }
+});
+
+await test('simklSubmit: 401 -> refresh -> 429 -> retry: waits after the refresh AND after the 429, four POSTs total, ends added', async () => {
+    const env = loadClient();
+    withToken(env);
+    env.replies.push({ status: 401, body: {} }, tokenReply('A2', 'R2'), { status: 429, body: {} }, ADDED);
+    const sleep = sleepRecorder(env);
+    assert.deepEqual(await env.api.simklSubmit(SNAP, 0, sleep), { result: 'added' });
+    assert.deepEqual(urlsOf(env), ['POST /sync/history', 'POST /oauth2/token', 'POST /sync/history', 'POST /sync/history']);
+    assert.deepEqual(sleep.calls.map(c => c.sent), [2, 3]);
+    assert.ok(sleep.calls.every(c => c.ms >= 1000));
+    assert.equal(env.requests[3].headers['Authorization'], 'Bearer A2');
 });
 
 // ── Settings: Connect & verify ───────────────────────────────────────────────
