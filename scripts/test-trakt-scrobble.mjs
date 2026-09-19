@@ -161,4 +161,233 @@ await test('traktPanelPosition anchors to the video rect and never goes negative
     assert.deepEqual(H.traktPanelPosition({ right: 1700, bottom: 950 }, vp), { right: 16, bottom: 56 });
 });
 
+// ── client slice ─────────────────────────────────────────────────────────────
+
+const CLIENT_NAMES = [
+    'traktEnabled', 'traktThreshold', 'traktRequest', 'validateTraktClientId',
+    'traktLoadToken', 'traktSaveToken', 'traktClearToken', 'traktLoadPrompted', 'traktMarkPrompted',
+    'traktStartDeviceAuth', 'traktPollDeviceToken', 'traktRefreshToken', 'traktEnsureToken', 'traktSubmit',
+];
+
+// Fresh fake environment per test: Map-backed localStorage, a scripted GM_xmlhttpRequest that
+// replays `replies` in order ({status, body} | 'error') and records every request it sees.
+function loadClient() {
+    const store = new Map();
+    const localStorage = {
+        getItem: k => (store.has(k) ? store.get(k) : null),
+        setItem: (k, v) => { store.set(k, String(v)); },
+        removeItem: k => { store.delete(k); },
+    };
+    const getKey = id => localStorage.getItem(id) || '';
+    const replies = [];
+    const requests = [];
+    const GM_xmlhttpRequest = opts => {
+        requests.push(opts);
+        const next = replies.shift();
+        queueMicrotask(() => {
+            if (!next || next === 'error') return opts.onerror && opts.onerror();
+            opts.onload({ status: next.status, responseText: next.body === undefined ? '' : JSON.stringify(next.body) });
+        });
+    };
+    const code = `${slice('trakt-helpers')}\n${slice('trakt-client')}\n;return { ${CLIENT_NAMES.join(', ')} };`;
+    // eslint-disable-next-line no-new-func
+    const api = new Function('GM_xmlhttpRequest', 'localStorage', 'getKey', code)(GM_xmlhttpRequest, localStorage, getKey);
+    return { api, store, replies, requests };
+}
+
+const SNAP = { imdbId: 'tt0087332', title: 'Ghostbusters', year: '1984', poster: '' };
+const ADDED = { status: 201, body: { added: { movies: 1 }, not_found: { movies: [] } } };
+const DAY = 24 * 60 * 60 * 1000;
+function withKeys(env) {
+    env.store.set('sc_trakt_client_id', 'cid');
+    env.store.set('sc_trakt_client_secret', 'sec');
+}
+function withToken(env, over = {}) {
+    withKeys(env);
+    env.store.set('sc_trakt_token', JSON.stringify({ access: 'A1', refresh: 'R1', expiresAt: Date.now() + 30 * DAY, clientId: 'cid', ...over }));
+}
+const tokenReply = (access, refresh) => ({
+    status: 200,
+    body: { access_token: access, refresh_token: refresh, expires_in: 7776000, created_at: Math.floor(Date.now() / 1000) },
+});
+
+await test('config accessors read settings', () => {
+    const env = loadClient();
+    assert.equal(env.api.traktEnabled(), false);
+    env.store.set('sc_trakt_enabled', 'on');
+    assert.equal(env.api.traktEnabled(), true);
+    assert.equal(env.api.traktThreshold(), 90);
+    env.store.set('sc_trakt_threshold', '75');
+    assert.equal(env.api.traktThreshold(), 75);
+});
+
+await test('prompted slot round-trips and tolerates corrupt JSON', () => {
+    const env = loadClient();
+    assert.equal(env.api.traktLoadPrompted(), null);
+    env.api.traktMarkPrompted('tt1', 'shown');
+    const p = env.api.traktLoadPrompted();
+    assert.equal(p.imdbId, 'tt1');
+    assert.equal(p.outcome, 'shown');
+    assert.ok(Math.abs(p.ts - Date.now()) < 2000);
+    env.store.set('sc_trakt_prompted', '{not json');
+    assert.equal(env.api.traktLoadPrompted(), null);
+});
+
+await test('validateTraktClientId maps status codes', async () => {
+    for (const [reply, expected] of [[{ status: 200, body: [] }, 'valid'], [{ status: 403, body: {} }, 'invalid'],
+                                     [{ status: 401, body: {} }, 'invalid'], [{ status: 500, body: {} }, 'error'], ['error', 'error']]) {
+        const env = loadClient();
+        env.replies.push(reply);
+        assert.equal(await env.api.validateTraktClientId('cid'), expected);
+        assert.match(env.requests[0].url, /\/movies\/trending\?limit=1$/);
+        assert.equal(env.requests[0].headers['trakt-api-key'], 'cid');
+    }
+});
+
+await test('traktSubmit: no token -> auth without touching the network', async () => {
+    const env = loadClient();
+    withKeys(env);
+    assert.deepEqual(await env.api.traktSubmit(SNAP, 0), { result: 'auth', ratingFailed: false });
+    assert.equal(env.requests.length, 0);
+});
+
+await test('traktSubmit: token for a different client id is unusable', async () => {
+    const env = loadClient();
+    withToken(env, { clientId: 'someone-else' });
+    assert.equal((await env.api.traktSubmit(SNAP, 0)).result, 'auth');
+    assert.equal(env.requests.length, 0);
+});
+
+await test('traktSubmit: success sends one authorized history request', async () => {
+    const env = loadClient();
+    withToken(env);
+    env.replies.push(ADDED);
+    assert.deepEqual(await env.api.traktSubmit(SNAP, 0), { result: 'added', ratingFailed: false });
+    assert.equal(env.requests.length, 1);
+    assert.match(env.requests[0].url, /^https:\/\/api\.trakt\.tv\/sync\/history$/);
+    assert.equal(env.requests[0].method, 'POST');
+    assert.equal(env.requests[0].headers['Authorization'], 'Bearer A1');
+    assert.equal(env.requests[0].headers['trakt-api-key'], 'cid');
+    assert.equal(env.requests[0].headers['trakt-api-version'], '2');
+    assert.equal(JSON.parse(env.requests[0].data).movies[0].ids.imdb, 'tt0087332');
+});
+
+await test('traktSubmit: rating goes to /sync/ratings; a failed rating does not fail the watch', async () => {
+    let env = loadClient();
+    withToken(env);
+    env.replies.push(ADDED, ADDED);
+    assert.deepEqual(await env.api.traktSubmit(SNAP, 8), { result: 'added', ratingFailed: false });
+    assert.equal(env.requests.length, 2);
+    assert.match(env.requests[1].url, /\/sync\/ratings$/);
+    assert.equal(JSON.parse(env.requests[1].data).movies[0].rating, 8);
+
+    env = loadClient();
+    withToken(env);
+    env.replies.push(ADDED, { status: 500, body: {} });
+    assert.deepEqual(await env.api.traktSubmit(SNAP, 8), { result: 'added', ratingFailed: true });
+});
+
+await test('traktSubmit: not_found, http error and network error', async () => {
+    let env = loadClient();
+    withToken(env);
+    env.replies.push({ status: 201, body: { added: { movies: 0 }, not_found: { movies: [{ ids: { imdb: 'tt0087332' } }] } } });
+    assert.equal((await env.api.traktSubmit(SNAP, 0)).result, 'not_found');
+
+    env = loadClient();
+    withToken(env);
+    env.replies.push({ status: 500, body: {} });
+    assert.equal((await env.api.traktSubmit(SNAP, 0)).result, 'error');
+
+    env = loadClient();
+    withToken(env);
+    env.replies.push('error');
+    assert.equal((await env.api.traktSubmit(SNAP, 0)).result, 'error');
+});
+
+await test('traktSubmit: 401 triggers one refresh then a retry with the new token', async () => {
+    const env = loadClient();
+    withToken(env);
+    env.replies.push({ status: 401, body: {} }, tokenReply('A2', 'R2'), ADDED);
+    assert.equal((await env.api.traktSubmit(SNAP, 0)).result, 'added');
+    assert.match(env.requests[1].url, /\/oauth\/token$/);
+    const refreshBody = JSON.parse(env.requests[1].data);
+    assert.equal(refreshBody.grant_type, 'refresh_token');
+    assert.equal(refreshBody.refresh_token, 'R1');
+    assert.equal(refreshBody.client_secret, 'sec');
+    assert.equal(refreshBody.redirect_uri, 'urn:ietf:wg:oauth:2.0:oob');
+    assert.equal(env.requests[2].headers['Authorization'], 'Bearer A2');
+    assert.equal(JSON.parse(env.store.get('sc_trakt_token')).access, 'A2');
+});
+
+await test('traktSubmit: 401 then rejected refresh -> auth and token cleared', async () => {
+    const env = loadClient();
+    withToken(env);
+    env.replies.push({ status: 401, body: {} }, { status: 401, body: {} });
+    assert.equal((await env.api.traktSubmit(SNAP, 0)).result, 'auth');
+    assert.equal(env.store.has('sc_trakt_token'), false);
+});
+
+await test('traktEnsureToken: refresh network failure keeps a not-yet-expired token, drops an expired one', async () => {
+    let env = loadClient();
+    withToken(env, { expiresAt: Date.now() + 60 * 60 * 1000 });   // inside the 1-day window, still valid
+    env.replies.push('error');
+    assert.equal((await env.api.traktEnsureToken()).access, 'A1');
+
+    env = loadClient();
+    withToken(env, { expiresAt: Date.now() - 1000 });             // already expired
+    env.replies.push('error');
+    assert.equal(await env.api.traktEnsureToken(), null);
+});
+
+await test('traktStartDeviceAuth returns the device payload or throws', async () => {
+    let env = loadClient();
+    withKeys(env);
+    const dev = { device_code: 'D', user_code: 'ABCD1234', verification_url: 'https://trakt.tv/activate', expires_in: 600, interval: 5 };
+    env.replies.push({ status: 200, body: dev });
+    assert.deepEqual(await env.api.traktStartDeviceAuth(), dev);
+    assert.equal(JSON.parse(env.requests[0].data).client_id, 'cid');
+
+    env = loadClient();
+    withKeys(env);
+    env.replies.push({ status: 403, body: {} });
+    await assert.rejects(() => env.api.traktStartDeviceAuth());
+});
+
+await test('traktPollDeviceToken: pending, slow-down, then success saves the token', async () => {
+    const env = loadClient();
+    withKeys(env);
+    env.replies.push({ status: 400, body: {} }, { status: 429, body: {} }, tokenReply('A9', 'R9'));
+    const sleeps = [];
+    const handle = { cancelled: false };
+    const result = await env.api.traktPollDeviceToken({ device_code: 'D', expires_in: 600, interval: 5 }, handle, async ms => { sleeps.push(ms); });
+    assert.equal(result, 'ok');
+    assert.deepEqual(sleeps, [5000, 5000, 6000]);   // 429 adds 1 s to the interval
+    const saved = JSON.parse(env.store.get('sc_trakt_token'));
+    assert.equal(saved.access, 'A9');
+    assert.equal(saved.clientId, 'cid');
+    const body = JSON.parse(env.requests[2].data);
+    assert.equal(body.code, 'D');
+    assert.equal(body.client_secret, 'sec');
+});
+
+await test('traktPollDeviceToken: denied, expired, error and cancel', async () => {
+    const run = async reply => {
+        const env = loadClient();
+        withKeys(env);
+        env.replies.push(reply);
+        return env.api.traktPollDeviceToken({ device_code: 'D', expires_in: 600, interval: 5 }, { cancelled: false }, async () => {});
+    };
+    assert.equal(await run({ status: 418, body: {} }), 'denied');
+    assert.equal(await run({ status: 410, body: {} }), 'expired');
+    assert.equal(await run({ status: 404, body: {} }), 'expired');
+    assert.equal(await run({ status: 401, body: {} }), 'error');
+
+    const env = loadClient();
+    withKeys(env);
+    const handle = { cancelled: false };
+    const r = await env.api.traktPollDeviceToken({ device_code: 'D', expires_in: 600, interval: 5 }, handle, async () => { handle.cancelled = true; });
+    assert.equal(r, 'cancelled');
+    assert.equal(env.requests.length, 0);
+});
+
 console.log(`OK: ${passed} trakt-scrobble test groups passed`);

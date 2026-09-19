@@ -107,3 +107,162 @@
         };
     }
     // ── test marker: trakt-helpers slice end ──
+
+    // ── test marker: trakt-client slice start ──
+    const TRAKT_API          = 'https://api.trakt.tv';
+    const TRAKT_OOB_REDIRECT = 'urn:ietf:wg:oauth:2.0:oob';
+
+    const traktEnabled   = () => getKey(LS_TRAKT_ENABLED) === 'on';   // opt-in
+    const traktThreshold = () => traktClampThreshold(getKey(LS_TRAKT_THRESHOLD));
+    const traktClientId  = () => getKey(LS_TRAKT_CLIENT_ID);
+    const traktSecret    = () => getKey(LS_TRAKT_SECRET);
+
+    // Resolves { status, json } for any HTTP response (json is null when the body isn't JSON);
+    // rejects only on a network error / timeout. `opts.clientId` overrides the saved Client ID
+    // (used by the Settings "Test" button, which validates the value currently typed in the box).
+    function traktRequest(method, path, opts = {}) {
+        const { body, token, clientId } = opts;
+        return new Promise((resolve, reject) => {
+            const headers = {
+                'Content-Type': 'application/json',
+                'trakt-api-version': '2',
+                'trakt-api-key': clientId || traktClientId(),
+            };
+            if (token && token.access) headers['Authorization'] = 'Bearer ' + token.access;
+            GM_xmlhttpRequest({
+                method,
+                url: TRAKT_API + path,
+                headers,
+                data: body ? JSON.stringify(body) : undefined,
+                timeout: 15000,
+                onload: r => {
+                    let json = null;
+                    try { json = JSON.parse(r.responseText); } catch (e) {}
+                    resolve({ status: r.status, json });
+                },
+                onerror: () => reject(new Error('network')),
+                ontimeout: () => reject(new Error('timeout')),
+            });
+        });
+    }
+
+    // Settings "Test" button handler: an unauthenticated public endpoint that still requires a valid
+    // trakt-api-key. 200 = key accepted, 401/403 = rejected, anything else = couldn't tell.
+    async function validateTraktClientId(clientId) {
+        try {
+            const res = await traktRequest('GET', '/movies/trending?limit=1', { clientId });
+            if (res.status === 200) return 'valid';
+            if (res.status === 401 || res.status === 403) return 'invalid';
+            return 'error';
+        } catch (e) { return 'error'; }
+    }
+
+    function traktLoadToken() { try { return JSON.parse(localStorage.getItem(LS_TRAKT_TOKEN)); } catch (e) { return null; } }
+    function traktSaveToken(t) { try { localStorage.setItem(LS_TRAKT_TOKEN, JSON.stringify(t)); } catch (e) {} }
+    function traktClearToken() { try { localStorage.removeItem(LS_TRAKT_TOKEN); } catch (e) {} }
+
+    function traktLoadPrompted() { try { return JSON.parse(localStorage.getItem(LS_TRAKT_PROMPTED)); } catch (e) { return null; } }
+    // outcome: 'shown' (panel appeared -- also what an auto-dismiss leaves behind) | 'skipped' | 'scrobbled'
+    function traktMarkPrompted(imdbId, outcome) {
+        try { localStorage.setItem(LS_TRAKT_PROMPTED, JSON.stringify({ imdbId, ts: Date.now(), outcome })); } catch (e) {}
+    }
+
+    // Device flow step 1. Resolves { device_code, user_code, verification_url, expires_in, interval }; throws on failure.
+    async function traktStartDeviceAuth() {
+        const res = await traktRequest('POST', '/oauth/device/code', { body: { client_id: traktClientId() } });
+        if (res.status !== 200 || !res.json || !res.json.device_code) throw new Error('device-code HTTP ' + res.status);
+        return res.json;
+    }
+
+    // Device flow step 2: polls at Trakt's interval until approved / denied / expired / cancelled.
+    // `handle` is { cancelled: boolean } -- set it true to stop. `sleep` is injectable for tests.
+    // Saves the token and resolves 'ok' on success; else 'denied' | 'expired' | 'cancelled' | 'error'.
+    async function traktPollDeviceToken(dev, handle, sleep = ms => new Promise(r => setTimeout(r, ms))) {
+        let intervalMs = Math.max(1, dev.interval || 5) * 1000;
+        const deadline = Date.now() + dev.expires_in * 1000;
+        while (!handle.cancelled && Date.now() < deadline) {
+            await sleep(intervalMs);
+            if (handle.cancelled) break;
+            let res;
+            try {
+                res = await traktRequest('POST', '/oauth/device/token',
+                    { body: { code: dev.device_code, client_id: traktClientId(), client_secret: traktSecret() } });
+            } catch (e) { continue; }                                   // transient network error: keep polling until expiry
+            if (res.status === 200 && res.json && res.json.access_token) {
+                traktSaveToken(traktTokenFromResponse(res.json, traktClientId(), Date.now()));
+                return 'ok';
+            }
+            if (res.status === 400) continue;                            // pending: user hasn't approved yet
+            if (res.status === 429) { intervalMs += 1000; continue; }    // polling too fast
+            if (res.status === 418) return 'denied';
+            if (res.status === 404 || res.status === 409 || res.status === 410) return 'expired';
+            return 'error';                                              // e.g. 401 = wrong Client Secret
+        }
+        return handle.cancelled ? 'cancelled' : 'expired';
+    }
+
+    // Exchanges the refresh token. Saves + returns the fresh token, or null. A definitive rejection
+    // (400/401/403) also clears the stored token so the next attempt goes through Connect.
+    async function traktRefreshToken(token) {
+        try {
+            const res = await traktRequest('POST', '/oauth/token', {
+                body: {
+                    refresh_token: token.refresh, client_id: traktClientId(), client_secret: traktSecret(),
+                    redirect_uri: TRAKT_OOB_REDIRECT, grant_type: 'refresh_token',
+                },
+            });
+            if (res.status === 200 && res.json && res.json.access_token) {
+                const fresh = traktTokenFromResponse(res.json, traktClientId(), Date.now());
+                traktSaveToken(fresh);
+                return fresh;
+            }
+            if (res.status === 400 || res.status === 401 || res.status === 403) traktClearToken();
+        } catch (e) {}
+        return null;
+    }
+
+    // A token that can be used right now, or null (=> the panel must run Connect).
+    async function traktEnsureToken() {
+        const token = traktUsableToken(traktLoadToken(), traktClientId());
+        if (!token) return null;
+        if (traktTokenNeedsRefresh(token, Date.now())) {
+            const fresh = await traktRefreshToken(token);
+            if (fresh) return fresh;
+            if (!traktLoadToken()) return null;                 // refresh was rejected and the token was cleared
+            if (Date.now() >= token.expiresAt) return null;     // hard-expired and couldn't refresh
+        }
+        return token;                                           // near expiry but refresh failed transiently: still valid
+    }
+
+    // Logs the watch (+ rating). Resolves { result, ratingFailed }; result is
+    // 'added' | 'not_found' | 'auth' (needs Connect) | 'error'. A failed rating never fails the watch.
+    // NOTE: a Retry after a lost *response* can log the watch twice -- Trakt doesn't dedupe history adds.
+    async function traktSubmit(snap, rating) {
+        let token = await traktEnsureToken();
+        if (!token) return { result: 'auth', ratingFailed: false };
+        const nowIso = new Date().toISOString();
+        const post = (path, body) => traktRequest('POST', path, { body, token });
+        try {
+            let res = await post('/sync/history', traktBuildHistoryPayload(snap, nowIso));
+            if (res.status === 401) {                           // token rejected: one refresh, one retry
+                token = await traktRefreshToken(token);
+                if (!token) return { result: 'auth', ratingFailed: false };
+                res = await post('/sync/history', traktBuildHistoryPayload(snap, nowIso));
+            }
+            if (res.status !== 200 && res.status !== 201) return { result: 'error', ratingFailed: false };
+            const verdict = traktInterpretSyncResponse(res.json);
+            if (verdict === 'not_found') return { result: 'not_found', ratingFailed: false };
+            if (verdict !== 'added') return { result: 'error', ratingFailed: false };
+            let ratingFailed = false;
+            if (rating) {
+                try {
+                    const rr = await post('/sync/ratings', traktBuildRatingPayload(snap, rating, nowIso));
+                    ratingFailed = !((rr.status === 200 || rr.status === 201) && traktInterpretSyncResponse(rr.json) === 'added');
+                } catch (e) { ratingFailed = true; }
+            }
+            return { result: 'added', ratingFailed };
+        } catch (e) {
+            return { result: 'error', ratingFailed: false };
+        }
+    }
+    // ── test marker: trakt-client slice end ──
