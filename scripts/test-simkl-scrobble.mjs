@@ -58,9 +58,9 @@ const HELPER_NAMES = [
     'simklClampThreshold', 'simklShouldPrompt', 'simklUsableToken', 'simklTokenNeedsRefresh',
     'simklTokenFromResponse', 'simklBuildHistoryPayload', 'simklBuildRatingPayload',
     'simklInterpretSyncResponse', 'simklAuthQuery', 'simklFormBody',
-    'simklTickLifetime', 'simklPanelPosition',
+    'simklItemUrl', 'simklVerificationLink', 'simklTickLifetime', 'simklPanelPosition',
     '_simklEsc', 'simklPastThreshold', 'simklIsHotkey',
-    'SIMKL_THRESHOLD_DEFAULT', 'SIMKL_PROMPT_TTL_MS', 'SIMKL_REFRESH_WINDOW_MS', 'SIMKL_APP_NAME',
+    'SIMKL_THRESHOLD_DEFAULT', 'SIMKL_PROMPT_TTL_MS', 'SIMKL_REFRESH_WINDOW_MS', 'SIMKL_APP_NAME', 'SIMKL_API',
 ];
 // eslint-disable-next-line no-new-func
 const H = new Function(`${slice('simkl-helpers')}\n;return ${exportsOf(HELPER_NAMES)};`)();
@@ -191,6 +191,32 @@ await test('SIMKL_APP_NAME is the lowercase app name Simkl asks for', () => {
 await test('simklAuthQuery: client_id, app-name, app-version, each URL-encoded', () => {
     assert.equal(H.simklAuthQuery('cid', 'spuds-grindhouse', '4.14.0'), 'client_id=cid&app-name=spuds-grindhouse&app-version=4.14.0');
     assert.equal(H.simklAuthQuery('a b&c=d', 'my app', '1+2/3'), 'client_id=a%20b%26c%3Dd&app-name=my%20app&app-version=1%2B2%2F3');
+});
+
+await test('simklItemUrl: Simkl deep-link redirect for an IMDb id, with the auth query', () => {
+    assert.equal(H.SIMKL_API, 'https://api.simkl.com');
+    assert.equal(H.simklItemUrl('tt0087332', 'cid', '4.13.22'),
+        'https://api.simkl.com/redirect?to=simkl&imdb=tt0087332&client_id=cid&app-name=spuds-grindhouse&app-version=4.13.22');
+    // every dynamic value is URL-encoded; the app name is the module's own constant
+    assert.equal(H.simklItemUrl('tt 1&x', 'a b&c', '1+2'),
+        'https://api.simkl.com/redirect?to=simkl&imdb=tt%201%26x&client_id=a%20b%26c&app-name=spuds-grindhouse&app-version=1%2B2');
+    assert.ok(H.simklItemUrl('tt1', 'cid', '0').endsWith('&' + H.simklAuthQuery('cid', H.SIMKL_APP_NAME, '0')));
+});
+
+await test('simklVerificationLink: https-only link (complete, else plain, else simkl.com/pin) and its shown text', () => {
+    const PIN = 'https://simkl.com/pin';
+    assert.deepEqual(H.simklVerificationLink({ verification_uri: PIN, verification_uri_complete: PIN + '/BDWP-HQPK' }),
+        { url: PIN + '/BDWP-HQPK', shown: 'simkl.com/pin' });
+    assert.deepEqual(H.simklVerificationLink({ verification_uri: PIN }), { url: PIN, shown: 'simkl.com/pin' });
+    assert.deepEqual(H.simklVerificationLink({ verification_uri: PIN, verification_uri_complete: 'javascript:alert(1)' }), { url: PIN, shown: 'simkl.com/pin' });
+    assert.deepEqual(H.simklVerificationLink({ verification_uri: 'https://example.org/go', verification_uri_complete: 'http://example.org/go/X' }),
+        { url: 'https://example.org/go', shown: 'example.org/go' });
+    assert.deepEqual(H.simklVerificationLink({ verification_uri: 'javascript:alert(1)', verification_uri_complete: 'javascript:alert(2)' }), { url: PIN, shown: 'simkl.com/pin' });
+    assert.deepEqual(H.simklVerificationLink({ verification_uri: 'http://simkl.com/pin', verification_uri_complete: 'http://simkl.com/pin/X' }), { url: PIN, shown: 'simkl.com/pin' });
+    assert.deepEqual(H.simklVerificationLink({}), { url: PIN, shown: 'simkl.com/pin' });
+    // only the complete link is https: it is still used, while the shown text falls back
+    assert.deepEqual(H.simklVerificationLink({ verification_uri: 'javascript:1', verification_uri_complete: 'https://simkl.com/pin/Z' }),
+        { url: 'https://simkl.com/pin/Z', shown: 'simkl.com/pin' });
 });
 
 await test('simklFormBody: encodes keys and values, keeps order, skips null/undefined', () => {
@@ -337,7 +363,7 @@ await test('prompted slot round-trips and tolerates corrupt JSON', () => {
     assert.equal(env.api.simklLoadPrompted(), null);
 });
 
-await test('Trakt-era leftovers are gone (no key-check endpoint, no OOB redirect, API base is Simkl)', () => {
+await test('Legacy leftovers are gone (no key-check endpoint, no OOB redirect, API base is Simkl)', () => {
     const env = loadClient();
     assert.equal(env.api.validateSimklClientId, undefined);
     assert.equal(env.api.SIMKL_OOB_REDIRECT, undefined);
@@ -617,7 +643,7 @@ await test('simklPollDeviceToken: a transient network error keeps polling until 
 
 // ── refresh + ensure ─────────────────────────────────────────────────────────
 
-await test('simklRefreshToken: 200 saves the new access token; the request is a secret-less refresh_token form', async () => {
+await test('simklRefreshToken: 200 saves the new access token; the request is a refresh_token form with only the Client ID', async () => {
     const env = loadClient();
     withToken(env);
     env.replies.push(tokenReply('A2', 'R2'));
@@ -631,7 +657,6 @@ await test('simklRefreshToken: 200 saves the new access token; the request is a 
     assert.equal(r.url, `${API}/oauth2/token?${AUTHQ}`);
     assert.equal(r.headers['Content-Type'], 'application/x-www-form-urlencoded');
     assert.deepEqual(form(r), { grant_type: 'refresh_token', client_id: 'cid', refresh_token: 'R1' });
-    assert.equal(new URLSearchParams(r.data).has('client_secret'), false);
     assert.equal(r.headers['Authorization'], undefined);
 });
 
@@ -731,7 +756,7 @@ await test('simklFetchUsername: 401, network error, missing/blank/non-string nam
         { status: 200, body: { user: {} } },
         { status: 200, body: { user: { name: '' } } },
         { status: 200, body: { user: { name: 42 } } },
-        { status: 200, body: { user: { username: 'trakt-style' } } },
+        { status: 200, body: { user: { username: 'legacy-style' } } },
         { status: 200, body: {} },
         { status: 200, raw: 'not json' },
     ]) {
@@ -867,7 +892,6 @@ await test('simklSubmit: 401 triggers one refresh then a retry with the new toke
     assert.ok(sleep.calls[0].ms >= 1000, 'gap after the refresh should be >= 1000 ms, got ' + sleep.calls[0].ms);
     assert.equal(sleep.calls[0].sent, 2);
     assert.deepEqual(form(env.requests[1]), { grant_type: 'refresh_token', client_id: 'cid', refresh_token: 'R1' });
-    assert.equal(new URLSearchParams(env.requests[1].data).has('client_secret'), false);
     assert.equal(env.requests[0].headers['Authorization'], 'Bearer A1');
     assert.equal(env.requests[2].headers['Authorization'], 'Bearer A2');
     assert.equal(JSON.parse(env.requests[2].data).movies[0].rating, 7);   // the retry re-sends the rating too
@@ -1010,7 +1034,7 @@ function makeCtx(values, open = { v: true }) {
 const instantSleep = async () => {};
 
 await test('connect: empty Client ID -> bad status, no requests, nothing saved', async () => {
-    for (const values of [{}, { [F_ID]: '   ' }, { 'sc-input-simkl-secret': 'legacy' }]) {
+    for (const values of [{}, { [F_ID]: '   ' }]) {
         const env = loadClient();
         const t = makeCtx(values);
         await env.api.simklConnectAndVerify(t.ctx, { cancelled: false }, instantSleep);

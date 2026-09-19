@@ -1,3 +1,4 @@
+> **Superseded (2026-09-19):** the module now targets Simkl — see 2026-09-19-simkl-scrobble-design.md. Trakt made API-app creation VIP-only.
 # Trakt Scrobble module — design
 
 Date: 2026-09-18 · Status: approved in chat, pending written-spec review

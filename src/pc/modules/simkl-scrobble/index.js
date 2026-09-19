@@ -1,27 +1,27 @@
     /* ==========================================================
-       SIMKL SCROBBLE — end-of-movie "log this on Simkl?" panel.
+       SIMKL SCROBBLE -- end-of-movie "log this on Simkl?" panel.
 
        When playback of a movie passes a configurable share of its
        runtime (default 90%), a dark, semi-transparent card appears at
        the bottom-right of the video for one minute offering to record
-       the watch (and an optional 1-10 rating) on trakt.tv. Everything
-       is configured in the Settings modal: an opt-in toggle, the
-       user's own Simkl app Client ID + Secret, and the threshold, all
-       under one "Simkl" section. Its "Test connection" button saves the
-       typed credentials, validates the Client ID and runs the Simkl
-       sign-in (device code) inline, ending in "Connected as <user>".
-       Alt+S opens the card for the current movie at any time (handy for
-       testing; pressing it again closes it) -- a "manual" card, which
-       doesn't touch the already-handled slot unless it scrobbles.
+       the watch (and an optional 1-10 rating) on simkl.com. Everything
+       is configured in the Settings modal, under one "Simkl" section: an
+       opt-in toggle, the Client ID of the user's own free Simkl app
+       (the Client ID alone is enough), and the prompt-point threshold. Its
+       "Test connection" button (Connect & verify) saves the typed Client
+       ID and runs Simkl's device-code sign-in inline, ending in
+       "Connected as <user>". Alt+S opens the card for the current movie
+       at any time (handy for testing; pressing it again closes it) -- a
+       "manual" card, which doesn't touch the already-handled slot unless
+       it scrobbles.
 
        Movies only (matched by the IMDb id movie-title-links resolves:
-       _currentImdbId / _npData); YouTube items are skipped. Auth is
-       Simkl's device-code flow, done inline in the panel. The watch is
-       sent as a one-shot POST /sync/history (not the live
-       /scrobble/start|pause|stop session API -- we only ask after the
-       fact), and the "already handled" state lives in localStorage
-       (single slot, 12 h TTL) so reloads during the credits don't
-       re-prompt.
+       _currentImdbId / _npData); YouTube items are skipped. Sign-in is
+       the device-code flow, done inline in the panel. The watch is one
+       POST /sync/history call that carries the optional rating; a movie
+       Simkl already has in the user's history counts as success. The
+       "already handled" state lives in localStorage (single slot, 12 h
+       TTL) so reloads during the credits don't re-prompt.
 
        Like trivia-popup, settings here are poll-per-use: Save just
        writes localStorage, so the heartbeat re-reads them each tick.
@@ -36,7 +36,6 @@
     // ── test marker: simkl-helpers slice start ──
     const LS_SIMKL_ENABLED   = 'sc_simkl_enabled';        // 'on' = opted in (off by default)
     const LS_SIMKL_CLIENT_ID = 'sc_simkl_client_id';
-    const LS_SIMKL_SECRET    = 'sc_simkl_client_secret';
     const LS_SIMKL_THRESHOLD = 'sc_simkl_threshold';      // percent of runtime, 50-100
     const LS_SIMKL_TOKEN     = 'sc_simkl_token';          // JSON {access, refresh, expiresAt, clientId}
     const LS_SIMKL_PROMPTED  = 'sc_simkl_prompted';       // JSON {imdbId, ts, outcome} -- single slot
@@ -51,6 +50,7 @@
     const SIMKL_SUCCESS_MS        = 6 * 1000;             // how long the "Logged" confirmation stays up
     const SIMKL_PANEL_INSET       = { right: 16, bottom: 56 }; // px from the video's corner; bottom clears the control bar
     const SIMKL_APP_NAME          = 'spuds-grindhouse';         // sent as app-name + User-Agent on every Simkl request
+    const SIMKL_API               = 'https://api.simkl.com';
 
     function simklClampThreshold(raw) {
         const n = parseInt(raw, 10);
@@ -123,6 +123,22 @@
             + '&app-version=' + encodeURIComponent(appVersion);
     }
 
+    // Simkl's official deep link: a 301 to the movie's simkl.com page (no token needed). Doubles as the
+    // attribution link Simkl's API rules ask for.
+    function simklItemUrl(imdbId, clientId, appVersion) {
+        return SIMKL_API + '/redirect?to=simkl&imdb=' + encodeURIComponent(imdbId) + '&' + simklAuthQuery(clientId, SIMKL_APP_NAME, appVersion);
+    }
+
+    // The sign-in page for a device code, https only (the values come from a network response): `url` is the
+    // complete link when it is https, else the plain one, else simkl.com/pin; `shown` is the plain link's text.
+    function simklVerificationLink(dev) {
+        const isHttps = u => /^https:\/\//.test(u);
+        const url = isHttps(dev.verification_uri_complete) ? dev.verification_uri_complete
+            : (isHttps(dev.verification_uri) ? dev.verification_uri : 'https://simkl.com/pin');
+        const shown = (isHttps(dev.verification_uri) ? dev.verification_uri : 'https://simkl.com/pin').replace(/^https?:\/\//, '');
+        return { url, shown };
+    }
+
     // application/x-www-form-urlencoded body (Simkl's /oauth2/* endpoints); null/undefined values are skipped.
     function simklFormBody(obj) {
         return Object.keys(obj)
@@ -148,12 +164,9 @@
     // ── test marker: simkl-helpers slice end ──
 
     // ── test marker: simkl-client slice start ──
-    const SIMKL_API = 'https://api.simkl.com';
-
     const simklEnabled   = () => getKey(LS_SIMKL_ENABLED) === 'on';   // opt-in
     const simklThreshold = () => simklClampThreshold(getKey(LS_SIMKL_THRESHOLD));
     const simklClientId  = () => getKey(LS_SIMKL_CLIENT_ID);
-    const simklSecret    = () => getKey(LS_SIMKL_SECRET);   // legacy (Trakt-era): unused by the Simkl device flow; removed together with its settings row
 
     // The userscript's own version, sent to Simkl as app-version / in the User-Agent ('0' outside Tampermonkey).
     function simklAppVersion() {
@@ -245,7 +258,7 @@
         return handle.cancelled ? 'cancelled' : 'expired';
     }
 
-    // Exchanges the refresh token (device-flow clients need no secret). Saves + returns the fresh token, or
+    // Exchanges the refresh token (device-flow clients need only the Client ID). Saves + returns the fresh token, or
     // null. A definitive rejection (400/401/403) also clears the stored token so the next attempt goes
     // through Connect; network errors / 5xx keep it.
     async function simklRefreshToken(token) {
@@ -355,8 +368,7 @@
             else ctx.setStatus('✗ Client ID rejected by Simkl — check it at simkl.com/settings/developer', 'bad');
             return;
         }
-        const url = /^https:\/\//.test(dev.verification_uri_complete) ? dev.verification_uri_complete : (/^https:\/\//.test(dev.verification_uri) ? dev.verification_uri : 'https://simkl.com/pin');
-        const shown = (/^https:\/\//.test(dev.verification_uri) ? dev.verification_uri : 'https://simkl.com/pin').replace(/^https?:\/\//, '');
+        const { url, shown } = simklVerificationLink(dev);
         ctx.setDetail(`<div class="sc-simkl-set-code">${_simklEsc(dev.user_code)}</div><div>Open <a class="sc-settings-link" href="${_simklEsc(url)}" target="_blank" rel="noopener">${_simklEsc(shown)}</a> and enter the code above.</div>`);
 
         const expiresAt = Date.now() + dev.expires_in * 1000;
@@ -401,7 +413,7 @@
     const SIMKL_LIFE_TICK_MS = 250;
 
     let _simklPanelEl    = null;  // live panel node, or null when closed
-    let _simklCtx        = null;  // { snap, manual, rating, view, message, remaining, lifeTotal, hover, dev, devExpiresAt, poll, ratingFailed }
+    let _simklCtx        = null;  // { snap, manual, rating, view, message, remaining, lifeTotal, hover, dev, devExpiresAt, poll, already }
     let _simklLifeTimer  = null;
     let _simklKeyHandler = null;
 
@@ -480,8 +492,8 @@
                 break;
             case 'success':
                 body = `
-                    <div class="sc-simkl-q sc-simkl-ok">Logged ✓${c.ratingFailed ? ' <span class="sc-simkl-note">(rating didn\'t save)</span>' : ''}</div>
-                    <a class="sc-simkl-link" href="https://trakt.tv/search/imdb/${_simklEsc(s.imdbId)}" target="_blank" rel="noopener">View on Simkl ↗</a>`;
+                    <div class="sc-simkl-q sc-simkl-ok">${c.already ? 'Already on your Simkl history ✓' : 'Logged ✓'}</div>
+                    <a class="sc-simkl-link" href="${_simklEsc(simklItemUrl(s.imdbId, simklClientId(), simklAppVersion()))}" target="_blank" rel="noopener">View on Simkl ↗</a>`;
                 break;
             case 'notfound':
                 body = `
@@ -496,19 +508,21 @@
                         <button type="button" class="sc-simkl-btn" data-act="skip">Close</button>
                     </div>`;
                 break;
-            case 'connect':
+            case 'connect': {
+                const link = c.dev ? simklVerificationLink(c.dev) : null;
                 body = c.dev ? `
                     <div class="sc-simkl-q">Connect your Simkl account</div>
-                    <div class="sc-simkl-help">Open <a class="sc-simkl-link" href="${_simklEsc(c.dev.verification_url)}" target="_blank" rel="noopener">${_simklEsc(String(c.dev.verification_url).replace(/^https?:\/\//, ''))}</a> and enter:</div>
+                    <div class="sc-simkl-help">Open <a class="sc-simkl-link" href="${_simklEsc(link.url)}" target="_blank" rel="noopener">${_simklEsc(link.shown)}</a> and enter:</div>
                     <div class="sc-simkl-code">${_simklEsc(c.dev.user_code)}</div>
                     <div class="sc-simkl-help">Waiting for approval… <span class="sc-simkl-expiry"></span></div>
                     <div class="sc-simkl-actions"><button type="button" class="sc-simkl-btn" data-act="cancelconnect">Cancel</button></div>`
                 : '<div class="sc-simkl-q">Contacting Simkl…</div>';
                 break;
+            }
             case 'needsconfig':
                 body = `
                     <div class="sc-simkl-q">Simkl isn't set up yet</div>
-                    <div class="sc-simkl-help">Add your Simkl Client ID and Secret in Settings to log movies.</div>
+                    <div class="sc-simkl-help">Add your Simkl Client ID in Settings to log movies.</div>
                     <div class="sc-simkl-actions">
                         <button type="button" class="sc-simkl-btn sc-simkl-primary" data-act="settings">Open Settings</button>
                         <button type="button" class="sc-simkl-btn" data-act="skip">Dismiss</button>
@@ -576,7 +590,9 @@
         try { dev = await simklStartDeviceAuth(); }
         catch (e) {
             if (_simklCtx !== c) return;
-            _simklSetView('error', { message: 'Couldn\'t start Simkl sign-in. Check your Client ID in Settings.', life: SIMKL_PANEL_LIFETIME_MS });
+            const message = e && e.kind === 'network' ? 'Couldn\'t reach Simkl — check your connection.'
+                : 'Simkl rejected the Client ID — check it in Settings.';
+            _simklSetView('error', { message, life: SIMKL_PANEL_LIFETIME_MS });
             return;
         }
         if (_simklCtx !== c) return;
@@ -588,9 +604,9 @@
         if (_simklCtx !== c || r === 'cancelled') return;
         c.dev = null; c.devExpiresAt = 0; c.poll = null;
         if (r === 'ok') { _simklBeginSubmit(); return; }
-        const message = r === 'denied' ? 'Simkl sign-in was denied.'
-            : r === 'expired' ? 'The code expired -- try again.'
-            : 'Simkl sign-in failed. Check your Client Secret in Settings.';
+        const message = r === 'expired' ? 'The code expired — try again.'
+            : r === 'scope' ? 'Simkl granted read-only access — try again and approve all permissions.'
+            : 'Simkl sign-in failed — check the Client ID in Settings.';
         _simklSetView('error', { message, life: SIMKL_PANEL_LIFETIME_MS });
     }
 
@@ -601,16 +617,16 @@
         _simklSetView('submitting');
         const out = await simklSubmit(c.snap, c.rating);
         if (_simklCtx !== c) return;                     // panel was closed while we waited
-        if (out.result === 'added') {
+        if (out.result === 'added' || out.result === 'exists') {
             simklMarkPrompted(c.snap.imdbId, 'scrobbled');
-            c.ratingFailed = out.ratingFailed;
+            c.already = out.result === 'exists';
             _simklSetView('success', { life: SIMKL_SUCCESS_MS });
         } else if (out.result === 'not_found') {
             _simklSetView('notfound', { life: SIMKL_PANEL_LIFETIME_MS });
         } else if (out.result === 'auth') {
             _simklBeginConnect();
         } else {
-            _simklSetView('error', { message: 'Couldn\'t reach Simkl -- try again.', life: SIMKL_PANEL_LIFETIME_MS });
+            _simklSetView('error', { message: 'Couldn\'t reach Simkl — try again.', life: SIMKL_PANEL_LIFETIME_MS });
         }
     }
 
@@ -630,7 +646,7 @@
     // re-pop 3 s after a manual Esc. A successful scrobble still records 'scrobbled'.
     function simklShowPanel(snap, opts = {}) {
         const manual = !!(opts && opts.manual);
-        const configured = !!(simklClientId() && simklSecret());
+        const configured = !!simklClientId();
         if (!manual) {
             simklMarkPrompted(snap.imdbId, configured ? 'shown' : 'needsconfig');   // survives reloads: no re-prompt for this movie for 12 h (a needsconfig record stops counting once keys are added)
         } else if (snap.imdbId) {
@@ -646,7 +662,7 @@
             snap, manual, rating: 0,
             view: !configured ? 'needsconfig' : (manual && !snap.imdbId) ? 'nomatch' : 'prompt', message: '',
             remaining: SIMKL_PANEL_LIFETIME_MS, lifeTotal: SIMKL_PANEL_LIFETIME_MS,
-            hover: false, dev: null, devExpiresAt: 0, poll: null, ratingFailed: false,
+            hover: false, dev: null, devExpiresAt: 0, poll: null, already: false,
         };
         el.addEventListener('mouseenter', () => { if (_simklCtx) _simklCtx.hover = true; });
         el.addEventListener('mouseleave', () => { if (_simklCtx) _simklCtx.hover = false; });
@@ -685,7 +701,7 @@
         const v = document.querySelector('#ytapiplayer video');   // strictly the player's own <video> (not preview/gif clones)
         if (!v) return;
         const p = simklLoadPrompted();
-        const configured = !!(simklClientId() && simklSecret());
+        const configured = !!simklClientId();
         const eligible = simklShouldPrompt({
             enabled: simklEnabled(),
             isYouTube: isYouTubeMedia(),
@@ -719,9 +735,9 @@
     scRegisterInit(simklBoot);
 
     /* ==========================================================
-       SETTINGS ROWS — order 13-18 (12 is imdb-link-preview): one Simkl
-       section (header, enable toggle, Client ID, Client Secret, the
-       "Test connection" action row, prompt-point threshold).
+       SETTINGS ROWS — order 13-17 (12 is imdb-link-preview): one Simkl
+       section (header, enable toggle, Client ID, the "Test connection"
+       action row, prompt-point threshold).
     ========================================================== */
     let _simklConnectHandle = null;   // { cancelled } of the in-flight Test connection run, or null
 
@@ -730,14 +746,14 @@
         group: 'simkl-scrobble',
         type: 'section',
         label: 'Simkl',
-        note: 'Log movies you finish on trakt.tv. Uses your own Simkl app (Client ID + Secret). Press <b>Alt+S</b> any time to open the scrobble card for the current movie — handy for testing.',
+        note: 'Log movies you finish on simkl.com. Register a free app at <a href="https://simkl.com/settings/developer/" target="_blank" rel="noopener">simkl.com/settings/developer</a> (choose <b>TV, devices &amp; command line</b>), paste its Client ID below, then press <b>Test connection</b>. Press <b>Alt+S</b> any time to open the scrobble card for the current movie — handy for testing.',
         order: 13,
     });
     scRegisterSetting({
         id: 'sc-input-simkl-enabled',
         group: 'simkl-scrobble',
         label: 'Simkl: offer to log movies at the end',
-        note: 'When you reach the end of a movie, a small card appears at the bottom-right of the video for a minute asking if you want to log the watch (and an optional rating) on trakt.tv. Off by default. Needs your own Simkl app credentials (fields below). Movies only -- not YouTube or TV episodes.',
+        note: 'When you reach the end of a movie, a small card appears at the bottom-right of the video for a minute asking if you want to log the watch (and an optional rating) on simkl.com. Off by default. Movies only — not YouTube or TV episodes. Needs the Client ID below.',
         key: LS_SIMKL_ENABLED,
         defaultOn: false,
         order: 14,
@@ -747,23 +763,12 @@
         group: 'simkl-scrobble',
         type: 'text',
         label: 'Simkl Client ID',
-        note: 'Create a Simkl app (any name; set the Redirect URI to urn:ietf:wg:oauth:2.0:oob), then paste its Client ID here.',
+        note: 'Public identifier of your Simkl app — safe to paste; no secret needed.',
         key: LS_SIMKL_CLIENT_ID,
         placeholder: 'Paste Simkl Client ID…',
-        link: 'https://trakt.tv/oauth/applications',
-        linkText: 'Create a Simkl app ↗',
+        link: 'https://simkl.com/settings/developer/',
+        linkText: 'Register a free Simkl app ↗',
         order: 15,
-    });
-    scRegisterSetting({
-        id: 'sc-input-simkl-secret',
-        group: 'simkl-scrobble',
-        type: 'text',
-        mask: true,
-        label: 'Simkl Client Secret',
-        note: 'From the same Simkl app page. Stored in this browser only, like the other keys. Press Test connection below to sign in to Simkl and verify it all works.',
-        key: LS_SIMKL_SECRET,
-        placeholder: 'Paste Simkl Client Secret…',
-        order: 16,
     });
     scRegisterSetting({
         id: 'sc-action-simkl-test',
@@ -777,7 +782,7 @@
             finally { _simklConnectHandle = null; }
         },
         cancelHandler: () => { if (_simklConnectHandle) _simklConnectHandle.cancelled = true; },
-        order: 17,
+        order: 16,
     });
     scRegisterSetting({
         id: 'sc-input-simkl-threshold',
@@ -787,5 +792,5 @@
         note: 'How far into the movie the card appears. 90 leaves room for the end credits; 100 waits for the very last second.',
         key: LS_SIMKL_THRESHOLD,
         min: SIMKL_THRESHOLD_MIN, max: SIMKL_THRESHOLD_MAX, step: 1, defaultValue: SIMKL_THRESHOLD_DEFAULT,
-        order: 18,
+        order: 17,
     });
