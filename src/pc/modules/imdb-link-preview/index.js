@@ -8,7 +8,10 @@
        scanPipLinks/startPipObserver (src/pc/modules/link-pip/index.js):
        a MutationObserver on #messagebuffer, idempotent via the same
        dataset-marking convention so a link already scanned is never
-       reprocessed.
+       reprocessed. A matched link also gets a small gold "i" badge
+       right after it (renderImdbIcon) -- the same discoverability
+       affordance link-pip gives YouTube links via its own ↗ icon --
+       and hovering either the link or the badge shows the card.
 
        Hover-card mechanics mirror emote-picker's GIF hover preview
        (ensureEmotePreviewEl/positionEmotePreview/showEmotePreview/
@@ -63,8 +66,8 @@
        Every scanned link is marked scImdbChecked = '1' whether or not
        it turned out to be an IMDb title link, so it's never re-tested;
        only ones that DID resolve to a tconst additionally get
-       scImdbTconst set, which is what the hover delegation below
-       matches against.
+       scImdbTconst set (and get the small "i" badge below), which is
+       what the hover delegation matches against.
     ========================================================== */
     function scanImdbLinks(buf) {
         if (!imdbCardEnabled()) return;
@@ -73,9 +76,42 @@
                 if (a.dataset.scImdbChecked) return;
                 a.dataset.scImdbChecked = '1';
                 const tconst = extractImdbTconst(a.href);
-                if (tconst) a.dataset.scImdbTconst = tconst;
+                if (tconst) {
+                    a.dataset.scImdbTconst = tconst;
+                    renderImdbIcon(a, tconst);
+                }
             });
         });
+    }
+
+    // A small "i" badge right after a recognized IMDb link -- the same
+    // visual affordance link-pip gives YouTube links (its ↗ new-tab
+    // icon), so a matched link is discoverable as hoverable before the
+    // user ever tries it. Reuses movie-title-links' own IMDb badge
+    // colors/shape (LINK_DEFS' imdb entry: gold #f5c518 bg, black "i",
+    // Georgia serif) for visual consistency with the Now Playing card's
+    // IMDb link, in its own .sc-imdb-icon class rather than movie-title-
+    // links' .sc-movie-link -- that class is styled `cursor: pointer`
+    // for a real navigable link, but this badge doesn't navigate
+    // anywhere on click (the underlying <a> already does); it exists
+    // purely to advertise the hover card, so it gets its own `cursor:
+    // help` styling instead. A plain <span>, not another <a>, so it's
+    // never picked up by scanImdbLinks' own `a[href]` selector on a
+    // later re-scan (link-pip's ↗ icon, being an <a href>, needs an
+    // extra dataset marker for exactly this reason -- this badge
+    // doesn't).
+    //
+    // Carries the same data-sc-imdb-tconst as the link it sits beside,
+    // so wireImdbHoverDelegation below (matching `[data-sc-imdb-tconst]`,
+    // not `a[data-sc-imdb-tconst]`) treats hovering either the link text
+    // or its badge as the same hover target.
+    function renderImdbIcon(a, tconst) {
+        const icon = document.createElement('span');
+        icon.className = 'sc-imdb-icon';
+        icon.textContent = 'i';
+        icon.title = 'Hover for IMDb info';
+        icon.dataset.scImdbTconst = tconst;
+        a.insertAdjacentElement('afterend', icon);
     }
 
     /* ==========================================================
@@ -227,13 +263,15 @@
         if (card) card.style.setProperty('display', 'none', 'important');
     }
 
-    // Shows (or updates) the card for a hovered link once the hover-
-    // intent delay has elapsed. Re-checks _scImdbHoverLink after the
-    // await -- the mouse may have already left this link (or moved to
-    // another one) by the time the fetch resolves, and this must never
-    // clobber whatever's now actually being hovered.
-    async function showImdbCard(a) {
-        const tconst = a.dataset.scImdbTconst;
+    // Shows (or updates) the card for a hovered element (the link itself
+    // or its adjacent .sc-imdb-icon badge -- either can trigger this, see
+    // wireImdbHoverDelegation) once the hover-intent delay has elapsed.
+    // Re-checks _scImdbHoverLink after the await -- the mouse may have
+    // already left this element (or moved to another one) by the time
+    // the fetch resolves, and this must never clobber whatever's now
+    // actually being hovered.
+    async function showImdbCard(el) {
+        const tconst = el.dataset.scImdbTconst;
         if (!tconst) return;
         const card = ensureImdbCardEl();
 
@@ -246,29 +284,32 @@
         if (_scImdbCardCache.has(tconst)) {
             renderImdbCardData(card, _scImdbCardCache.get(tconst));
             card.style.setProperty('display', 'block', 'important');
-            positionImdbCard(card, a);
+            positionImdbCard(card, el);
             return;
         }
 
         resetImdbCardLoading(card);
         card.style.setProperty('display', 'block', 'important');
-        positionImdbCard(card, a);
+        positionImdbCard(card, el);
         const data = await getImdbCardData(tconst);
-        if (_scImdbHoverLink !== a) return; // moved on while the fetch was in flight
+        if (_scImdbHoverLink !== el) return; // moved on while the fetch was in flight
         if (!data) { hideImdbCard(); return; }
         renderImdbCardData(card, data);
-        positionImdbCard(card, a); // re-clamp now that content size may have changed
+        positionImdbCard(card, el); // re-clamp now that content size may have changed
     }
 
     /* ==========================================================
        HOVER DELEGATION — delegated mouseover/mouseout on
        #messagebuffer (bubbling works there same as emote picker's
        delegation on body). _scImdbHoverLink tracks the currently-
-       hovered link so re-entering the same link's own descendants
-       doesn't redundantly re-show/reposition. A 200ms hover-intent
-       delay (_scImdbHoverTimer) avoids firing a fetch for every link
-       the mouse merely passes over while scrolling chat -- started on
-       mouseover, cleared on mouseout if it hasn't fired yet.
+       hovered element -- the <a> itself OR its adjacent .sc-imdb-icon
+       badge, both matched via the shared `[data-sc-imdb-tconst]`
+       attribute rather than an `a[...]`-scoped one -- so re-entering
+       the same element's own descendants doesn't redundantly re-show/
+       reposition. A 200ms hover-intent delay (_scImdbHoverTimer) avoids
+       firing a fetch for every link the mouse merely passes over while
+       scrolling chat -- started on mouseover, cleared on mouseout if it
+       hasn't fired yet.
     ========================================================== */
     let _scImdbHoverLink = null;
     let _scImdbHoverTimer = null;
@@ -291,9 +332,9 @@
     function wireImdbHoverDelegation(buf) {
         buf.addEventListener('mouseover', (e) => {
             if (!imdbCardEnabled()) return;
-            const a = e.target.closest('a[data-sc-imdb-tconst]');
-            if (!a || a === _scImdbHoverLink) return;
-            _scImdbHoverLink = a;
+            const el = e.target.closest('[data-sc-imdb-tconst]');
+            if (!el || el === _scImdbHoverLink) return;
+            _scImdbHoverLink = el;
             if (_scImdbHoverTimer) clearTimeout(_scImdbHoverTimer);
             _scImdbHoverTimer = setTimeout(() => {
                 _scImdbHoverTimer = null;
@@ -302,13 +343,24 @@
                 // internally), but that's an invisible coupling -- a future
                 // change upstream could otherwise turn this into an
                 // unhandled promise rejection in the page console.
-                if (_scImdbHoverLink === a) showImdbCard(a).catch(() => {});
+                if (_scImdbHoverLink === el) showImdbCard(el).catch(() => {});
             }, 200);
         });
         buf.addEventListener('mouseout', (e) => {
-            const a = e.target.closest('a[data-sc-imdb-tconst]');
-            if (!a || a !== _scImdbHoverLink) return;
-            if (a.contains(e.relatedTarget)) return; // still inside the same link
+            const el = e.target.closest('[data-sc-imdb-tconst]');
+            if (!el || el !== _scImdbHoverLink) return;
+            if (el.contains(e.relatedTarget)) return; // still inside the same element
+            // The <a> and its .sc-imdb-icon badge are SIBLINGS (the icon is
+            // inserted afterend, not nested inside the link), so moving the
+            // mouse from one to the other fires a genuine mouseout with a
+            // relatedTarget outside `el` -- without this check that reads as
+            // "left the link entirely" and resets, only for the very next
+            // mouseover (on the badge) to re-show the card 200ms later: a
+            // visible flicker on every link<->badge crossing. Both carry the
+            // same data-sc-imdb-tconst value, so treat crossing between them
+            // as staying within the same logical hover target.
+            const to = e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('[data-sc-imdb-tconst]');
+            if (to && to.dataset.scImdbTconst === el.dataset.scImdbTconst) return;
             resetImdbHover();
         });
     }
@@ -357,4 +409,4 @@
     // order: 12 -- 9/10 are trivia-popup's own toggle+frequency pair, 11 is
     // subtitles'; keeping this row clear of both avoids ever splitting
     // trivia-popup's pair apart if manifest module emission order changes.
-    scRegisterSetting({ id: 'sc-input-imdblinkpreview', group: 'imdb-link-preview', label: 'IMDb hover-preview cards for chat links', note: 'Hovering an imdb.com/title/ link posted in chat shows a floating poster/title/rating/description card.', key: LS_IMDB_CARD_ENABLED, defaultOn: true, order: 12 });
+    scRegisterSetting({ id: 'sc-input-imdblinkpreview', group: 'imdb-link-preview', label: 'IMDb hover-preview cards for chat links', note: 'An imdb.com/title/ link posted in chat gets a small "i" badge; hovering the link or the badge shows a floating poster/title/rating/description card.', key: LS_IMDB_CARD_ENABLED, defaultOn: true, order: 12 });

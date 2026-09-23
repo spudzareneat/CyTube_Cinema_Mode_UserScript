@@ -1,4 +1,30 @@
 /* ===== IMDB LINK PREVIEW ===== */
+/* Discoverability badge right after a recognized IMDb link -- same
+   color/shape/font convention as movie-title-links' .sc-movie-link
+   IMDb badge (gold #f5c518, black "i", Georgia serif, weight 900) for
+   visual consistency with the Now Playing card's own IMDb link, but a
+   separate class: .sc-movie-link is a real, clickable <a> styled
+   `cursor: pointer`, while this badge doesn't navigate anywhere on
+   click (the link it sits beside already does) -- it exists purely to
+   advertise "hover for info", hence `cursor: help` instead. */
+.sc-imdb-icon {
+    display: inline-flex !important;
+    align-items: center !important; justify-content: center !important;
+    width: 15px !important; height: 15px !important;
+    margin-left: 4px !important;
+    border-radius: 3px !important;
+    background: #f5c518 !important;
+    color: #000 !important;
+    font-size: 10px !important; font-weight: 900 !important;
+    font-family: Georgia, serif !important;
+    line-height: 1 !important;
+    vertical-align: middle !important;
+    flex-shrink: 0 !important;
+    cursor: help !important;
+    opacity: 0.8 !important;
+    transition: opacity 0.15s ease !important;
+}
+.sc-imdb-icon:hover { opacity: 1 !important; }
 /* Floating hover-preview card for IMDb title links in chat. Appended
    to <body>, position: fixed + its own z-index (20500 -- between the
    Now Playing card's 21000 and normal chat UI, so it's never buried
