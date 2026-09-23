@@ -15,10 +15,12 @@
     // src/pc/modules/grammar-check/index.js — see that file.
     // sc-input-autoembed (chatimages) moved to
     // src/pc/modules/chatimages/index.js — see that file.
-    // sc-input-gifoptimize and sc-input-imgbb (gif-maker) moved to
-    // src/pc/modules/gifmaker/index.js — see that file. `order` reproduces
-    // the original shipped script's row sequence (spellcheck=1,
-    // movielinks=2, autoembed=3, gifoptimize=4, lineuptiming=5, imgbb=6);
+    // sc-input-imgbb (gif-maker) moved to src/pc/modules/gifmaker/index.js
+    // — see that file (its sibling sc-input-gifoptimize row was removed when
+    // GIF optimization became a manual per-clip Compression slider instead
+    // of an always-on/off setting). `order` reproduces the original shipped
+    // script's row sequence (spellcheck=1, movielinks=2, autoembed=3,
+    // lineuptiming=5, imgbb=6 — gap at 4 is the removed gifoptimize row);
     // rows are sorted by it below rather than rendered in registration
     // order, since registration order depends on which optional modules a
     // build includes and in what order their files happen to load.

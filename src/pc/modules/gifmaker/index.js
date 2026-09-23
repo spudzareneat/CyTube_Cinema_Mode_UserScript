@@ -9,8 +9,7 @@
        detection/poll loop, upgradeToPcMode(), and the control-bar-
        docked UI path are all gone — only the floating `#sc-gif-btn`
        trigger remains.
-       getKey/LS_IMGBB/LS_GIF_OPTIMIZE/gifOptimizeEnabled/
-       getPlayerVideoEl/isYouTubeMedia are core's
+       getKey/LS_IMGBB/getPlayerVideoEl/isYouTubeMedia are core's
        (02-keys-and-helpers.js / 12-playback-sync-and-seek.js) — this
        module doesn't redeclare them. activeTitleSlug() calls core's
        _gifTitleSlug() (01-movie-identity.js) directly in place of the
@@ -106,7 +105,7 @@
                 display: flex !important; flex-direction: column !important; gap: 8px !important;
             }
             .sc-gif-mono, #sc-gif-time-start, #sc-gif-time-end, #sc-gif-dur-line b,
-            #sc-gif-overview-total, #sc-gif-filmstrip-range, .sc-gif-fx-row input[type=number] {
+            #sc-gif-overview-total, #sc-gif-filmstrip-range, .sc-gif-fx-row input[type=number], #sc-gif-fx-speed-val {
                 font-family: "SF Mono", "Cascadia Code", Consolas, monospace !important;
             }
             .sc-gif-marks { display: flex !important; gap: 10px !important; }
@@ -428,6 +427,18 @@
                          transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important; }
             #sc-gif-dl:hover { background: rgba(255,176,32,0.14) !important; border-color: #ffb020 !important; color: #f4f4f2 !important; }
             #sc-gif-size { color: rgba(244,244,242,0.34) !important; font-size: 11px !important; margin-left: auto !important; }
+            #sc-gif-optimize-row { display: flex !important; align-items: center !important; gap: 8px !important; margin-top: 6px !important; }
+            #sc-gif-optimize-row label { flex: 0 0 auto !important; white-space: nowrap !important; color: rgba(244,244,242,0.62) !important; font-size: 12px !important; }
+            #sc-gif-optimize-row input[type=range] { flex: 1 1 auto !important; min-width: 0 !important; accent-color: #ffb020 !important; }
+            #sc-gif-lossy-val { color: rgba(244,244,242,0.62) !important; font-size: 12px !important; min-width: 22px !important; text-align: right !important; }
+            #sc-gif-optimize-btn {
+                background: transparent !important; color: rgba(244,244,242,0.62) !important;
+                border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 8px !important;
+                padding: 5px 10px !important; font-size: 12px !important; cursor: pointer !important; white-space: nowrap !important;
+                transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important;
+            }
+            #sc-gif-optimize-btn:hover:not(:disabled) { background: rgba(255,176,32,0.14) !important; border-color: #ffb020 !important; color: #f4f4f2 !important; }
+            #sc-gif-optimize-btn:disabled { opacity: 0.5 !important; cursor: default !important; }
             .sc-gif-mid-header {
                 display: flex !important; align-items: center !important; justify-content: space-between !important;
                 background: transparent !important; border: none !important; padding: 0 !important;
@@ -491,6 +502,12 @@
             .sc-gif-fx-filter { display: flex !important; align-items: center !important; gap: 8px !important; }
             .sc-gif-fx-filter label { flex: 0 0 auto !important; white-space: nowrap !important; color: rgba(244,244,242,0.62) !important; font-size: 12px !important; }
             .sc-gif-fx-filter input[type=range] { flex: 1 1 auto !important; min-width: 0 !important; accent-color: #ffb020 !important; }
+            .sc-gif-fx-speed-wrap {
+                display: flex !important; align-items: center !important; gap: 6px !important;
+                flex: 1 1 auto !important; max-width: 140px !important;
+            }
+            .sc-gif-fx-speed-wrap input[type=range] { flex: 1 1 auto !important; min-width: 0 !important; accent-color: #ffb020 !important; }
+            #sc-gif-fx-speed-val { min-width: 34px !important; text-align: right !important; }
             .sc-gif-ts-header {
                 display: flex !important; align-items: center !important; justify-content: space-between !important;
                 background: transparent !important; border: none !important; padding: 0 !important;
@@ -585,7 +602,8 @@
 
     /* ==========================================================
        PANEL PREFS — a small subset of the GIF panel's controls
-       (output color / caption font sizes / FPS / width / shape) is
+       (output color / caption font sizes / FPS / width / shape / last-used
+       Compression slider value) is
        remembered across sessions in one localStorage JSON blob
        (LS_GIF_PREFS, declared in core's 02-keys-and-helpers.js).
        Caption text, caption positions, trim marks and every Effects
@@ -595,7 +613,7 @@
     // Custom was picked, the literal #hex — so there is no separate
     // customColor field to go stale. (Legacy blobs may still carry
     // color:'custom' + customColor; restoreGifPrefs ignores both.)
-    const GIF_PREFS_FIELDS = ['color', 'font', 'topSize', 'bottomSize', 'fps', 'width', 'aspect'];
+    const GIF_PREFS_FIELDS = ['color', 'font', 'topSize', 'bottomSize', 'fps', 'width', 'aspect', 'lossy'];
     function readGifPrefs() {
         try {
             const raw = localStorage.getItem(LS_GIF_PREFS);
@@ -1284,16 +1302,19 @@
         }));
     }
 
-    // Optional lossless size-shrink via gifsicle -O3, run after encodeGif().
-    // Any failure anywhere in here falls back to the original blob silently
-    // — this step is strictly additive and must never break Make GIF.
-    async function maybeOptimizeGif(blob) {
-        if (!gifOptimizeEnabled()) return blob;
+    // Size-shrink pass via gifsicle -O3, optionally plus a lossy pass at the
+    // given level (0 = lossless only). User-triggered from the result view's
+    // Optimize button, always run against the pristine raw encode (never a
+    // previously-optimized blob), so repeated clicks at different levels
+    // never compound lossy artifacts. Any failure falls back to the input
+    // blob silently — this step must never leave the user without a GIF.
+    async function optimizeGif(blob, lossy) {
         try {
             const gifsicle = await getGifsicleCtor();
+            const lossyFlag = lossy > 0 ? ' --lossy=' + lossy : '';
             const out = await gifsicle.run({
                 input: [{ file: blob, name: 'in.gif' }],
-                command: ['-O3 in.gif -o /out/out.gif'],
+                command: ['-O3' + lossyFlag + ' in.gif -o /out/out.gif'],
             });
             return (out && out[0]) ? out[0] : blob;
         } catch (e) {
@@ -1388,30 +1409,59 @@
         });
     }
 
-    async function uploadToImgbb(blob, apiKey, name) {
-        const b64 = await blobToBase64(blob);
-        let data = 'image=' + encodeURIComponent(b64);
-        if (name) data += '&name=' + encodeURIComponent(name);
+    function _parseImgbbResponse(r) {
+        let json = null;
+        try { json = JSON.parse(r.responseText); } catch (e) {}
+        if (r.status >= 200 && r.status < 300 && json && json.success && json.data && json.data.url) {
+            return json.data.url;
+        }
+        const msg = (json && json.error && json.error.message) ? json.error.message : ('HTTP ' + r.status);
+        throw new Error(msg);
+    }
+
+    // Raw-binary multipart upload — avoids the ~33% size inflation of base64.
+    // GM_xmlhttpRequest support for FormData/Blob bodies varies by userscript
+    // manager/version, so this is attempted first and any failure falls
+    // straight through to the base64 path in uploadToImgbb.
+    function uploadToImgbbBinary(blob, apiKey, name) {
         return new Promise((resolve, reject) => {
+            const form = new FormData();
+            form.append('image', blob, 'clip.gif');
+            if (name) form.append('name', name);
+            try {
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    url: 'https://api.imgbb.com/1/upload?key=' + encodeURIComponent(apiKey),
+                    data: form,
+                    onload: r => { try { resolve(_parseImgbbResponse(r)); } catch (e) { reject(e); } },
+                    onerror: () => reject(new Error('network error')),
+                });
+            } catch (e) { reject(e); }
+        });
+    }
+
+    function uploadToImgbbBase64(blob, apiKey, name) {
+        return blobToBase64(blob).then(b64 => new Promise((resolve, reject) => {
+            let data = 'image=' + encodeURIComponent(b64);
+            if (name) data += '&name=' + encodeURIComponent(name);
             GM_xmlhttpRequest({
                 method: 'POST',
                 url: 'https://api.imgbb.com/1/upload?key=' + encodeURIComponent(apiKey),
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 data,
-                onload: r => {
-                    let json = null;
-                    try { json = JSON.parse(r.responseText); } catch (e) {}
-                    if (r.status >= 200 && r.status < 300 && json && json.success && json.data && json.data.url) {
-                        resolve(json.data.url);
-                    } else {
-                        const msg = (json && json.error && json.error.message)
-                            ? json.error.message : ('HTTP ' + r.status);
-                        reject(new Error(msg));
-                    }
-                },
+                onload: r => { try { resolve(_parseImgbbResponse(r)); } catch (e) { reject(e); } },
                 onerror: () => reject(new Error('network error')),
             });
-        });
+        }));
+    }
+
+    async function uploadToImgbb(blob, apiKey, name) {
+        try {
+            return await uploadToImgbbBinary(blob, apiKey, name);
+        } catch (e) {
+            console.warn('[GIFMaker] Binary ImgBB upload failed, falling back to base64:', e);
+            return uploadToImgbbBase64(blob, apiKey, name);
+        }
     }
 
     // Also used directly as the `testHandler` for the ImgBB settings row
@@ -1442,7 +1492,6 @@
        GIF PANEL
     ========================================================== */
     const MIN_CLIP_GAP = 0.1;
-    const MAX_CLIP_LEN = 10;
     const MIN_CUT_GAP = 0.1; // min interior-cut width, and min kept segment either side of it
     const FILMSTRIP_MARGIN = 3;
     const FILMSTRIP_MIN_WINDOW = 12;
@@ -1479,6 +1528,7 @@
         let cutStart = null, cutEnd = null; // interior exclusion band; null = no cut
         let _filmstripWindow = null; // { windowStart, windowEnd } — sticky across renders
         let _filmstripZoomSpan = null; // manual zoom: desired visible span (s); null = auto
+        let lastLossyValue = 20; // remembered Compression slider value, restored below
 
         const panel = document.createElement('div');
         panel.id = 'sc-gif-panel';
@@ -1664,12 +1714,10 @@
                                     </select>
                                 </label>
                                 <label>Speed
-                                    <select id="sc-gif-fx-speed">
-                                        <option value="0.5">0.5x</option>
-                                        <option value="1" selected>1x</option>
-                                        <option value="1.5">1.5x</option>
-                                        <option value="2">2x</option>
-                                    </select>
+                                    <span class="sc-gif-fx-speed-wrap">
+                                        <input type="range" id="sc-gif-fx-speed" min="0.2" max="3" step="0.1" value="1">
+                                        <span id="sc-gif-fx-speed-val">1.0x</span>
+                                    </span>
                                 </label>
                             </div>
                             <div class="sc-gif-fx-row">
@@ -1890,6 +1938,10 @@
         }
         [fxModeSel, fxSpeedSel, fxFreezeInput, fxFadeOutInput, fxDeepFryOn, fxDeepFryAmt, fxVhsOn, fxVhsAmt, fxZsOn, fxZsMode, fxZsAmt]
             .forEach(el => el.addEventListener('input', syncFxState));
+        const fxSpeedVal = $('#sc-gif-fx-speed-val');
+        if (fxSpeedVal) {
+            fxSpeedSel.addEventListener('input', () => { fxSpeedVal.textContent = parseFloat(fxSpeedSel.value).toFixed(1) + 'x'; });
+        }
         [fxShadowOn, fxShadowAmt, tsFontSel, tsOutlineSel, tsOutlineColor, tsOutlineAmt, tsGradientSel,
          tsGlowOn, tsGlowAmt, tsGlowColor, tsPlateOn, tsPlateAmt, tsPlateColor, tsAnimSel, tsAnimAmt]
             .forEach(el => el.addEventListener('input', () => { syncFxState(); renderCaptionPreviews(); }));
@@ -2008,6 +2060,7 @@
                 fps: $('#sc-gif-fps').value,
                 width: $('#sc-gif-width').value,
                 aspect: aspectSel.value,
+                lossy: lastLossyValue,
             });
         }
         (function restoreGifPrefs() {
@@ -2023,6 +2076,9 @@
             setSel('#sc-gif-fps', p.fps);
             setSel('#sc-gif-width', p.width);
             setSel('#sc-gif-ts-font', p.font);
+            if (p.lossy != null && isFinite(p.lossy)) {
+                lastLossyValue = Math.max(0, Math.min(100, Math.round(p.lossy / 5) * 5));
+            }
             if (p.aspect != null && hasOption(aspectSel, p.aspect)) {
                 aspectSel.value = String(p.aspect);
                 applyThumbAspect();
@@ -2555,7 +2611,7 @@
             const step = (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? OVERVIEW_NUDGE_SEC_FAST : OVERVIEW_NUDGE_SEC);
             const dur = endT - startT;
             // Deliberately bypasses clampStart()/clampEnd() -- those can change
-            // dur (MAX_CLIP_LEN/MIN_CLIP_GAP), but a nudge must never alter the
+            // dur (MIN_CLIP_GAP), but a nudge must never alter the
             // clip's length, only its position.
             let newStart = startT + step;
             newStart = Math.max(0, Math.min(newStart, Math.max(0, vidDur - dur)));
@@ -2608,12 +2664,10 @@
             startT = Math.max(0, startT);
             if (isFinite(vidDur)) startT = Math.min(startT, vidDur - MIN_CLIP_GAP);
             if (endT - startT < MIN_CLIP_GAP) startT = Math.max(0, endT - MIN_CLIP_GAP);
-            if (endT - startT > MAX_CLIP_LEN) startT = endT - MAX_CLIP_LEN;
         };
         const clampEnd = () => {
             endT = Math.max(endT, startT + MIN_CLIP_GAP);
             if (isFinite(vidDur)) endT = Math.min(endT, vidDur);
-            if (endT - startT > MAX_CLIP_LEN) endT = startT + MAX_CLIP_LEN;
         };
 
         panel.querySelector('.sc-gif-marks').addEventListener('click', (e) => {
@@ -2668,8 +2722,7 @@
                 const filters = { deepFry: fx.deepFry, vhs: fx.vhs, zoomShake: fx.zoomShake };
                 setWork('Encoding GIF… (' + cap.frames.length + ' frames)');
                 let blob = await encodeGif({ ...cap, playback, filters }, p => setWork('Encoding GIF… ' + Math.round(p * 100) + '%'));
-                if (gifOptimizeEnabled()) setWork('Optimizing…');
-                blob = await maybeOptimizeGif(blob);
+                const rawBlob = blob; // pristine encode — Optimize always re-derives from this, never from a prior optimize pass
                 _gifResultUrl = URL.createObjectURL(blob);
                 const kb = Math.round(blob.size / 1024);
                 const slug = activeTitleSlug();
@@ -2679,6 +2732,12 @@
                 const hasImgbbKey = !!getKey(LS_IMGBB);
                 result.innerHTML =
                     `<img src="${_gifResultUrl}" alt="GIF preview">` +
+                    `<div id="sc-gif-optimize-row">` +
+                    `<label for="sc-gif-lossy">Compression</label>` +
+                    `<input type="range" id="sc-gif-lossy" min="0" max="100" step="5" value="${lastLossyValue}">` +
+                    `<span id="sc-gif-lossy-val">${lastLossyValue}</span>` +
+                    `<button id="sc-gif-optimize-btn" type="button">⚙ Optimize</button>` +
+                    `</div>` +
                     `<div id="sc-gif-actions">` +
                     `<a id="sc-gif-dl" href="${_gifResultUrl}" download="${_gifEscHtml(fnameBaseFor('') + '.gif')}">⬇ Download</a>` +
                     (hasImgbbKey ? `<button id="sc-gif-upload" type="button">☁ Upload</button>` : '') +
@@ -2688,13 +2747,43 @@
                 setStatus('Done.');
                 result.scrollIntoView({ block: 'nearest' });
 
+                const resultImg = result.querySelector('img');
                 const dlLink = $('#sc-gif-dl');
+                const sizeEl = $('#sc-gif-size');
                 const tagEl = $('#sc-gif-tag');
                 if (tagEl && dlLink) {
                     tagEl.addEventListener('input', () => {
                         dlLink.setAttribute('download', fnameBaseFor(sanitizeTag(tagEl.value)) + '.gif');
                     });
                 }
+
+                const lossyInput = $('#sc-gif-lossy');
+                const lossyVal = $('#sc-gif-lossy-val');
+                const optimizeBtn = $('#sc-gif-optimize-btn');
+                if (lossyInput && lossyVal) {
+                    lossyInput.addEventListener('input', () => { lossyVal.textContent = lossyInput.value; });
+                }
+                if (optimizeBtn) optimizeBtn.addEventListener('click', async () => {
+                    const lossy = parseInt(lossyInput.value, 10) || 0;
+                    lastLossyValue = lossy;
+                    writeGifPrefs({ lossy });
+                    optimizeBtn.disabled = true;
+                    const prevLabel = optimizeBtn.textContent;
+                    optimizeBtn.textContent = 'Optimizing…';
+                    try {
+                        blob = await optimizeGif(rawBlob, lossy);
+                        _revokeGifResult();
+                        _gifResultUrl = URL.createObjectURL(blob);
+                        if (resultImg) resultImg.src = _gifResultUrl;
+                        if (dlLink) dlLink.href = _gifResultUrl;
+                        if (sizeEl) sizeEl.textContent = Math.round(blob.size / 1024) + ' KB';
+                        optimizeBtn.textContent = '✓ Optimized';
+                    } catch (e) {
+                        optimizeBtn.textContent = prevLabel;
+                    } finally {
+                        optimizeBtn.disabled = false;
+                    }
+                });
 
                 const uploadBtn = hasImgbbKey ? $('#sc-gif-upload') : null;
                 if (uploadBtn) uploadBtn.addEventListener('click', async () => {
@@ -2865,9 +2954,6 @@
         order: 6,
     });
 
-    // Row relocated here from core per Task 8 of the companion-scripts-to-
-    // modules plan (was previously hardcoded in core since this module
-    // didn't exist yet). order: 4 reproduces the original shipped script's
-    // settings-row sequence (spellcheck=1, movielinks=2, autoembed=3,
-    // gifoptimize=4, lineuptiming=5).
-    scRegisterSetting({ id: 'sc-input-gifoptimize', group: 'gif-maker', label: 'Optimize GIFs before upload', note: 'Losslessly shrinks the file with gifsicle before Download/Upload — adds a couple seconds', key: LS_GIF_OPTIMIZE, defaultOn: true, order: 4 });
+    // The old "Optimize GIFs before upload" auto-toggle was replaced by the
+    // manual Compression slider + Optimize button in the result view (always
+    // available, no setting needed) — see the goBtn click handler above.

@@ -29,8 +29,7 @@
     const LS_CHAT_PANEL_W = 'sc_chat_panel_w';   // vw — horizontal-layout chat panel width
     const LS_CHAT_PANEL_H = 'sc_chat_panel_h';   // vh — vertical-layout chat panel height
     const LS_CHAT_TEXTAREA_H = 'sc_chat_textarea_h'; // px — manually resized chat entry height
-    const LS_GIF_OPTIMIZE = 'sc_gif_optimize'; // shared with cytube.gifmaker.user.js
-    const LS_GIF_PREFS = 'sc_gif_prefs'; // JSON {color, customColor, topSize, bottomSize, fps, width, aspect} --
+    const LS_GIF_PREFS = 'sc_gif_prefs'; // JSON {color, customColor, topSize, bottomSize, fps, width, aspect, lossy} --
                                           // remembered GIF-maker panel output settings. Caption text, caption
                                           // positions, trim marks and all Effects are deliberately NOT persisted.
     const LS_AUTOEMBED   = 'sc_autoembed_images';
@@ -47,5 +46,4 @@
     const spellCheckEnabled  = () => getKey(LS_SPELLCHECK)  !== 'off';
     const movieLinksEnabled  = () => getKey(LS_MOVIE_LINKS) !== 'off';
     const lineupTimingEnabled = () => getKey(LS_LINEUP_TIMING) === 'on'; // opt-in, unlike the toggles above
-    const gifOptimizeEnabled = () => getKey(LS_GIF_OPTIMIZE) !== 'off'; // default ON, like spellcheck/movielinks
     const autoEmbedEnabled  = () => getKey(LS_AUTOEMBED) !== 'off'; // default ON, like spellcheck/movielinks
