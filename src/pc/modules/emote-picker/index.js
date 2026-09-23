@@ -955,6 +955,8 @@
         if (img.dataset.scEmoteBanned === '1') return;
         const name = emoteNameOf(img);
         if (!name) return;
+        unfreezeEmote(img);
+        unhideEmote(img);
         img.dataset.scEmoteBanned = '1';
         img.style.display = 'none';
         const ph = document.createElement('span');
@@ -1008,6 +1010,61 @@
         sweepBannedEmotes();
     }
 
+    /* ---- per-message stop / hide ----
+       Session-only and per-<img> (nothing persisted, other copies
+       of the same emote are untouched) -- the lighter-weight
+       siblings of a ban. "Stop animation" paints the current frame
+       onto a <canvas> shown in the img's place: drawImage() works
+       on cross-origin emotes, only reading pixels back is blocked,
+       which we never do. "Hide" swaps in a click-to-show
+       placeholder like the ban one. The two are exclusive with
+       each other and with a ban, so img.style.display never has
+       more than one owner. */
+    function freezeEmote(img) {
+        if (img._scFrozen || !img.complete || !img.naturalWidth) return;
+        unhideEmote(img);
+        const w = img.offsetWidth || img.naturalWidth;
+        const h = img.offsetHeight || img.naturalHeight;
+        const dpr = window.devicePixelRatio || 1;
+        const c = document.createElement('canvas');
+        c.className = 'sc-emote-frozen';
+        c.width = Math.round(w * dpr);
+        c.height = Math.round(h * dpr);
+        c.style.width = w + 'px';
+        c.style.height = h + 'px';
+        c.title = emoteNameOf(img) + ' (stopped, click to play)';
+        c._scImg = img;
+        try { c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); } catch (e) { return; }
+        img.style.display = 'none';
+        img.insertAdjacentElement('afterend', c);
+        img._scFrozen = c;
+    }
+    function unfreezeEmote(img) {
+        if (!img._scFrozen) return;
+        img._scFrozen.remove();
+        img._scFrozen = null;
+        img.style.display = '';
+    }
+
+    function hideEmote(img) {
+        if (img._scHidden) return;
+        unfreezeEmote(img);
+        const ph = document.createElement('span');
+        ph.className = 'sc-emote-hidden';
+        ph.textContent = '👁';
+        ph.title = emoteNameOf(img) + ' (hidden, click to show)';
+        ph._scImg = img;
+        img.style.display = 'none';
+        img.insertAdjacentElement('afterend', ph);
+        img._scHidden = ph;
+    }
+    function unhideEmote(img) {
+        if (!img._scHidden) return;
+        img._scHidden.remove();
+        img._scHidden = null;
+        img.style.display = '';
+    }
+
     /* ---- right-click ban menu ----
        One transient <div>, same lightweight approach as core's
        chat-seek menu (12-playback-sync-and-seek.js). The
@@ -1024,20 +1081,30 @@
         document.removeEventListener('keydown', _scEmoteMenuKey, true);
         window.removeEventListener('scroll', closeEmoteMenu, true);
     }
-    function showEmoteMenu(x, y, name) {
+    // `img` is the specific chat <img> right-clicked (null when the
+    // click landed on a ban placeholder -- only un-ban applies there).
+    function showEmoteMenu(x, y, name, img) {
         closeEmoteMenu();
         const banned = _scBannedEmotes.has(name);
         const menu = document.createElement('div');
         menu.id = 'sc-emote-menu';
-        const item = document.createElement('button');
-        item.type = 'button';
-        item.className = 'sc-emote-menu-item';
-        item.textContent = (banned ? '↩ Un-ban ' : '🚫 Ban ') + name;
-        item.addEventListener('click', () => {
+        const addItem = (label, fn) => {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'sc-emote-menu-item';
+            item.textContent = label;
+            item.addEventListener('click', () => { fn(); closeEmoteMenu(); });
+            menu.appendChild(item);
+        };
+        if (img && !banned) {
+            if (img._scFrozen) addItem('▶ Resume animation', () => unfreezeEmote(img));
+            else if (!img._scHidden) addItem('⏸ Stop animation', () => freezeEmote(img));
+            if (img._scHidden) addItem('👁 Show again', () => unhideEmote(img));
+            else addItem('🙈 Hide (just this one)', () => hideEmote(img));
+        }
+        addItem((banned ? '↩ Un-ban ' : '🚫 Ban ') + name, () => {
             if (banned) unbanEmote(name); else banEmote(name);
-            closeEmoteMenu();
         });
-        menu.appendChild(item);
         document.body.appendChild(menu);
         _scEmoteMenuEl = menu;
 
@@ -1075,6 +1142,17 @@
             }
             .sc-emote-banned:hover .sc-emote-unban { opacity: 0.8 !important; }
             .sc-emote-unban:hover { opacity: 1 !important; color: #3ecbff !important; }
+            canvas.sc-emote-frozen { cursor: pointer !important; vertical-align: middle !important; }
+            .sc-emote-hidden {
+                display: inline-block !important;
+                padding: 0 4px !important;
+                font-size: 0.85em !important;
+                color: rgba(244,244,242,0.45) !important;
+                background: rgba(255,255,255,0.06) !important;
+                border-radius: 4px !important;
+                cursor: pointer !important;
+            }
+            .sc-emote-hidden:hover { color: #3ecbff !important; }
             #sc-emote-menu {
                 position: fixed !important; z-index: 30050 !important;
                 background: #0c0c0e !important;
@@ -1108,19 +1186,27 @@
             if (!buf) return;
             const t = e.target;
             if (!t || !t.closest) return;
-            const img = t.closest('img.channel-emote');
+            const temp = t.closest('canvas.sc-emote-frozen, .sc-emote-hidden');
+            const img = (temp && temp._scImg) || t.closest('img.channel-emote');
             const ph = t.closest('.sc-emote-banned');
-            let name = '';
-            if (img && buf.contains(img)) name = emoteNameOf(img);
+            let name = '', target = null;
+            if (img && buf.contains(img)) { name = emoteNameOf(img); target = img; }
             else if (ph && buf.contains(ph)) name = ph.dataset.emoteName || '';
             if (!name) return;
             e.preventDefault();
             e.stopImmediatePropagation(); // keep core's chat-seek menu from also opening
-            showEmoteMenu(e.clientX, e.clientY, name);
+            showEmoteMenu(e.clientX, e.clientY, name, target);
         }, true);
 
-        // Inline ↩ un-ban control on a placeholder.
+        // Inline ↩ un-ban control on a placeholder; left-click a
+        // stopped / hidden emote to bring it back.
         document.addEventListener('click', (e) => {
+            const temp = e.target && e.target.closest && e.target.closest('canvas.sc-emote-frozen, .sc-emote-hidden');
+            if (temp && temp._scImg) {
+                if (temp._scImg._scFrozen === temp) unfreezeEmote(temp._scImg);
+                else unhideEmote(temp._scImg);
+                return;
+            }
             const un = e.target && e.target.closest && e.target.closest('.sc-emote-unban');
             if (!un) return;
             const ph = un.closest('.sc-emote-banned');
