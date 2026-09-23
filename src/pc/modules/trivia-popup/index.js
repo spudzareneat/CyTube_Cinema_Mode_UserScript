@@ -56,6 +56,17 @@
     const TP_EXIT_ANIM_MS = 300;             // must match style.css's .sc-tp-out transition-duration
     const TP_MAX_FACT_LEN = 280;             // skip trivia entries longer than this -- too much text to pop up legibly
 
+    // Short-lived, single-slot record of trivia texts already popped for the
+    // current movie -- survives a page reload (buffering, script updates,
+    // etc.) so the queue rebuild in _tpResetForNewMovie() doesn't immediately
+    // re-show what was already seen. Sliding TTL (like subtitles' LS_SUB_CACHE):
+    // a still-in-progress movie keeps refreshing savedAt and stays remembered,
+    // an untouched one expires and stops mattering. One slot, not a per-movie
+    // map -- switching movies naturally invalidates the old entry via the id
+    // mismatch check below, no separate pruning needed.
+    const LS_TRIVIA_SEEN = 'sc_trivia_popup_seen';
+    const TRIVIA_SEEN_TTL_MS = 3 * 60 * 60 * 1000; // 3h, sliding
+
     // undefined (not null) so "no movie identified yet" (_currentImdbId === null)
     // still counts as a change exactly once, on the very first tick.
     let _tpLastImdbId = undefined;
@@ -189,6 +200,23 @@
         return items;
     }
 
+    function _tpLoadSeenTexts(id) {
+        let raw;
+        try { raw = JSON.parse(localStorage.getItem(LS_TRIVIA_SEEN)); } catch (e) { return []; }
+        if (!raw || raw.id !== id) return [];
+        if (!raw.savedAt || Date.now() - raw.savedAt > TRIVIA_SEEN_TTL_MS) return [];
+        return Array.isArray(raw.texts) ? raw.texts : [];
+    }
+
+    function _tpMarkSeen(id, text) {
+        if (!id) return;
+        const texts = _tpLoadSeenTexts(id);
+        if (!texts.includes(text)) texts.push(text);
+        try {
+            localStorage.setItem(LS_TRIVIA_SEEN, JSON.stringify({ id, texts, savedAt: Date.now() }));
+        } catch (e) {}
+    }
+
     function _tpShuffle(arr) {
         const a = arr.slice();
         for (let i = a.length - 1; i > 0; i--) {
@@ -211,7 +239,10 @@
 
         fetchImdbTrivia(id).then(async items => {
             if (id !== _tpLastImdbId) return; // movie changed again while this was in flight
-            const movieItems = (items || []).map(text => ({ text, byline: null }));
+            const seenTexts = _tpLoadSeenTexts(id);
+            const movieItems = (items || [])
+                .filter(text => !seenTexts.includes(text))
+                .map(text => ({ text, byline: null }));
 
             // Queue + schedule off the movie's own trivia immediately -- so a
             // slow or failed cast/crew enrichment burst below (up to ~9 extra
@@ -249,7 +280,13 @@
 
             const castCrewItems = await _tpBuildCastCrewItems(result.people, id, result.seriesTconst);
             if (id !== _tpLastImdbId) return; // movie changed again while this was in flight
-            if (!castCrewItems.length) return;
+            // Re-read seen texts (not the snapshot from above) -- a pop may
+            // have already fired for this movie while this fetch was in
+            // flight, and this guards a cast/crew fact that happens to
+            // duplicate movie trivia already shown from slipping through.
+            const seenTextsNow = _tpLoadSeenTexts(id);
+            const freshCastCrewItems = castCrewItems.filter(it => !seenTextsNow.includes(it.text));
+            if (!freshCastCrewItems.length) return;
 
             // Merge into whatever's left unconsumed (some movie trivia may
             // already have been popped by now) and reshuffle. If the queue
@@ -257,7 +294,7 @@
             // pop while this was in flight), un-exhaust and (re)start
             // scheduling -- otherwise a pop timer is already ticking and
             // will simply pick up these items when it fires.
-            _tpQueue = _tpShuffle(_tpQueue.concat(castCrewItems));
+            _tpQueue = _tpShuffle(_tpQueue.concat(freshCastCrewItems));
             if (_tpExhausted) { _tpExhausted = false; _tpScheduleNextPop(); }
         });
     }
@@ -297,6 +334,7 @@
         if (!fact) { _tpExhausted = true; return; } // ran out (including all-too-long) -- no more for this movie
 
         showTriviaBubble(fact);
+        _tpMarkSeen(_tpLastImdbId, fact.text);
         _tpScheduleNextPop(); // arms the next pop, or flips _tpExhausted if that was the last one
     }
 
@@ -704,7 +742,7 @@
         id: 'sc-input-triviapopup',
         group: 'trivia-popup',
         label: 'Pop-up trivia bubbles during movies (Experimental)',
-        note: 'Every few minutes, shows a small IMDb trivia fact somewhere in the bottom half of the screen for about 20 seconds, VH1 Pop-up Video style, then fades out. Off by default. Cycles without repeats and stops once all trivia for the current movie has been shown. While a movie is playing, a "Pop-ups" button in the top bar mutes or resumes the bubbles for the session.',
+        note: 'Every few minutes, shows a small IMDb trivia fact somewhere in the bottom half of the screen for about 20 seconds, VH1 Pop-up Video style, then fades out. Off by default. Cycles without repeats and stops once all trivia for the current movie has been shown -- this is remembered for a few hours, so a page reload (buffering, etc.) won\'t re-show facts you already saw. While a movie is playing, a "Pop-ups" button in the top bar mutes or resumes the bubbles for the session.',
         key: LS_TRIVIA_POPUP_ENABLED,
         defaultOn: false,
         order: 9,
