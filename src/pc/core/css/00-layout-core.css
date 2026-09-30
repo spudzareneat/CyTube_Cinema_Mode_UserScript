@@ -1,7 +1,13 @@
             /* ===== SHARED HIDDEN ELEMENTS ===== */
             nav.navbar, #drinkbarwrap, #announcements, #playlistrow,
             #resizewrap, footer, #userlisttoggle, #rightcontrols,
-            .modal-header, .timestamp, .modal-footer { display: none !important; }
+            .modal-header, .timestamp, .modal-footer,
+            /* CyTube's native chat panel header ("Chat", collapse arrow, etc).
+               We replace it with our own #sc-chat-header, but never hid the
+               original — it happened to render at zero visual impact in some
+               browsers but not others, overlaying #messagebuffer and eating
+               into its height when it does show. */
+            #chatheader { display: none !important; }
             body { background-image: none !important; background: #000 !important; }
             .modal, .popover, .dropdown-menu { z-index: 20001 !important; }
             .modal-dialog { margin: 0 auto !important; }
@@ -53,11 +59,25 @@
             /* Header — dark background fades out with gradient when dimmed */
             #videowrap-header {
                 border: 0 !important;
+                /* CyTube's own base stylesheet also sets `height: 30px` here
+                   (and a 1px border, already zeroed above). We size this bar
+                   from its own content/padding instead — leaving height
+                   unset lets that 30px slip through unopposed whenever the
+                   base stylesheet happens to win the cascade, adding a dark
+                   strip below the text before #sc-top-bar's gradient (which
+                   assumes a shorter header) starts. */
+                height: auto !important;
                 background: rgba(0,0,0,0.55) !important;
                 padding: 3px 8px !important;
                 font-size: 12px !important;
                 font-weight: 500 !important;
                 color: #fff !important;
+                /* Explicit left-align — don't rely on CyTube's own bootstrap
+                   `.pull-left { float:left }` to escape its base stylesheet's
+                   `text-align: center`. If that stylesheet fails to load
+                   (e.g. blocked by a browser's shield/ad-block layer), the
+                   float never fires and the title centers instead. */
+                text-align: left !important;
                 text-shadow: 0 1px 4px rgba(0,0,0,1), 0 0 10px rgba(0,0,0,0.9) !important;
                 letter-spacing: 0.01em !important;
                 white-space: nowrap !important;
@@ -535,7 +555,18 @@
                 background: transparent !important; color: white !important;
                 font-family: 'Inter', 'Roboto', system-ui, sans-serif !important;
                 font-size: 14px !important; overflow-y: auto !important; padding-bottom: 5px !important;
+                /* Explicit scrollbar — don't rely on CyTube's own stylesheet
+                   or the browser's dark-background heuristic to color this;
+                   some browsers skip both. A black thumb would be invisible
+                   against this panel's own black/transparent background, so
+                   use the same light translucent thumb as the other dark
+                   panels (#sc-users-panel, imdb-trivia list) instead. */
+                scrollbar-width: thin !important;
+                scrollbar-color: rgba(255,255,255,0.25) transparent !important;
             }
+            #messagebuffer::-webkit-scrollbar { width: 6px !important; }
+            #messagebuffer::-webkit-scrollbar-track { background: transparent !important; }
+            #messagebuffer::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.25) !important; border-radius: 6px !important; }
             #messagebuffer .sc-own-msg {
                 background: rgba(125, 200, 255, 0.07) !important;
                 margin: 0 -4px !important; padding: 1px 4px !important;
