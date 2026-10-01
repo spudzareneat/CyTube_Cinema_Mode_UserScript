@@ -183,15 +183,15 @@
                 right: 5px !important;
                 width: calc(var(--sc-chat-w) - 5px) !important;
                 z-index: 19000 !important;
-                background: rgba(10,10,20,0.95) !important;
-                border: 1px solid rgba(255,255,255,0.12) !important;
-                border-radius: 8px !important;
+                background: rgba(12,12,15,0.97) !important;
+                border: 1px solid rgba(255,255,255,0.08) !important;
+                border-radius: 12px !important;
                 padding: 12px 14px !important;
                 max-width: 100% !important;
                 color: rgba(255,255,255,0.88) !important;
                 font-size: 13px !important;
                 line-height: 1.5 !important;
-                box-shadow: 0 8px 32px rgba(0,0,0,0.7) !important;
+                box-shadow: 0 12px 28px rgba(0,0,0,0.6) !important;
                 font-family: system-ui, sans-serif !important;
             }
             body.sc-vertical #sc-poll-panel {

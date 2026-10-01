@@ -71,10 +71,10 @@
                 width: min(760px, calc(100vw - 10px)) !important;
                 height: 70vh !important;
                 z-index: 19000 !important;
-                background: rgba(10,10,20,0.95) !important;
-                border: 1px solid #aaaaaa !important;
-                border-radius: 8px !important;
-                box-shadow: 0 8px 32px rgba(0,0,0,0.7) !important;
+                background: rgba(12,12,15,0.97) !important;
+                border: 1px solid rgba(255,255,255,0.08) !important;
+                border-radius: 12px !important;
+                box-shadow: 0 12px 28px rgba(0,0,0,0.6) !important;
                 overflow: hidden !important;
                 padding: 0 !important;
                 display: none; /* JS sets 'flex' on open -- see flex-direction below */
