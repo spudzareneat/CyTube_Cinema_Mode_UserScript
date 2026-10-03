@@ -44,7 +44,7 @@ File: `src/pc/modules/trivia-popup/index.js` (+ `style.css` if icon sizing needs
 - On movie change, `_tpResetForNewMovie(id)` first GM-fetches the curated JSON (session cache, same pattern as `_triviaCache` in `imdb-trivia`). Valid → **timeline mode**, skipping the IMDb/cast/known-for queue (generator already folded those in). 404/error/bad schema → existing path unchanged.
 - Timeline mode driven by the existing `TP_POLL_MS` heartbeat reading `getPlayerVideoEl().currentTime` (core/12-playback-sync-and-seek.js): fire fact when playback crosses `t`, passes rank filter, not in seen-set (`_tpMarkSeen`/`_tpLoadSeenTexts` reused), and `currentTime ∈ [t, t+20s]`. Seek/late join skips past facts (no burst); pause delays. Existing gates (`popupTriviaEnabled`, `_tpMovieIsPlaying`, `document.hasFocus`) still apply.
 - `TP_ICONS` array → named map; `showTriviaBubble(fact)` uses `fact.icon` when present, random otherwise. Keep `_tpRandomPosition`, pop sound, mute button as-is.
-- Isolate loader + timeline scheduler + icon map into a self-contained block with no TV-UI dependencies (reused by the standalone in sub-project 3). Set a global flag (e.g. `window.__scTriviaPopupActive = true`) so the standalone can stand down.
+- Isolate loader + timeline scheduler + icon map into a self-contained block with no TV-UI dependencies (reused by the standalone in sub-project 3). Set a DOM marker (`data-sc-trivia-popup="1"` on `<html>` — not a window global, since Tampermonkey sandboxes each script's `window`) so the standalone can stand down.
 - Update the frequency setting's `note` to explain rank filtering for curated movies.
 - Tests: `scripts/test-trivia-timeline.mjs` (pattern of `scripts/test-emote-cache.mjs`) — crossing `t`, seek skip, rank filter, seen-dedup, schema validation/fallback. Live test with a hand-written sample JSON for one movie served from a branch of the new repo (or a gist) via a dev-only URL override.
 - Bump version in both `src/pc/manifest.json` and `docs/manifest.json` on every testing rebuild (Tampermonkey won't reload otherwise).
@@ -76,7 +76,7 @@ Tests: fixture tests for RSS parser, resolver, Totals matcher, validator (good /
 
 - Generated, not hand-maintained (README marks hand-maintained standalones legacy): new `scripts/build-popupvideo.mjs` reusing `scripts/assemble.mjs` to concat `src/popupvideo/shim.js` (provides `getKey`, `_escHtml`, `scRegisterInit`, no-op `scRegisterSetting`, chat-width helpers returning 0) + movie identity (`core/01-movie-identity.js` + title→IMDb lookup from `movie-title-links`), `imdbQuery`, `fetchImdbTrivia`, video/YouTube helpers, and the shared popup engine. Plan phase decides exact file set; split tangled functions into shared small files rather than copying.
 - Same timeline + IMDb fallback; bubbles placed over the video only; one floating "● Pop-ups" button (click = mute, gear = frequency) using the module's localStorage keys.
-- Stands down if `window.__scTriviaPopupActive` is set.
+- Stands down if `<html data-sc-trivia-popup="1">` is present.
 - Header: same `@match` list as other scripts, `@grant GM_xmlhttpRequest`, `@connect caching.graphql.imdb.com`, `@connect raw.githubusercontent.com`, update URLs. README install entry.
 
 ## Verification
