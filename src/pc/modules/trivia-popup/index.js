@@ -75,6 +75,7 @@
     let _tpPopTimer = null;
     let _tpBubbleEl = null;
     let _tpDismissTimer = null;
+    let _tpTimeline = null;  // curated facts (sorted by t) for the current movie; null = IMDb random-gap mode
 
     const TP_PERSON_TRIVIA_CAP = 3; // per person, after the TP_MAX_FACT_LEN length filter -- keeps 4 people's trivia from drowning out the movie's own facts
 
@@ -145,6 +146,44 @@
         return null;
     }
     // ── test marker: curated-timeline slice end ──
+
+    const TP_CURATED_BASE = 'https://raw.githubusercontent.com/spudzareneat/grindhouse-popup-trivia/main/data/';
+    // Dev/testing override: paste a whole curated JSON doc into this
+    // localStorage key (DevTools) and it's used for WHATEVER movie is playing
+    // (id check skipped). Sample: docs/popup-trivia-sample.json. Remove the
+    // key to go back to normal.
+    const LS_TRIVIA_CURATED_DEV = 'sc_trivia_curated_dev';
+    // Session cache keyed by tconst: facts array, or null for "not curated"
+    // (404 / invalid). Transient failures (network error, timeout, 5xx) are
+    // NOT cached, so the next time that movie comes up it's retried.
+    const _tpCuratedCache = {};
+
+    function fetchCuratedTrivia(id) {
+        if (!id) return Promise.resolve(null);
+        let devRaw = null;
+        try { devRaw = localStorage.getItem(LS_TRIVIA_CURATED_DEV); } catch (e) {}
+        if (devRaw) {
+            try { return Promise.resolve(tpValidateCurated(JSON.parse(devRaw), null)); }
+            catch (e) { return Promise.resolve(null); }
+        }
+        if (id in _tpCuratedCache) return Promise.resolve(_tpCuratedCache[id]);
+        return new Promise(resolve => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: TP_CURATED_BASE + encodeURIComponent(id) + '.json',
+                timeout: 10000,
+                onload: r => {
+                    const ok = r.status >= 200 && r.status < 300;
+                    let facts = null;
+                    if (ok) { try { facts = tpValidateCurated(JSON.parse(r.responseText), id); } catch (e) {} }
+                    if (ok || r.status === 404) _tpCuratedCache[id] = facts;
+                    resolve(facts);
+                },
+                onerror: () => resolve(null),
+                ontimeout: () => resolve(null),
+            });
+        });
+    }
 
     // Session-only, in-memory caches -- mirrors imdb-trivia's _triviaCache
     // pattern. Not persisted to localStorage; naturally reused across movies
@@ -303,8 +342,24 @@
         _tpDismissBubble(true); // hard-remove instantly -- stale trivia, no exit animation
         _tpQueue = [];
         _tpExhausted = false;
+        _tpTimeline = null;
         if (!id) return; // not identified yet; next poll tick will retry
 
+        // Curated file first. If there is one, the movie runs in timeline
+        // mode (_tpTimelineTick on the heartbeat) and none of the IMDb /
+        // cast / known-for fetching below happens -- the generator already
+        // folded those sources in. No file / bad file -> the IMDb path,
+        // unchanged.
+        fetchCuratedTrivia(id).then(facts => {
+            if (id !== _tpLastImdbId) return; // movie changed again while this was in flight
+            if (facts) { _tpTimeline = facts; return; }
+            _tpStartImdbQueue(id);
+        });
+    }
+
+    // The original (pre-curated) behavior: shuffled IMDb movie trivia plus
+    // cast/crew enrichment, popped at random per-viewer gaps.
+    function _tpStartImdbQueue(id) {
         fetchImdbTrivia(id).then(async items => {
             if (id !== _tpLastImdbId) return; // movie changed again while this was in flight
             const seenTexts = _tpLoadSeenTexts(id);
@@ -406,14 +461,37 @@
         _tpScheduleNextPop(); // arms the next pop, or flips _tpExhausted if that was the last one
     }
 
+    // Timeline mode's whole scheduler: every heartbeat, pop whichever curated
+    // fact is due at the current playback position. Frequency tier and the
+    // seen-set are re-read every tick (poll-per-use, like everything else
+    // here), so a mid-movie setting change applies on the next tick. A fact
+    // missed while blocked (paused, muted, window unfocused) for longer than
+    // its window is simply skipped -- the point is everyone seeing it at the
+    // same moment, not catching up.
+    function _tpTimelineTick() {
+        if (!_tpTimeline || _currentImdbId !== _tpLastImdbId) return;
+        if (!popupTriviaEnabled() || !_tpMovieIsPlaying() || !document.hasFocus()) return;
+        const v = getPlayerVideoEl();
+        const tier = getKey(LS_TRIVIA_POPUP_FREQUENCY) || TP_FREQUENCY_DEFAULT;
+        const fact = tpDueFact(_tpTimeline, v.currentTime, tier, _tpLoadSeenTexts(_tpLastImdbId));
+        if (!fact) return;
+        showTriviaBubble(fact);
+        _tpMarkSeen(_tpLastImdbId, fact.text);
+    }
+
     function _tpMoviePollTick() {
         if (_currentImdbId !== _tpLastImdbId) {
             _tpLastImdbId = _currentImdbId;
             _tpResetForNewMovie(_tpLastImdbId);
         }
+        _tpTimelineTick();
     }
 
     function triviaPopupBoot() {
+        // Lets the standalone Pop-up Video script (separate Tampermonkey
+        // sandbox, so a window global wouldn't be visible) stand down instead
+        // of showing a second stream of bubbles.
+        document.documentElement.setAttribute('data-sc-trivia-popup', '1');
         _tpMoviePollTick();
         setInterval(_tpMoviePollTick, TP_POLL_MS);
     }
@@ -847,8 +925,9 @@
         clearTimeout(_tpPopTimer); _tpPopTimer = null;
         if (_tpMuted) {
             _tpDismissBubble(true); // yank any bubble that's currently up
-        } else {
+        } else if (!_tpTimeline) {
             // Resume promptly rather than waiting out a full frequency gap.
+            // (Timeline mode needs nothing -- the heartbeat picks up the next due fact.)
             _tpPopTimer = setTimeout(_tpAttemptPop, 1500);
         }
         _tpPaintPopupBtn();
@@ -870,7 +949,7 @@
         id: 'sc-input-triviapopup',
         group: 'trivia-popup',
         label: 'Pop-up trivia bubbles during movies (Experimental)',
-        note: 'Every few minutes, shows a small IMDb trivia fact somewhere in the bottom half of the screen for about 20 seconds, VH1 Pop-up Video style, then fades out. Off by default. Cycles without repeats and stops once all trivia for the current movie has been shown -- this is remembered for a few hours, so a page reload (buffering, etc.) won\'t re-show facts you already saw. While a movie is playing, a "Pop-ups" button in the top bar mutes or resumes the bubbles for the session.',
+        note: 'Every few minutes, shows a small trivia fact for about 15 seconds, VH1 Pop-up Video style, then fades out. Off by default. Movies with curated Pop-up Video trivia get hand-picked, sourced facts timed to the movie -- everyone in the channel sees each one at the same moment. Other movies fall back to IMDb trivia at random intervals. Facts never repeat, and this is remembered for a few hours so a page reload won\'t re-show ones you already saw. While a movie is playing, a "Pop-ups" button in the top bar mutes or resumes the bubbles for the session.',
         key: LS_TRIVIA_POPUP_ENABLED,
         defaultOn: false,
         order: 9,
@@ -880,7 +959,7 @@
         type: 'select',
         group: 'trivia-popup',
         label: 'Pop-up trivia frequency',
-        note: 'How often a trivia bubble pops up during a movie.',
+        note: 'How often a trivia bubble pops up. For movies with curated trivia (timed for everyone), this picks how many of the timed facts you see: Frequent = all, Occasional = the better ones, Rare = only the best.',
         key: LS_TRIVIA_POPUP_FREQUENCY,
         options: [
             { value: 'frequent', label: 'Frequent (45s – 90s)' },
