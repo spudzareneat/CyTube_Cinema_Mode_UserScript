@@ -6,12 +6,84 @@
   "runtimeSec": 4680,
   "generatedAt": "2026-10-03T00:00:00Z",
   "facts": [
-    { "t": 70,  "rank": 1, "anchor": "spread", "text": "Herk Harvey shot this on a tiny budget while working as a director of industrial and educational films in Lawrence, Kansas.", "icon": "money", "byline": "SAMPLE", "source": { "type": "wikipedia" } },
-    { "t": 160, "rank": 3, "anchor": "spread", "text": "Rank-3 test fact: only visible on the Frequent setting.", "icon": "reel", "byline": "SAMPLE", "source": { "type": "imdb" } },
-    { "t": 250, "rank": 1, "anchor": "scene", "text": "The abandoned Saltair Pavilion on the Great Salt Lake is what inspired the film.", "icon": "camera", "byline": "SAMPLE", "source": { "type": "wikipedia" } },
-    { "t": 340, "rank": 2, "anchor": "spread", "text": "Harvey also plays the pale, grinning Man who stalks Mary through the film.", "icon": "star", "byline": "SAMPLE", "source": { "type": "imdb" } },
-    { "t": 430, "rank": 1, "anchor": "spread", "text": "George A. Romero cited the film's ghoulish look as an influence on Night of the Living Dead.", "icon": "link", "byline": "SAMPLE", "source": { "type": "wikipedia" } },
-    { "t": 520, "rank": 2, "anchor": "spread", "text": "Drive-In Totals: Nineteen dead bodies. Approximately 15 zombies. Church organ fu. Zombie fu.", "icon": "joebob", "byline": "Joe Bob Briggs (SAMPLE)", "source": { "type": "driveintotals" } },
-    { "t": 610, "rank": 1, "anchor": "spread", "text": "Unknown-icon test fact: should get a random icon.", "icon": "not-a-real-icon", "byline": "SAMPLE", "source": { "type": "imdb" } }
+    {
+      "t": 70,
+      "rank": 1,
+      "anchor": "spread",
+      "text": "Herk Harvey shot this on a tiny budget while working as a director of industrial and educational films in Lawrence, Kansas.",
+      "icon": "money",
+      "byline": "SAMPLE",
+      "source": {
+        "type": "wikipedia"
+      }
+    },
+    {
+      "t": 160,
+      "rank": 3,
+      "anchor": "spread",
+      "text": "Rank-3 test fact: only visible on the Frequent setting.",
+      "icon": "reel",
+      "byline": "SAMPLE",
+      "source": {
+        "type": "imdb"
+      }
+    },
+    {
+      "t": 250,
+      "rank": 1,
+      "anchor": "scene",
+      "text": "The abandoned Saltair Pavilion on the Great Salt Lake is what inspired the film.",
+      "icon": "camera",
+      "byline": "SAMPLE",
+      "source": {
+        "type": "wikipedia"
+      }
+    },
+    {
+      "t": 340,
+      "rank": 2,
+      "anchor": "spread",
+      "text": "Harvey also plays the pale, grinning Man who stalks Mary through the film.",
+      "icon": "star",
+      "byline": "SAMPLE",
+      "source": {
+        "type": "imdb"
+      },
+      "person": "nm0367547",
+      "image": "https://m.media-amazon.com/images/M/MV5BOGRmNTViNGUtYzgyMS00MTYwLTg0MjItMGM0Nzk3MjhkYjRlXkEyXkFqcGc@._V1_QL75_UX120_CR0,0,120,120_.jpg"
+    },
+    {
+      "t": 430,
+      "rank": 1,
+      "anchor": "spread",
+      "text": "George A. Romero cited the film's ghoulish look as an influence on Night of the Living Dead.",
+      "icon": "link",
+      "byline": "SAMPLE",
+      "source": {
+        "type": "wikipedia"
+      }
+    },
+    {
+      "t": 520,
+      "rank": 2,
+      "anchor": "spread",
+      "text": "Drive-In Totals: Nineteen dead bodies. Approximately 15 zombies. Church organ fu. Zombie fu.",
+      "icon": "joebob",
+      "byline": "Joe Bob Briggs (SAMPLE)",
+      "source": {
+        "type": "driveintotals"
+      }
+    },
+    {
+      "t": 610,
+      "rank": 1,
+      "anchor": "spread",
+      "text": "Unknown-icon test fact: should get a random icon.",
+      "icon": "not-a-real-icon",
+      "byline": "SAMPLE",
+      "source": {
+        "type": "imdb"
+      }
+    }
   ]
 }

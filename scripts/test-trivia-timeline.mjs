@@ -43,6 +43,15 @@ const F = (t, text, rank = 1, icon = 'reel', byline = null) => ({ t, rank, ancho
 eq('valid doc -> sorted normalized facts',
     tpValidateCurated(doc([F(300, 'b'), F(120, 'a', 2, 'skull', 'Joe Bob')]), 'tt0055830'),
     [{ t: 120, rank: 2, anchor: 'spread', text: 'a', icon: 'skull', byline: 'Joe Bob' }, { t: 300, rank: 1, anchor: 'spread', text: 'b', icon: 'reel', byline: null }]);
+eq('headshot image kept only from the IMDb image CDN',
+    tpValidateCurated(doc([
+        { ...F(100, 'ok'), image: 'https://m.media-amazon.com/images/M/abc@._V1_QL75_UX120_CR0,0,120,120_.jpg' },
+        { ...F(200, 'evil'), image: 'https://evil.example/images/x.jpg' },
+        { ...F(300, 'sneaky'), image: 'https://m.media-amazon.com.evil.example/images/x.jpg' },
+        { ...F(400, 'js'), image: 'javascript:alert(1)' },
+        { ...F(500, 'none') },
+    ]), 'tt0055830').map(f => f.image),
+    ['https://m.media-amazon.com/images/M/abc@._V1_QL75_UX120_CR0,0,120,120_.jpg', null, null, null, null]);
 eq('anchor scene kept, anything else -> spread',
     tpValidateCurated(doc([{ ...F(100, 'x'), anchor: 'scene' }, { ...F(200, 'y'), anchor: 'weird' }]), 'tt0055830').map(f => f.anchor), ['scene', 'spread']);
 eq('null doc -> null', tpValidateCurated(null, 'tt0055830'), null);

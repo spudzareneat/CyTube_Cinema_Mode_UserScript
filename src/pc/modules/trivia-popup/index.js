@@ -99,6 +99,15 @@
     const TP_TIMELINE_WINDOW_S = 20;
     const TP_CURATED_MAX_LEN = 280; // same legibility cap as TP_MAX_FACT_LEN; the generator itself targets 200
 
+    // Person facts may carry an IMDb headshot (generator-attached, from its own
+    // IMDb lookup). Only ever load images from IMDb's image CDN, and only URLs
+    // made of plain path characters -- the file is public data, so a hand edit
+    // or a bad commit must not be able to point the badge anywhere else.
+    const TP_IMAGE_URL_RE = /^https:\/\/m\.media-amazon\.com\/images\/[A-Za-z0-9@._,%\/-]+$/;
+    function tpSafeImageUrl(url) {
+        return typeof url === 'string' && url.length < 500 && TP_IMAGE_URL_RE.test(url);
+    }
+
     // Returns the doc's usable facts, normalized and sorted by t, or null when
     // the doc is unusable (wrong schema / wrong movie / nothing valid) so the
     // caller falls back to IMDb trivia. expectedId null skips the id check
@@ -121,6 +130,7 @@
                 text,
                 icon: typeof f.icon === 'string' ? f.icon : null,
                 byline: typeof f.byline === 'string' && f.byline.trim() ? f.byline.trim() : null,
+                ...(tpSafeImageUrl(f.image) ? { image: f.image } : {}),
             });
         }
         if (!facts.length) return null;
@@ -898,6 +908,31 @@
         } catch (e) {}
     }
 
+    // Lays a circle-cropped IMDb headshot over the badge's icon, then moves the
+    // red ring back on top. Built with DOM APIs (URL via setAttribute, never
+    // interpolated into markup). If the image fails to load it removes itself,
+    // and the icon underneath is what shows -- no separate fallback path.
+    function _tpAddHeadshot(svg, url) {
+        if (!svg) return;
+        const NS = 'http://www.w3.org/2000/svg';
+        const clip = document.createElementNS(NS, 'clipPath');
+        clip.setAttribute('id', 'sc-tp-headshot-clip');
+        const disc = document.createElementNS(NS, 'circle');
+        disc.setAttribute('cx', '30'); disc.setAttribute('cy', '30'); disc.setAttribute('r', '25.5');
+        clip.appendChild(disc);
+        const img = document.createElementNS(NS, 'image');
+        img.setAttribute('href', url);
+        img.setAttribute('x', '4.5'); img.setAttribute('y', '4.5');
+        img.setAttribute('width', '51'); img.setAttribute('height', '51');
+        img.setAttribute('preserveAspectRatio', 'xMidYMid slice');
+        img.setAttribute('clip-path', 'url(#sc-tp-headshot-clip)');
+        img.addEventListener('error', () => img.remove());
+        svg.insertBefore(clip, svg.firstChild);
+        svg.appendChild(img);
+        const ring = svg.querySelector('circle[stroke]');
+        if (ring) svg.appendChild(ring); // ring above the photo
+    }
+
     function showTriviaBubble(fact) {
         _tpDismissBubble(true); // no double-stacking if one was somehow still up
         _tpPlayPopSound();
@@ -913,6 +948,7 @@
                 ${icon}
             </svg>
             <div id="sc-tp-text">${_escHtml(fact.text)}${bylineHtml}</div>`;
+        if (tpSafeImageUrl(fact.image)) _tpAddHeadshot(_tpBubbleEl.querySelector('#sc-tp-tail'), fact.image);
 
         // Append first (still invisible -- opacity:0 until .sc-tp-in below)
         // so its real rendered width/height can be measured, then use that
