@@ -23,8 +23,8 @@ if (s === -1 || e === -1 || e < s) {
     process.exit(1);
 }
 // eslint-disable-next-line no-new-func
-const { tpValidateCurated, tpRankAllowed, tpDueFact, TP_TIMELINE_WINDOW_S } = new Function(
-    `${src.slice(s, e)}\n;return { tpValidateCurated, tpRankAllowed, tpDueFact, TP_TIMELINE_WINDOW_S };`
+const { tpValidateCurated, tpRankAllowed, tpDueFact, tpCatchUpFact, TP_TIMELINE_WINDOW_S } = new Function(
+    `${src.slice(s, e)}\n;return { tpValidateCurated, tpRankAllowed, tpDueFact, tpCatchUpFact, TP_TIMELINE_WINDOW_S };`
 )();
 
 let failed = 0;
@@ -42,7 +42,9 @@ const F = (t, text, rank = 1, icon = 'reel', byline = null) => ({ t, rank, ancho
 
 eq('valid doc -> sorted normalized facts',
     tpValidateCurated(doc([F(300, 'b'), F(120, 'a', 2, 'skull', 'Joe Bob')]), 'tt0055830'),
-    [{ t: 120, rank: 2, text: 'a', icon: 'skull', byline: 'Joe Bob' }, { t: 300, rank: 1, text: 'b', icon: 'reel', byline: null }]);
+    [{ t: 120, rank: 2, anchor: 'spread', text: 'a', icon: 'skull', byline: 'Joe Bob' }, { t: 300, rank: 1, anchor: 'spread', text: 'b', icon: 'reel', byline: null }]);
+eq('anchor scene kept, anything else -> spread',
+    tpValidateCurated(doc([{ ...F(100, 'x'), anchor: 'scene' }, { ...F(200, 'y'), anchor: 'weird' }]), 'tt0055830').map(f => f.anchor), ['scene', 'spread']);
 eq('null doc -> null', tpValidateCurated(null, 'tt0055830'), null);
 eq('wrong schema -> null', tpValidateCurated(doc([F(1, 'a')], { schema: 2 }), 'tt0055830'), null);
 eq('id mismatch -> null', tpValidateCurated(doc([F(100, 'a')]), 'tt9999999'), null);
@@ -83,6 +85,26 @@ eq('rank filter: frequent shows rank-3 fact', tpDueFact(facts, 205, 'frequent', 
 eq('seen (reload inside window) -> null', tpDueFact(facts, 105, 'frequent', ['r1']), null);
 eq('NaN currentTime -> null', tpDueFact(facts, NaN, 'frequent', []), null);
 eq('null facts -> null', tpDueFact(null, 100, 'frequent', []), null);
+
+/* ---- tpCatchUpFact (late join / seek-ahead catch-up) ---------------------- */
+
+const S = (t, text, rank = 1) => ({ ...F(t, text, rank), anchor: 'scene' });
+const cu = tpValidateCurated(doc([F(100, 'a'), S(200, 'scene-only'), F(300, 'b', 2), F(400, 'c'), F(1000, 'future')]), 'tt0055830');
+eq('late join: best-ranked earliest missed spread fact', tpCatchUpFact(cu, 600, 'frequent', [], 100)?.text, 'a');
+eq('already-seen missed fact skipped -> next best', tpCatchUpFact(cu, 600, 'frequent', ['a'], 100)?.text, 'c');
+eq('rank 1 beats an earlier rank 2', tpCatchUpFact(cu, 600, 'frequent', ['a', 'c'], 100)?.text, 'b');
+eq('scene facts never caught up', tpCatchUpFact(cu, 600, 'frequent', ['a', 'b', 'c'], 100), null);
+eq('too soon after the last bubble -> null', tpCatchUpFact(cu, 600, 'frequent', [], 30), null);
+eq('timed fact less than 60s away -> null (keep the gap clear)', tpCatchUpFact(cu, 950, 'frequent', [], 100), null);
+eq('a fact still inside its due window is not "missed"', tpCatchUpFact(cu, 110, 'frequent', [], 100), null);
+eq('rank filter applies to catch-ups', tpCatchUpFact(cu, 600, 'rare', ['a', 'c'], 100), null);
+eq('upcoming timed fact filtered out by rank does not block catch-up',
+    tpCatchUpFact(tpValidateCurated(doc([F(100, 'a'), F(620, 'r3', 3)]), 'tt0055830'), 600, 'rare', [], 100)?.text, 'a');
+eq('upcoming timed fact already seen does not block catch-up',
+    tpCatchUpFact(tpValidateCurated(doc([F(100, 'a'), F(620, 'z')]), 'tt0055830'), 600, 'frequent', ['z'], 100)?.text, 'a');
+eq('nothing missed at movie start -> null', tpCatchUpFact(cu, 50, 'frequent', [], 100), null);
+eq('NaN currentTime -> null', tpCatchUpFact(cu, NaN, 'frequent', [], 100), null);
+eq('null facts -> null', tpCatchUpFact(null, 600, 'frequent', [], 100), null);
 
 if (failed) { console.error(`\n${failed} assertion(s) failed`); process.exit(1); }
 console.log('PASS: trivia-popup — curated timeline helpers, all assertions green');

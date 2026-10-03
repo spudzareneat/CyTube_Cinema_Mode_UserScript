@@ -76,6 +76,8 @@
     let _tpBubbleEl = null;
     let _tpDismissTimer = null;
     let _tpTimeline = null;  // curated facts (sorted by t) for the current movie; null = IMDb random-gap mode
+    let _tpLastPopAt = 0;    // Date.now() of the last timeline bubble -- spaces out catch-up pops
+    let _tpCuratedRecheckAt = 0; // when to look for a curated file again while the movie has none
 
     const TP_PERSON_TRIVIA_CAP = 3; // per person, after the TP_MAX_FACT_LEN length filter -- keeps 4 people's trivia from drowning out the movie's own facts
 
@@ -115,6 +117,7 @@
             facts.push({
                 t: f.t,
                 rank: [1, 2, 3].includes(f.rank) ? f.rank : 2,
+                anchor: f.anchor === 'scene' ? 'scene' : 'spread',
                 text,
                 icon: typeof f.icon === 'string' ? f.icon : null,
                 byline: typeof f.byline === 'string' && f.byline.trim() ? f.byline.trim() : null,
@@ -145,6 +148,27 @@
         }
         return null;
     }
+
+    // Catch-up for viewers who joined late or skipped ahead: facts whose due
+    // window has already passed are shown in the quiet gaps between timed
+    // facts, instead of being lost. Never crowds the synced timeline -- only
+    // when the last bubble was >= TP_CATCHUP_MIN_GAP_S ago and the next timed
+    // fact this viewer will actually see is >= TP_CATCHUP_CLEAR_S away.
+    // "scene" facts are excluded (they point at something on screen at that
+    // moment, meaningless later). Best rank first, then earliest. Missed facts
+    // are always from earlier in the movie, so this can't spoil anything.
+    const TP_CATCHUP_MIN_GAP_S = 45;
+    const TP_CATCHUP_CLEAR_S = 60;
+    function tpCatchUpFact(facts, currentTime, tierName, seenTexts, secsSinceLastPop) {
+        if (!Array.isArray(facts) || typeof currentTime !== 'number' || !Number.isFinite(currentTime)) return null;
+        if (!(secsSinceLastPop >= TP_CATCHUP_MIN_GAP_S)) return null;
+        const shows = f => tpRankAllowed(f.rank, tierName) && !seenTexts.includes(f.text);
+        const next = facts.find(f => f.t + TP_TIMELINE_WINDOW_S >= currentTime && shows(f));
+        if (next && next.t - currentTime < TP_CATCHUP_CLEAR_S) return null;
+        const missed = facts.filter(f => f.t + TP_TIMELINE_WINDOW_S < currentTime && f.anchor !== 'scene' && shows(f));
+        if (!missed.length) return null;
+        return missed.slice().sort((a, b) => a.rank - b.rank || a.t - b.t)[0];
+    }
     // ── test marker: curated-timeline slice end ──
 
     const TP_CURATED_BASE = 'https://raw.githubusercontent.com/spudzareneat/grindhouse-popup-trivia/main/data/';
@@ -153,9 +177,13 @@
     // (id check skipped). Sample: docs/popup-trivia-sample.json. Remove the
     // key to go back to normal.
     const LS_TRIVIA_CURATED_DEV = 'sc_trivia_curated_dev';
-    // Session cache keyed by tconst: facts array, or null for "not curated"
-    // (404 / invalid). Transient failures (network error, timeout, 5xx) are
-    // NOT cached, so the next time that movie comes up it's retried.
+    // Session cache keyed by tconst: { facts, at }. A found file is kept for
+    // the session; "not curated" (404 / invalid) expires after
+    // TP_CURATED_RECHECK_MS, because the generator publishes files during the
+    // weekend and a movie that started before its file landed should pick it
+    // up (see _tpRecheckCurated). Transient failures (network error, timeout,
+    // 5xx) are not cached at all.
+    const TP_CURATED_RECHECK_MS = 10 * 60 * 1000;
     const _tpCuratedCache = {};
 
     function fetchCuratedTrivia(id) {
@@ -167,7 +195,8 @@
             try { return Promise.resolve(tpValidateCurated(JSON.parse(devRaw), null)); }
             catch (e) { return Promise.resolve(null); }
         }
-        if (id in _tpCuratedCache) return Promise.resolve(_tpCuratedCache[id]);
+        const cached = _tpCuratedCache[id];
+        if (cached && (cached.facts || Date.now() - cached.at < TP_CURATED_RECHECK_MS)) return Promise.resolve(cached.facts);
         return new Promise(resolve => {
             GM_xmlhttpRequest({
                 method: 'GET',
@@ -177,7 +206,7 @@
                     const ok = r.status >= 200 && r.status < 300;
                     let facts = null;
                     if (ok) { try { facts = tpValidateCurated(JSON.parse(r.responseText), id); } catch (e) {} }
-                    if (ok || r.status === 404) _tpCuratedCache[id] = facts;
+                    if (ok || r.status === 404) _tpCuratedCache[id] = { facts, at: Date.now() };
                     resolve(facts);
                 },
                 onerror: () => resolve(null),
@@ -344,6 +373,10 @@
         _tpQueue = [];
         _tpExhausted = false;
         _tpTimeline = null;
+        // First catch-up no sooner than TP_CATCHUP_MIN_GAP_S after the movie is
+        // identified, so a late joiner isn't greeted by a bubble instantly.
+        _tpLastPopAt = Date.now();
+        _tpCuratedRecheckAt = Date.now() + TP_CURATED_RECHECK_MS;
         if (!id) return; // not identified yet; next poll tick will retry
 
         // Curated file first. If there is one, the movie runs in timeline
@@ -425,7 +458,9 @@
 
     function _tpScheduleNextPop() {
         clearTimeout(_tpPopTimer);
-        if (_tpExhausted || !_tpQueue.length) { _tpExhausted = true; return; }
+        // A curated file can arrive mid-movie (_tpRecheckCurated) while an IMDb
+        // enrichment fetch is still in flight -- the timeline owns the movie then.
+        if (_tpTimeline || _tpExhausted || !_tpQueue.length) { _tpExhausted = true; return; }
         const tier = _tpFrequencyTier();
         const gap = tier.min + Math.random() * (tier.max - tier.min);
         _tpPopTimer = setTimeout(_tpAttemptPop, gap);
@@ -439,6 +474,7 @@
 
     function _tpAttemptPop() {
         if (_currentImdbId !== _tpLastImdbId) return; // stale timer from a since-reset movie
+        if (_tpTimeline) return; // switched to a curated timeline since this timer was armed
 
         if (!popupTriviaEnabled() || !_tpMovieIsPlaying() || !document.hasFocus()) {
             // Blocked (paused / YouTube / setting off / window not focused),
@@ -463,22 +499,40 @@
     }
 
     // Timeline mode's whole scheduler: every heartbeat, pop whichever curated
-    // fact is due at the current playback position. Frequency tier and the
-    // seen-set are re-read every tick (poll-per-use, like everything else
-    // here), so a mid-movie setting change applies on the next tick. A fact
-    // missed while blocked (paused, muted, window unfocused) for longer than
-    // its window is simply skipped -- the point is everyone seeing it at the
-    // same moment, not catching up.
+    // fact is due at the current playback position (synced for everyone);
+    // otherwise, in the gaps, catch up on a fact this viewer missed by joining
+    // late, skipping ahead, or being paused/unfocused past its window
+    // (tpCatchUpFact). Frequency tier and the seen-set are re-read every tick
+    // (poll-per-use, like everything else here), so a mid-movie setting change
+    // applies on the next tick.
     function _tpTimelineTick() {
         if (!_tpTimeline || _currentImdbId !== _tpLastImdbId) return;
         if (!popupTriviaEnabled() || !_tpMovieIsPlaying() || !document.hasFocus()) return;
         if (_tpBubbleEl) return; // let the current bubble finish; the next fact's 20s window usually outlasts it
         const v = getPlayerVideoEl();
         const tier = getKey(LS_TRIVIA_POPUP_FREQUENCY) || TP_FREQUENCY_DEFAULT;
-        const fact = tpDueFact(_tpTimeline, v.currentTime, tier, _tpLoadSeenTexts(_tpLastImdbId));
+        const seen = _tpLoadSeenTexts(_tpLastImdbId);
+        const fact = tpDueFact(_tpTimeline, v.currentTime, tier, seen)
+            || tpCatchUpFact(_tpTimeline, v.currentTime, tier, seen, (Date.now() - _tpLastPopAt) / 1000);
         if (!fact) return;
         showTriviaBubble(fact);
         _tpMarkSeen(_tpLastImdbId, fact.text);
+        _tpLastPopAt = Date.now();
+    }
+
+    // The movie has no curated file (yet). The generator publishes during the
+    // weekend, so look again every TP_CURATED_RECHECK_MS; when one appears,
+    // switch from IMDb random gaps to the timeline -- facts already passed
+    // then surface through catch-up.
+    function _tpRecheckCurated(id) {
+        _tpCuratedRecheckAt = Date.now() + TP_CURATED_RECHECK_MS;
+        fetchCuratedTrivia(id).then(facts => {
+            if (!facts || id !== _tpLastImdbId || _tpTimeline) return;
+            clearTimeout(_tpPopTimer); _tpPopTimer = null;
+            _tpQueue = [];
+            _tpExhausted = true;
+            _tpTimeline = facts;
+        });
     }
 
     function _tpMoviePollTick() {
@@ -486,6 +540,7 @@
             _tpLastImdbId = _currentImdbId;
             _tpResetForNewMovie(_tpLastImdbId);
         }
+        if (!_tpTimeline && _tpLastImdbId && Date.now() >= _tpCuratedRecheckAt) _tpRecheckCurated(_tpLastImdbId);
         _tpTimelineTick();
     }
 
@@ -951,7 +1006,7 @@
         id: 'sc-input-triviapopup',
         group: 'trivia-popup',
         label: 'Pop-up trivia bubbles during movies (Experimental)',
-        note: 'Every few minutes, shows a small trivia fact for about 15 seconds, VH1 Pop-up Video style, then fades out. Off by default. Movies with curated Pop-up Video trivia get hand-picked, sourced facts timed to the movie -- everyone in the channel sees each one at the same moment. Other movies fall back to IMDb trivia at random intervals. Facts never repeat, and this is remembered for a few hours so a page reload won\'t re-show ones you already saw. While a movie is playing, a "Pop-ups" button in the top bar mutes or resumes the bubbles for the session.',
+        note: 'Every few minutes, shows a small trivia fact for about 15 seconds, VH1 Pop-up Video style, then fades out. Off by default. Movies with curated Pop-up Video trivia get hand-picked, sourced facts timed to the movie -- everyone in the channel sees each one at the same moment; join late and the ones you missed show up in the gaps. Other movies fall back to IMDb trivia at random intervals. Facts never repeat, and this is remembered for a few hours so a page reload won\'t re-show ones you already saw. While a movie is playing, a "Pop-ups" button in the top bar mutes or resumes the bubbles for the session.',
         key: LS_TRIVIA_POPUP_ENABLED,
         defaultOn: false,
         order: 9,
