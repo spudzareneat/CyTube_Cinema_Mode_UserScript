@@ -424,12 +424,15 @@
 
     // Corner-badge glyphs -- grindhouse-flavored, drawn from scratch (no
     // copied assets), black/red/bone palette. Each entry is just the glyph
-    // markup; showTriviaBubble() wraps whichever one gets picked in the
-    // shared black-circle-plus-red-ring backdrop below, so adding another
-    // variant later is a one-line addition to this array.
-    const TP_ICONS = [
+    // markup; showTriviaBubble() wraps it in the shared black-circle-plus-
+    // red-ring backdrop. Keyed by name because curated facts pick their own
+    // icon (`fact.icon`) -- the key set is a contract with the generator repo
+    // (pinned by scripts/test-trivia-icons.mjs), so only ever ADD keys.
+    // IMDb-fallback facts carry no icon and get a random one.
+    // ── test marker: icon-map slice start ──
+    const TP_ICON_SVGS = {
         // Skull + blood drip
-        `<path d="M30 10 C19 10 12 18 12 27 C12 33 15 38 19 41 L19 47 L24 47 L24 43 L27 43 L27 47 L33 47 L33 43 L36 43 L36 47 L41 47 L41 41 C45 38 48 33 48 27 C48 18 41 10 30 10 Z"
+        skull: `<path d="M30 10 C19 10 12 18 12 27 C12 33 15 38 19 41 L19 47 L24 47 L24 43 L27 43 L27 47 L33 47 L33 43 L36 43 L36 47 L41 47 L41 41 C45 38 48 33 48 27 C48 18 41 10 30 10 Z"
               fill="#f4f1ea" stroke="#000" stroke-width="2.5" stroke-linejoin="round"/>
          <circle cx="22" cy="26" r="5" fill="#000"/>
          <circle cx="38" cy="26" r="5" fill="#000"/>
@@ -437,13 +440,13 @@
          <path d="M39 16 C39 16 43 22 41 27 C40 30 36 30 35 27 C33 23 39 16 39 16 Z"
               fill="#c81d25" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/>`,
         // Cracked tombstone
-        `<path d="M14 54 V30 C14 16 22 8 30 8 C38 8 46 16 46 30 V54 Z"
+        tombstone: `<path d="M14 54 V30 C14 16 22 8 30 8 C38 8 46 16 46 30 V54 Z"
               fill="#f4f1ea" stroke="#000" stroke-width="2.5" stroke-linejoin="round"/>
          <path d="M30 12 L26 26 L34 30 L28 44 L33 54" stroke="#000" stroke-width="2" fill="none"/>
          <line x1="30" y1="18" x2="30" y2="26" stroke="#000" stroke-width="2"/>
          <line x1="26" y1="21" x2="34" y2="21" stroke="#000" stroke-width="2"/>`,
         // Film reel
-        `<circle cx="30" cy="30" r="18" fill="#f4f1ea" stroke="#000" stroke-width="2.5"/>
+        reel: `<circle cx="30" cy="30" r="18" fill="#f4f1ea" stroke="#000" stroke-width="2.5"/>
          <circle cx="30" cy="30" r="4" fill="#000"/>
          <circle cx="30" cy="16" r="4.5" fill="#000"/>
          <circle cx="30" cy="44" r="4.5" fill="#000"/>
@@ -455,20 +458,20 @@
         // --- Sci-fi (toxic-green #39d98a accent) ---
 
         // Flying saucer
-        `<ellipse cx="30" cy="33" rx="22" ry="8" fill="#d8d8d8" stroke="#000" stroke-width="2.5"/>
+        saucer: `<ellipse cx="30" cy="33" rx="22" ry="8" fill="#d8d8d8" stroke="#000" stroke-width="2.5"/>
          <ellipse cx="30" cy="24" rx="11" ry="9" fill="#f4f1ea" stroke="#000" stroke-width="2.5"/>
          <circle cx="18" cy="36" r="2.2" fill="#39d98a" stroke="#000" stroke-width="1.2"/>
          <circle cx="30" cy="38" r="2.2" fill="#39d98a" stroke="#000" stroke-width="1.2"/>
          <circle cx="42" cy="36" r="2.2" fill="#39d98a" stroke="#000" stroke-width="1.2"/>`,
         // Bug-eyed alien head
-        `<path d="M30 6 C14 6 6 20 8 32 C10 44 20 54 30 54 C40 54 50 44 52 32 C54 20 46 6 30 6 Z"
+        alien: `<path d="M30 6 C14 6 6 20 8 32 C10 44 20 54 30 54 C40 54 50 44 52 32 C54 20 46 6 30 6 Z"
               fill="#f4f1ea" stroke="#000" stroke-width="2.5" stroke-linejoin="round"/>
          <ellipse cx="20" cy="27" rx="7" ry="10" fill="#000" transform="rotate(-15 20 27)"/>
          <ellipse cx="40" cy="27" rx="7" ry="10" fill="#000" transform="rotate(15 40 27)"/>
          <circle cx="20" cy="27" r="1.8" fill="#39d98a"/>
          <circle cx="40" cy="27" r="1.8" fill="#39d98a"/>`,
         // Rocket ship
-        `<path d="M30 6 C24 6 20 14 20 24 V44 H40 V24 C40 14 36 6 30 6 Z"
+        rocket: `<path d="M30 6 C24 6 20 14 20 24 V44 H40 V24 C40 14 36 6 30 6 Z"
               fill="#f4f1ea" stroke="#000" stroke-width="2.5" stroke-linejoin="round"/>
          <circle cx="30" cy="20" r="5" fill="#39d98a" stroke="#000" stroke-width="2"/>
          <polygon points="20,38 10,50 20,50" fill="#d8d8d8" stroke="#000" stroke-width="2" stroke-linejoin="round"/>
@@ -476,7 +479,7 @@
          <path d="M24 44 C24 44 22 54 30 58 C38 54 36 44 36 44 Z"
               fill="#39d98a" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/>`,
         // Robot head
-        `<rect x="14" y="16" width="32" height="28" rx="4" fill="#d8d8d8" stroke="#000" stroke-width="2.5"/>
+        robot: `<rect x="14" y="16" width="32" height="28" rx="4" fill="#d8d8d8" stroke="#000" stroke-width="2.5"/>
          <line x1="30" y1="16" x2="30" y2="6" stroke="#000" stroke-width="2.5"/>
          <circle cx="30" cy="5" r="3" fill="#39d98a" stroke="#000" stroke-width="1.5"/>
          <circle cx="30" cy="28" r="7" fill="#000"/>
@@ -485,7 +488,7 @@
          <circle cx="16" cy="20" r="2" fill="#3a2a1a"/>
          <circle cx="44" cy="20" r="2" fill="#3a2a1a"/>`,
         // Radioactive trefoil
-        `<circle cx="30" cy="30" r="20" fill="#f4f1ea" stroke="#000" stroke-width="2.5"/>
+        radioactive: `<circle cx="30" cy="30" r="20" fill="#f4f1ea" stroke="#000" stroke-width="2.5"/>
          <path d="M30 30 L23 15 L37 15 Z" fill="#39d98a" stroke="#000" stroke-width="1.5" stroke-linejoin="round" transform="rotate(0 30 30)"/>
          <path d="M30 30 L23 15 L37 15 Z" fill="#39d98a" stroke="#000" stroke-width="1.5" stroke-linejoin="round" transform="rotate(120 30 30)"/>
          <path d="M30 30 L23 15 L37 15 Z" fill="#39d98a" stroke="#000" stroke-width="1.5" stroke-linejoin="round" transform="rotate(240 30 30)"/>
@@ -494,19 +497,19 @@
         // --- Action (marquee-gold #e8b923 accent) ---
 
         // Explosion burst
-        `<polygon points="30,4 35,19 48,12 41,25 56,30 41,35 48,48 35,41 30,56 25,41 12,48 19,35 4,30 19,25 12,12 25,19"
+        explosion: `<polygon points="30,4 35,19 48,12 41,25 56,30 41,35 48,48 35,41 30,56 25,41 12,48 19,35 4,30 19,25 12,12 25,19"
                  fill="#e8b923" stroke="#000" stroke-width="2.5" stroke-linejoin="round"/>
          <polygon points="30,16 33,24 40,20 36,27 44,30 36,33 40,40 33,36 30,44 27,36 20,40 25,33 16,30 25,27 20,20 27,25"
                  fill="#c81d25" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/>`,
         // Crosshair scope
-        `<circle cx="30" cy="30" r="21" fill="#f4f1ea" stroke="#c81d25" stroke-width="4"/>
+        crosshair: `<circle cx="30" cy="30" r="21" fill="#f4f1ea" stroke="#c81d25" stroke-width="4"/>
          <rect x="6" y="28" width="15" height="4" fill="#000"/>
          <rect x="39" y="28" width="15" height="4" fill="#000"/>
          <rect x="28" y="6" width="4" height="15" fill="#000"/>
          <rect x="28" y="39" width="4" height="15" fill="#000"/>
          <circle cx="30" cy="30" r="4" fill="#e8b923" stroke="#000" stroke-width="1.5"/>`,
         // Brass knuckles
-        `<circle cx="14" cy="20" r="8" fill="#d8d8d8" stroke="#000" stroke-width="2.5"/>
+        knuckles: `<circle cx="14" cy="20" r="8" fill="#d8d8d8" stroke="#000" stroke-width="2.5"/>
          <circle cx="26" cy="18" r="8" fill="#d8d8d8" stroke="#000" stroke-width="2.5"/>
          <circle cx="38" cy="18" r="8" fill="#d8d8d8" stroke="#000" stroke-width="2.5"/>
          <circle cx="50" cy="20" r="8" fill="#d8d8d8" stroke="#000" stroke-width="2.5"/>
@@ -515,27 +518,84 @@
         // --- Comedy (marquee-gold #e8b923 accent) ---
 
         // Disco ball
-        `<circle cx="30" cy="30" r="20" fill="#d8d8d8" stroke="#000" stroke-width="2.5"/>
+        disco: `<circle cx="30" cy="30" r="20" fill="#d8d8d8" stroke="#000" stroke-width="2.5"/>
          <path d="M12 30 H48 M13 20 H47 M13 40 H47 M20 12 V48 M30 10 V50 M40 12 V48"
               stroke="#000" stroke-width="1.5" fill="none"/>
          <polyline points="46,10 50,6" stroke="#e8b923" stroke-width="2.5" stroke-linecap="round"/>
          <polyline points="50,14 55,12" stroke="#e8b923" stroke-width="2.5" stroke-linecap="round"/>
          <polyline points="44,6 47,2" stroke="#e8b923" stroke-width="2.5" stroke-linecap="round"/>`,
         // Boombox
-        `<rect x="6" y="18" width="48" height="30" rx="5" fill="#3a2a1a" stroke="#000" stroke-width="2.5"/>
+        boombox: `<rect x="6" y="18" width="48" height="30" rx="5" fill="#3a2a1a" stroke="#000" stroke-width="2.5"/>
          <circle cx="18" cy="33" r="10" fill="#f4f1ea" stroke="#000" stroke-width="2.5"/>
          <circle cx="18" cy="33" r="4" fill="#000"/>
          <circle cx="42" cy="33" r="10" fill="#f4f1ea" stroke="#000" stroke-width="2.5"/>
          <circle cx="42" cy="33" r="4" fill="#000"/>
          <rect x="24" y="10" width="12" height="8" rx="2" fill="#e8b923" stroke="#000" stroke-width="2"/>`,
         // Aviator sunglasses
-        `<ellipse cx="18" cy="30" rx="12" ry="10" fill="#d8d8d8" stroke="#000" stroke-width="2.5"/>
+        sunglasses: `<ellipse cx="18" cy="30" rx="12" ry="10" fill="#d8d8d8" stroke="#000" stroke-width="2.5"/>
          <ellipse cx="42" cy="30" rx="12" ry="10" fill="#d8d8d8" stroke="#000" stroke-width="2.5"/>
          <rect x="27" y="27" width="6" height="4" fill="#000"/>
          <line x1="6" y1="27" x2="0" y2="21" stroke="#000" stroke-width="3" stroke-linecap="round"/>
          <line x1="54" y1="27" x2="60" y2="21" stroke="#000" stroke-width="3" stroke-linecap="round"/>
          <polyline points="12,26 18,23" stroke="#e8b923" stroke-width="2.5" stroke-linecap="round"/>`,
-    ];
+
+        // --- Curated-fact topics (named by the generator, not random-picked by genre) ---
+
+        // Drive-in window speaker -- Joe Bob / Drive-In Totals
+        joebob: `<path d="M22 14 V8 H38 V14" fill="none" stroke="#000" stroke-width="2.5"/>
+         <rect x="14" y="14" width="32" height="34" rx="5" fill="#d8d8d8" stroke="#000" stroke-width="2.5"/>
+         <circle cx="30" cy="31" r="10" fill="#3a2a1a" stroke="#000" stroke-width="2"/>
+         <path d="M22 31 H38 M24 26 H36 M24 36 H36" stroke="#000" stroke-width="1.5"/>
+         <rect x="24" y="48" width="12" height="5" fill="#c81d25" stroke="#000" stroke-width="1.5"/>`,
+        // Banknote -- budget / box office
+        money: `<rect x="8" y="16" width="44" height="28" rx="3" fill="#f4f1ea" stroke="#000" stroke-width="2.5"/>
+         <rect x="12" y="20" width="36" height="20" rx="2" fill="none" stroke="#000" stroke-width="1"/>
+         <circle cx="30" cy="30" r="9" fill="#e8b923" stroke="#000" stroke-width="2"/>
+         <text x="30" y="35" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="14" font-weight="900" fill="#000">$</text>`,
+        // Two-reel movie camera -- production / behind the scenes
+        camera: `<circle cx="20" cy="18" r="9" fill="#f4f1ea" stroke="#000" stroke-width="2.5"/>
+         <circle cx="38" cy="18" r="9" fill="#f4f1ea" stroke="#000" stroke-width="2.5"/>
+         <circle cx="20" cy="18" r="2.5" fill="#000"/>
+         <circle cx="38" cy="18" r="2.5" fill="#000"/>
+         <rect x="10" y="28" width="34" height="20" rx="3" fill="#3a2a1a" stroke="#000" stroke-width="2.5"/>
+         <polygon points="44,32 54,26 54,50 44,44" fill="#d8d8d8" stroke="#000" stroke-width="2.5" stroke-linejoin="round"/>
+         <circle cx="20" cy="38" r="3" fill="#c81d25"/>`,
+        // Walk-of-fame star -- cast
+        star: `<polygon points="30,6 36,22 53,22 39,32 44,49 30,39 16,49 21,32 7,22 24,22"
+                 fill="#e8b923" stroke="#000" stroke-width="2.5" stroke-linejoin="round"/>
+         <circle cx="30" cy="28" r="4" fill="#c81d25" stroke="#000" stroke-width="1.5"/>`,
+        // Chain links -- ties to other movies
+        link: `<rect x="6" y="22" width="28" height="16" rx="8" fill="none" stroke="#000" stroke-width="7"/>
+         <rect x="6" y="22" width="28" height="16" rx="8" fill="none" stroke="#d8d8d8" stroke-width="3.5"/>
+         <rect x="26" y="22" width="28" height="16" rx="8" fill="none" stroke="#000" stroke-width="7"/>
+         <rect x="26" y="22" width="28" height="16" rx="8" fill="none" stroke="#e8b923" stroke-width="3.5"/>`,
+        // Ribbon microphone -- interview quotes
+        mic: `<rect x="20" y="6" width="20" height="28" rx="10" fill="#d8d8d8" stroke="#000" stroke-width="2.5"/>
+         <path d="M24 14 H36 M24 20 H36 M24 26 H36" stroke="#000" stroke-width="1.5"/>
+         <path d="M14 26 C14 38 22 42 30 42 C38 42 46 38 46 26" fill="none" stroke="#000" stroke-width="2.5"/>
+         <line x1="30" y1="42" x2="30" y2="52" stroke="#000" stroke-width="3"/>
+         <rect x="20" y="51" width="20" height="4" rx="1" fill="#c81d25" stroke="#000" stroke-width="1.5"/>`,
+        // "CUT" stamp -- censorship / banned / alternate versions
+        censor: `<g transform="rotate(-12 30 30)">
+           <rect x="7" y="17" width="46" height="26" rx="3" fill="#f4f1ea" stroke="#c81d25" stroke-width="3"/>
+           <text x="30" y="36" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="15" font-weight="900" fill="#c81d25">CUT</text>
+         </g>`,
+        // Trophy -- awards
+        trophy: `<path d="M18 12 H10 C10 22 14 24 18 24 M42 12 H50 C50 22 46 24 42 24" fill="none" stroke="#000" stroke-width="2.5"/>
+         <path d="M18 8 H42 V22 C42 30 36 36 30 36 C24 36 18 30 18 22 Z" fill="#e8b923" stroke="#000" stroke-width="2.5" stroke-linejoin="round"/>
+         <rect x="27" y="36" width="6" height="8" fill="#e8b923" stroke="#000" stroke-width="2"/>
+         <rect x="18" y="44" width="24" height="8" rx="1" fill="#3a2a1a" stroke="#000" stroke-width="2.5"/>`,
+    };
+    const TP_ICON_KEYS = Object.keys(TP_ICON_SVGS);
+
+    // Curated facts name their icon; anything unknown (a key added by a newer
+    // generator, a typo) or missing falls back to a random one rather than
+    // breaking. rnd injected for testability.
+    function tpPickIconKey(iconKey, keys, rnd) {
+        if (iconKey && keys.includes(iconKey)) return iconKey;
+        return keys[Math.floor(rnd() * keys.length)];
+    }
+    // ── test marker: icon-map slice end ──
 
     // The rectangle a bubble is allowed to land in: the viewport inset by a
     // small edge margin, minus the chat panel. Read live on every pop
@@ -709,7 +769,7 @@
 
         _tpBubbleEl = document.createElement('div');
         _tpBubbleEl.id = 'sc-tp-bubble';
-        const icon = TP_ICONS[Math.floor(Math.random() * TP_ICONS.length)];
+        const icon = TP_ICON_SVGS[tpPickIconKey(fact.icon, TP_ICON_KEYS, Math.random)];
         const bylineHtml = fact.byline ? `<div id="sc-tp-byline">${_escHtml(fact.byline)}</div>` : '';
         _tpBubbleEl.innerHTML = `
             <svg id="sc-tp-tail" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
