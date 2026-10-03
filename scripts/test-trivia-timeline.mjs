@@ -1,0 +1,88 @@
+// scripts/test-trivia-timeline.mjs
+//
+// Assertions for the pure curated-timeline helpers in
+// src/pc/modules/trivia-popup/index.js (tpValidateCurated, tpRankAllowed,
+// tpDueFact). src/pc/** files are IIFE fragments, not ES modules, so this
+// slices the code between its test markers and evals it -- same convention
+// as scripts/test-imdb-link-preview.mjs.
+//
+//   node scripts/test-trivia-timeline.mjs
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'pc', 'modules', 'trivia-popup', 'index.js'), 'utf8');
+
+const START = '// ── test marker: curated-timeline slice start ──';
+const END = '// ── test marker: curated-timeline slice end ──';
+const s = src.indexOf(START), e = src.indexOf(END);
+if (s === -1 || e === -1 || e < s) {
+    console.error('FAIL: could not locate the "curated-timeline" test-marker slice in trivia-popup/index.js');
+    process.exit(1);
+}
+// eslint-disable-next-line no-new-func
+const { tpValidateCurated, tpRankAllowed, tpDueFact, TP_TIMELINE_WINDOW_S } = new Function(
+    `${src.slice(s, e)}\n;return { tpValidateCurated, tpRankAllowed, tpDueFact, TP_TIMELINE_WINDOW_S };`
+)();
+
+let failed = 0;
+function eq(label, actual, expected) {
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+        console.error(`FAIL: ${label} (got ${JSON.stringify(actual)}, want ${JSON.stringify(expected)})`);
+        failed++;
+    }
+}
+
+const doc = (facts, extra = {}) => ({ schema: 1, imdbId: 'tt0055830', title: 'X', year: 1962, runtimeSec: 4680, facts, ...extra });
+const F = (t, text, rank = 1, icon = 'reel', byline = null) => ({ t, rank, anchor: 'spread', text, icon, byline, source: { type: 'imdb' } });
+
+/* ---- tpValidateCurated ---------------------------------------------------- */
+
+eq('valid doc -> sorted normalized facts',
+    tpValidateCurated(doc([F(300, 'b'), F(120, 'a', 2, 'skull', 'Joe Bob')]), 'tt0055830'),
+    [{ t: 120, rank: 2, text: 'a', icon: 'skull', byline: 'Joe Bob' }, { t: 300, rank: 1, text: 'b', icon: 'reel', byline: null }]);
+eq('null doc -> null', tpValidateCurated(null, 'tt0055830'), null);
+eq('wrong schema -> null', tpValidateCurated(doc([F(1, 'a')], { schema: 2 }), 'tt0055830'), null);
+eq('id mismatch -> null', tpValidateCurated(doc([F(100, 'a')]), 'tt9999999'), null);
+eq('expectedId null skips id check (dev override)', tpValidateCurated(doc([F(100, 'a')]), null).length, 1);
+eq('facts not an array -> null', tpValidateCurated(doc('nope'), 'tt0055830'), null);
+eq('empty facts -> null', tpValidateCurated(doc([]), 'tt0055830'), null);
+eq('drops string t / negative t / NaN t, keeps good',
+    tpValidateCurated(doc([F('100', 'x'), F(-5, 'y'), F(NaN, 'z'), F(200, 'ok')]), 'tt0055830').map(f => f.text), ['ok']);
+eq('drops empty and over-280 text, trims text',
+    tpValidateCurated(doc([F(100, '   '), F(110, 'x'.repeat(281)), F(120, '  hi  ')]), 'tt0055830').map(f => f.text), ['hi']);
+eq('all facts invalid -> null', tpValidateCurated(doc([F('1', 'a'), F(2, '')]), 'tt0055830'), null);
+eq('out-of-range rank -> 2', tpValidateCurated(doc([F(100, 'a', 7)]), 'tt0055830')[0].rank, 2);
+eq('non-string icon -> null', tpValidateCurated(doc([F(100, 'a', 1, 42)]), 'tt0055830')[0].icon, null);
+eq('blank byline -> null', tpValidateCurated(doc([F(100, 'a', 1, 'reel', '  ')]), 'tt0055830')[0].byline, null);
+eq('null entries in facts skipped', tpValidateCurated(doc([null, F(100, 'a')]), 'tt0055830').length, 1);
+
+/* ---- tpRankAllowed --------------------------------------------------------- */
+
+eq('frequent allows 3', tpRankAllowed(3, 'frequent'), true);
+eq('occasional allows 2', tpRankAllowed(2, 'occasional'), true);
+eq('occasional blocks 3', tpRankAllowed(3, 'occasional'), false);
+eq('rare allows 1', tpRankAllowed(1, 'rare'), true);
+eq('rare blocks 2', tpRankAllowed(2, 'rare'), false);
+eq('unknown tier behaves as occasional', [tpRankAllowed(2, ''), tpRankAllowed(3, 'bogus')], [true, false]);
+
+/* ---- tpDueFact ------------------------------------------------------------- */
+
+const facts = tpValidateCurated(doc([F(100, 'r1'), F(200, 'r3', 3), F(300, 'r2', 2), F(400, 'r1b')]), 'tt0055830');
+eq('window constant is 20', TP_TIMELINE_WINDOW_S, 20);
+eq('before first fact -> null', tpDueFact(facts, 99, 'frequent', []), null);
+eq('exactly at t -> due', tpDueFact(facts, 100, 'frequent', [])?.text, 'r1');
+eq('inside window -> due', tpDueFact(facts, 119, 'frequent', [])?.text, 'r1');
+eq('edge of window (t+20) -> due', tpDueFact(facts, 120, 'frequent', [])?.text, 'r1');
+eq('late join past window -> null (no burst)', tpDueFact(facts, 150, 'frequent', []), null);
+eq('seek far ahead lands in later window -> only that fact', tpDueFact(facts, 405, 'frequent', [])?.text, 'r1b');
+eq('rank filter: rare skips rank-3 fact', tpDueFact(facts, 205, 'rare', []), null);
+eq('rank filter: frequent shows rank-3 fact', tpDueFact(facts, 205, 'frequent', [])?.text, 'r3');
+eq('seen (reload inside window) -> null', tpDueFact(facts, 105, 'frequent', ['r1']), null);
+eq('NaN currentTime -> null', tpDueFact(facts, NaN, 'frequent', []), null);
+eq('null facts -> null', tpDueFact(null, 100, 'frequent', []), null);
+
+if (failed) { console.error(`\n${failed} assertion(s) failed`); process.exit(1); }
+console.log('PASS: trivia-popup — curated timeline helpers, all assertions green');

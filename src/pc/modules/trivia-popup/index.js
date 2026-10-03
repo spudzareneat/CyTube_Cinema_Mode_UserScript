@@ -78,6 +78,74 @@
 
     const TP_PERSON_TRIVIA_CAP = 3; // per person, after the TP_MAX_FACT_LEN length filter -- keeps 4 people's trivia from drowning out the movie's own facts
 
+    /* ==========================================================
+       CURATED TIMELINE -- pure helpers for movies that have a
+       generated Pop-up Video file (see
+       docs/superpowers/specs/2026-10-03-curated-popup-trivia-design.md).
+       Facts carry a playback time `t`, so every viewer (CyTube keeps
+       them in sync) sees the same bubble at the same moment. No DOM,
+       no globals -- scripts/test-trivia-timeline.mjs slices this
+       block out between the markers and evals it.
+    ========================================================== */
+
+    // ── test marker: curated-timeline slice start ──
+    const TP_CURATED_SCHEMA = 1;
+    // A fact is still "due" up to this many seconds after its t -- covers the
+    // 3s heartbeat and brief blocks (paused, window unfocused). Anything older
+    // counts as missed (seek / late join) and is skipped, never burst-fired.
+    const TP_TIMELINE_WINDOW_S = 20;
+    const TP_CURATED_MAX_LEN = 280; // same legibility cap as TP_MAX_FACT_LEN; the generator itself targets 200
+
+    // Returns the doc's usable facts, normalized and sorted by t, or null when
+    // the doc is unusable (wrong schema / wrong movie / nothing valid) so the
+    // caller falls back to IMDb trivia. expectedId null skips the id check
+    // (dev override, which applies to whatever is playing).
+    function tpValidateCurated(doc, expectedId) {
+        if (!doc || typeof doc !== 'object' || doc.schema !== TP_CURATED_SCHEMA) return null;
+        if (expectedId && doc.imdbId !== expectedId) return null;
+        if (!Array.isArray(doc.facts)) return null;
+        const facts = [];
+        for (const f of doc.facts) {
+            if (!f || typeof f !== 'object') continue;
+            if (typeof f.t !== 'number' || !Number.isFinite(f.t) || f.t < 0) continue;
+            if (typeof f.text !== 'string') continue;
+            const text = f.text.trim();
+            if (!text || text.length > TP_CURATED_MAX_LEN) continue;
+            facts.push({
+                t: f.t,
+                rank: [1, 2, 3].includes(f.rank) ? f.rank : 2,
+                text,
+                icon: typeof f.icon === 'string' ? f.icon : null,
+                byline: typeof f.byline === 'string' && f.byline.trim() ? f.byline.trim() : null,
+            });
+        }
+        if (!facts.length) return null;
+        facts.sort((a, b) => a.t - b.t);
+        return facts;
+    }
+
+    // Frequency setting -> highest rank shown. Deterministic, so viewers on
+    // the same setting see exactly the same bubbles.
+    const TP_RANK_CUTOFF = { frequent: 3, occasional: 2, rare: 1 };
+    function tpRankAllowed(rank, tierName) {
+        return rank <= (TP_RANK_CUTOFF[tierName] || TP_RANK_CUTOFF.occasional);
+    }
+
+    // The earliest unseen, rank-allowed fact whose t has been reached but is
+    // no more than TP_TIMELINE_WINDOW_S behind currentTime -- or null.
+    function tpDueFact(facts, currentTime, tierName, seenTexts) {
+        if (!Array.isArray(facts) || typeof currentTime !== 'number' || !Number.isFinite(currentTime)) return null;
+        for (const f of facts) {
+            if (f.t > currentTime) break; // sorted by t
+            if (currentTime - f.t > TP_TIMELINE_WINDOW_S) continue;
+            if (!tpRankAllowed(f.rank, tierName)) continue;
+            if (seenTexts.includes(f.text)) continue;
+            return f;
+        }
+        return null;
+    }
+    // ── test marker: curated-timeline slice end ──
+
     // Session-only, in-memory caches -- mirrors imdb-trivia's _triviaCache
     // pattern. Not persisted to localStorage; naturally reused across movies
     // that share an actor/director within the same page session.
