@@ -163,6 +163,7 @@
         let devRaw = null;
         try { devRaw = localStorage.getItem(LS_TRIVIA_CURATED_DEV); } catch (e) {}
         if (devRaw) {
+            console.warn('[trivia-popup] curated dev override active (localStorage sc_trivia_curated_dev) -- applies to every movie');
             try { return Promise.resolve(tpValidateCurated(JSON.parse(devRaw), null)); }
             catch (e) { return Promise.resolve(null); }
         }
@@ -471,6 +472,7 @@
     function _tpTimelineTick() {
         if (!_tpTimeline || _currentImdbId !== _tpLastImdbId) return;
         if (!popupTriviaEnabled() || !_tpMovieIsPlaying() || !document.hasFocus()) return;
+        if (_tpBubbleEl) return; // let the current bubble finish; the next fact's 20s window usually outlasts it
         const v = getPlayerVideoEl();
         const tier = getKey(LS_TRIVIA_POPUP_FREQUENCY) || TP_FREQUENCY_DEFAULT;
         const fact = tpDueFact(_tpTimeline, v.currentTime, tier, _tpLoadSeenTexts(_tpLastImdbId));
@@ -962,9 +964,9 @@
         note: 'How often a trivia bubble pops up. For movies with curated trivia (timed for everyone), this picks how many of the timed facts you see: Frequent = all, Occasional = the better ones, Rare = only the best.',
         key: LS_TRIVIA_POPUP_FREQUENCY,
         options: [
-            { value: 'frequent', label: 'Frequent (45s – 90s)' },
-            { value: 'occasional', label: 'Occasional (3 – 6 min, default)' },
-            { value: 'rare', label: 'Rare (8 – 15 min)' },
+            { value: 'frequent', label: 'Frequent (all timed facts / 45s – 90s)' },
+            { value: 'occasional', label: 'Occasional (better timed facts / 3 – 6 min, default)' },
+            { value: 'rare', label: 'Rare (best timed facts only / 8 – 15 min)' },
         ],
         defaultValue: TP_FREQUENCY_DEFAULT,
         order: 10,

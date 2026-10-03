@@ -1,7 +1,7 @@
 {
   "scriptId": "cytube.pc",
   "displayName": "Spuds Grindhouse Experience",
-  "baseVersion": "4.13.51",
+  "baseVersion": "4.13.52",
   "headerTemplate": "src/pc/header.template.js",
   "match": [
     "https://cytu.be/r/420Grindhouse",
@@ -104,10 +104,17 @@
         "src/pc/modules/trivia-popup/style.css"
       ],
       "dependsOn": ["core", "movie-title-links", "imdb-trivia"],
+      "grants": [
+        "GM_xmlhttpRequest"
+      ],
+      "connects": [
+        "raw.githubusercontent.com"
+      ],
       "features": [
         "VH1 Pop-up Video style trivia bubbles auto-appear every few minutes during movie playback",
         "Reuses the same IMDb trivia already fetched for the Trivia panel, plus (movies only) trivia and \"also known for\" facts about the top cast and director",
         "Cycles without repeats; stops for the rest of that movie once every fact has been shown",
+        "Movies with curated Pop-up Video trivia play hand-picked, sourced facts timed to the movie, the same moment for everyone in the channel",
         "Off by default — opt in from Settings"
       ]
     },
