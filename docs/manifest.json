@@ -19,6 +19,7 @@
         "src/pc/core/02-keys-and-helpers.js",
         "src/pc/core/10-registry.js",
         "src/pc/core/01-movie-identity.js",
+        "src/pc/shared/player-helpers.js",
         "src/pc/core/03-gif-bridge.js",
         "src/pc/core/04-channel-script-autoapprove.js",
         "src/pc/core/05-monitor-orientation.js",
@@ -46,6 +47,7 @@
       "defaultOn": true,
       "phase": 1,
       "files": [
+        "src/pc/shared/imdb-resolve.js",
         "src/pc/modules/movie-title-links/index.js"
       ],
       "cssFiles": [
@@ -77,6 +79,7 @@
       "defaultOn": true,
       "phase": 1,
       "files": [
+        "src/pc/shared/imdb-trivia-fetch.js",
         "src/pc/modules/imdb-trivia/index.js"
       ],
       "cssFiles": [

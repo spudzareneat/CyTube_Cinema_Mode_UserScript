@@ -1,7 +1,7 @@
 // scripts/test-runtime-demote.mjs
 //
 // Standalone assertions for demoteByRuntime() in
-// src/pc/modules/movie-title-links/index.js -- the pure runtime cross-check
+// src/pc/shared/imdb-resolve.js -- the pure runtime cross-check
 // helper (Task 3, "Layer 1c") that re-orders search candidates so any whose
 // runtime is far from the playing file's duration lose priority (but are
 // never dropped). No test harness in this repo (no package.json, no runner),
@@ -23,13 +23,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const srcPath = path.join(__dirname, '..', 'src', 'pc', 'modules', 'movie-title-links', 'index.js');
+const srcPath = path.join(__dirname, '..', 'src', 'pc', 'shared', 'imdb-resolve.js');
 const src = fs.readFileSync(srcPath, 'utf8');
 
 const start = src.indexOf('// ── test marker: slice start ──');
 const end = src.indexOf('// ── test marker: slice end ──');
 if (start === -1 || end === -1 || end < start) {
-    console.error('FAIL: could not locate the "test marker" slice in movie-title-links/index.js');
+    console.error('FAIL: could not locate the "test marker" slice in imdb-resolve.js');
     process.exit(1);
 }
 const snippet = src.slice(start, end);
