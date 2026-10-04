@@ -130,6 +130,15 @@
         };
         bind();
         setTimeout(bind, 2000);
+        // CyTube / channel scripts can re-render #videocontrols and drop the toggle
+        // (seen live: present after a reload, gone later in the same session).
+        // While a movie is identified, put it back if it's missing; the module's
+        // own mute state carries over because scRenderTriviaPopupBtn repaints it.
+        setInterval(() => {
+            if (_currentImdbId && !document.getElementById(PV_BTN_ID) && typeof scRenderTriviaPopupBtn === 'function') {
+                scRenderTriviaPopupBtn();
+            }
+        }, 3000);
         pvOnTitle(_pvDomTitle(), false);
         let polls = 0;
         const poll = setInterval(() => { pvOnTitle(_pvDomTitle(), false); if (++polls >= 14) clearInterval(poll); }, 1500);
