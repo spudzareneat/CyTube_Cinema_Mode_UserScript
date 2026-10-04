@@ -1,0 +1,6 @@
+            /* Standalone: stock CyTube has no --sc-chat-w / top bar, so pin the
+               mute pill to the top-right corner of the page. */
+            #sc-trivia-popup-btn {
+                position: fixed !important; top: 10px !important; right: 12px !important;
+                left: auto !important; bottom: auto !important; z-index: 15600 !important;
+            }

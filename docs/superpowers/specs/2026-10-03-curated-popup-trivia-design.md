@@ -79,6 +79,12 @@ Tests: fixture tests for RSS parser, resolver, Totals matcher, validator (good /
 - Stands down if `<html data-sc-trivia-popup="1">` is present.
 - Header: same `@match` list as other scripts, `@grant GM_xmlhttpRequest`, `@connect caching.graphql.imdb.com`, `@connect raw.githubusercontent.com`, update URLs. README install entry.
 
+**Revised 2026-10-04** (with the user; see `docs/superpowers/plans/2026-10-04-popupvideo-standalone.md`):
+- Bare minimum: no trivia panel, no settings modal, no layout/styling changes to stock CyTube — just the bubbles plus one small mute pill (no gear; frequency defaults to **Frequent** when the user hasn't chosen one, pop-ups default ON).
+- Shared code is pulled out by pure moves into `src/pc/shared/` (`player-helpers.js`, `imdb-resolve.js`, `imdb-trivia-fetch.js`) so the main bundle keeps the identical set of lines; `trivia-popup` gets small `SC_POPUPVIDEO_STANDALONE` hooks (`scPopupUsableArea()` keeps bubbles over `#videowrap`).
+- Built by `scripts/build-popupvideo.mjs` from an in-memory manifest: `src/popupvideo/shim.js` → `core/01-movie-identity.js` + shared files → `trivia-popup` → `src/popupvideo/watcher.js` (CyTube title → IMDb id via `imdbSearchTitle`, with a small localStorage id cache and a sequence token so only the latest title wins). Own version line starting at `1.0.0`; the generated `cytube.popupvideo.user.js` is committed.
+- Stand-down: the marker is set only by the main script's `trivia-popup` module; if it is present at the standalone's `load`, the standalone does nothing (no watcher, no pops). A main build without `trivia-popup` leaves the standalone running.
+
 ## Verification
 
 - Sub-project 1: `node scripts/test-trivia-timeline.mjs` passes; `node scripts/build-dev-bundle.mjs` builds; live in browser on cytu.be: curated sample movie → bubbles fire at their `t` with named icons, seek skips, frequency filters by rank, reload doesn't repeat; uncurated movie → old IMDb behavior unchanged.
