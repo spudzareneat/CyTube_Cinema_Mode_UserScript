@@ -62,7 +62,7 @@
         else { btn.classList.add('sc-pv-floating'); document.body.appendChild(btn); }
     }
     function scPopupBtnPaint(btn, muted) {
-        btn.innerHTML = '<span class="glyphicon glyphicon-comment"></span>';
+        btn.innerHTML = '<span class="glyphicon glyphicon-info-sign"></span>';
         btn.title = muted ? 'Pop-up trivia muted — click to resume' : 'Pop-up trivia on — click to mute';
         btn.classList.toggle('active', !muted);
         btn.style.opacity = muted ? '0.55' : '';

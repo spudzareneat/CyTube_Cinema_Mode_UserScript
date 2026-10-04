@@ -66,7 +66,7 @@ function load(withControls) {
     eq('refresh untouched', refresh.id, 'mediarefresh');
 
     api.scPopupBtnPaint(btn, false);
-    eq('on: glyphicon speech bubble', btn.innerHTML, '<span class="glyphicon glyphicon-comment"></span>');
+    eq('on: glyphicon info sign', btn.innerHTML, '<span class="glyphicon glyphicon-info-sign"></span>');
     eq('on: pressed (active)', btn.classList.contains('active'), true);
     eq('on: tooltip', btn.title, 'Pop-up trivia on — click to mute');
     eq('on: full opacity', btn.style.opacity, '');

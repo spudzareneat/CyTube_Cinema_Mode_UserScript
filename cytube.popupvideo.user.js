@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grindhouse Pop-up Video
 // @namespace    http://tampermonkey.net/
-// @version      1.0.2
+// @version      1.0.3
 // @description  VH1 Pop-up Video style trivia bubbles for movies on the r/420Grindhouse CyTube channel — curated timed facts when available, IMDb trivia otherwise.
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -2026,7 +2026,7 @@ injectCSS('pv-popup', `            /* ===== POP-UP TRIVIA BUBBLE ===== */
         else { btn.classList.add('sc-pv-floating'); document.body.appendChild(btn); }
     }
     function scPopupBtnPaint(btn, muted) {
-        btn.innerHTML = '<span class="glyphicon glyphicon-comment"></span>';
+        btn.innerHTML = '<span class="glyphicon glyphicon-info-sign"></span>';
         btn.title = muted ? 'Pop-up trivia muted — click to resume' : 'Pop-up trivia on — click to mute';
         btn.classList.toggle('active', !muted);
         btn.style.opacity = muted ? '0.55' : '';
