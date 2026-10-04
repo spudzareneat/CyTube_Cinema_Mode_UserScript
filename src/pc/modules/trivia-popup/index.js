@@ -1017,6 +1017,9 @@
 
     function _tpPaintPopupBtn() {
         if (!_tpBtnEl) return;
+        // The standalone Pop-up Video build draws its own toggle (a CyTube
+        // #videocontrols button); the main script never defines this hook.
+        if (typeof scPopupBtnPaint === 'function') { scPopupBtnPaint(_tpBtnEl, _tpMuted); return; }
         // Filled vs hollow dot -- same glyph width either way, so the button
         // never changes size (which would leave #sc-upnext-btn's live-measured
         // position stale until the next title change).
@@ -1048,7 +1051,9 @@
         btn.addEventListener('click', () => _tpSetMuted(!_tpMuted));
         _tpBtnEl = btn;
         _tpPaintPopupBtn();
-        document.body.appendChild(btn);
+        // Standalone hook: mount the toggle in CyTube's own video controls.
+        if (typeof scPopupBtnMount === 'function') scPopupBtnMount(btn);
+        else document.body.appendChild(btn);
         return btn;
     }
 

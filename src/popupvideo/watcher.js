@@ -47,30 +47,27 @@
         return String(t || '').replace(/^\s*(currently|now)\s+playing:\s*/i, '').trim();
     }
 
-    // Pin the mute pill inside the video's top-right corner (stock CyTube's
-    // fixed navbar holds login/logout at the page's top-right).
-    function _pvPlaceBtn() {
-        const btn = document.getElementById('sc-trivia-popup-btn');
-        if (!btn) return;
-        const w = document.getElementById('videowrap');
-        const r = w && w.getBoundingClientRect();
-        if (r && r.width > 0 && r.height > 0) {
-            btn.style.setProperty('top', (r.top + 8) + 'px', 'important');
-            btn.style.setProperty('left', (r.right - btn.offsetWidth - 8) + 'px', 'important');
-            btn.style.setProperty('right', 'auto', 'important');
-        } else {
-            btn.style.setProperty('top', '60px', 'important');
-            btn.style.setProperty('right', '12px', 'important');
-            btn.style.setProperty('left', 'auto', 'important');
-        }
+    // The mute toggle lives in CyTube's own video controls (#videocontrols,
+    // next to reload / fullscreen / playlist / voteskip), styled like them.
+    // trivia-popup calls these hooks instead of its own top-bar button code.
+    // Own id, so the main module's #sc-trivia-popup-btn CSS never applies.
+    // ── test marker: pv-button slice start ──
+    const PV_BTN_ID = 'sc-pv-btn';
+    function scPopupBtnMount(btn) {
+        btn.id = PV_BTN_ID;
+        btn.type = 'button';
+        btn.className = 'btn btn-sm btn-default';
+        const controls = document.getElementById('videocontrols');
+        if (controls) controls.insertBefore(btn, controls.firstChild);
+        else { btn.classList.add('sc-pv-floating'); document.body.appendChild(btn); }
     }
-    let _pvPlaceQueued = false;
-    function _pvSchedulePlace() {
-        if (_pvPlaceQueued) return;
-        _pvPlaceQueued = true;
-        const raf = window.requestAnimationFrame ? f => window.requestAnimationFrame(f) : f => setTimeout(f, 16);
-        raf(() => { _pvPlaceQueued = false; _pvPlaceBtn(); });
+    function scPopupBtnPaint(btn, muted) {
+        btn.innerHTML = '<span class="glyphicon glyphicon-comment"></span>';
+        btn.title = muted ? 'Pop-up trivia muted — click to resume' : 'Pop-up trivia on — click to mute';
+        btn.classList.toggle('active', !muted);
+        btn.style.opacity = muted ? '0.55' : '';
     }
+    // ── test marker: pv-button slice end ──
 
     function _pvLookup(raw, seq) {
         const parsed = parseMovieFilename(raw);
@@ -90,13 +87,7 @@
             if (!id) { failed(); return; }
             _npData = { episode: parsed && parsed.episode != null ? parsed.episode : null };
             _currentImdbId = id;
-            if (typeof scRenderTriviaPopupBtn === 'function') {
-                const btn = scRenderTriviaPopupBtn();
-                if (btn) {
-                    btn.addEventListener('click', _pvSchedulePlace); // label width may change
-                    _pvPlaceBtn();
-                }
-            }
+            if (typeof scRenderTriviaPopupBtn === 'function') scRenderTriviaPopupBtn();
         }).catch(() => failed());
     }
 
@@ -110,7 +101,7 @@
         if (raw !== _pvRetried) _pvRetried = '';
         _currentImdbId = null;
         _npData = null;
-        const old = document.getElementById('sc-trivia-popup-btn');
+        const old = document.getElementById(PV_BTN_ID);
         if (old) old.remove();
         const seq = ++_pvSeq;
         if (youTube) return; // bubbles never run on YouTube embeds
@@ -139,8 +130,6 @@
         };
         bind();
         setTimeout(bind, 2000);
-        window.addEventListener('resize', _pvSchedulePlace);
-        window.addEventListener('scroll', _pvSchedulePlace, { passive: true });
         pvOnTitle(_pvDomTitle(), false);
         let polls = 0;
         const poll = setInterval(() => { pvOnTitle(_pvDomTitle(), false); if (++polls >= 14) clearInterval(poll); }, 1500);
