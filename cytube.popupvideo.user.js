@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grindhouse Pop-up Video
 // @namespace    http://tampermonkey.net/
-// @version      1.0.6
+// @version      1.0.0
 // @description  VH1 Pop-up Video style trivia bubbles for movies on the r/420Grindhouse CyTube channel — curated timed facts when available, IMDb trivia otherwise.
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
