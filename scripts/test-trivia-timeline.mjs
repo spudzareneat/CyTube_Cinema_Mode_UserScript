@@ -52,6 +52,15 @@ eq('headshot image kept only from the IMDb image CDN',
         { ...F(500, 'none') },
     ]), 'tt0055830').map(f => f.image),
     ['https://m.media-amazon.com/images/M/abc@._V1_QL75_UX120_CR0,0,120,120_.jpg', null, null, null, null]);
+eq('source url kept only when plain http(s)',
+    tpValidateCurated(doc([
+        { ...F(100, 'web'), source: { type: 'web', url: 'https://www.denofgeek.com/movies/carnival-of-souls/' } },
+        { ...F(200, 'http'), source: { type: 'web', url: 'http://example.com/a' } },
+        { ...F(300, 'js'), source: { type: 'web', url: 'javascript:alert(1)' } },
+        { ...F(400, 'quote'), source: { type: 'web', url: 'https://x.com/a"onmouseover="alert(1)' } },
+        { ...F(500, 'imdb') },
+    ]), 'tt0055830').map(f => f.sourceUrl),
+    ['https://www.denofgeek.com/movies/carnival-of-souls/', 'http://example.com/a', undefined, undefined, undefined]);
 eq('anchor scene kept, anything else -> spread',
     tpValidateCurated(doc([{ ...F(100, 'x'), anchor: 'scene' }, { ...F(200, 'y'), anchor: 'weird' }]), 'tt0055830').map(f => f.anchor), ['scene', 'spread']);
 eq('null doc -> null', tpValidateCurated(null, 'tt0055830'), null);

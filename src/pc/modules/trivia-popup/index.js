@@ -108,6 +108,14 @@
         return typeof url === 'string' && url.length < 500 && TP_IMAGE_URL_RE.test(url);
     }
 
+    // Citation link shown in the Trivia panel: plain http(s) only, and no
+    // characters that could break out of an attribute even if escaping were
+    // ever missed.
+    const TP_LINK_URL_RE = /^https?:\/\/[^\s"'<>`]+$/;
+    function tpSafeLinkUrl(url) {
+        return typeof url === 'string' && url.length < 1000 && TP_LINK_URL_RE.test(url);
+    }
+
     // Returns the doc's usable facts, normalized and sorted by t, or null when
     // the doc is unusable (wrong schema / wrong movie / nothing valid) so the
     // caller falls back to IMDb trivia. expectedId null skips the id check
@@ -131,6 +139,7 @@
                 icon: typeof f.icon === 'string' ? f.icon : null,
                 byline: typeof f.byline === 'string' && f.byline.trim() ? f.byline.trim() : null,
                 ...(tpSafeImageUrl(f.image) ? { image: f.image } : {}),
+                ...(tpSafeLinkUrl(f.source && f.source.url) ? { sourceUrl: f.source.url } : {}),
             });
         }
         if (!facts.length) return null;

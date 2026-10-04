@@ -74,13 +74,45 @@
         };
         setTimeout(() => document.addEventListener('click', _triviaOutsideClick, true), 0);
 
-        fetchImdbTrivia(_currentImdbId).then(items => {
+        // Curated Pop-up Video facts (trivia-popup module, optional in a custom
+        // build -- hence the typeof guard) go above IMDb's own trivia. Same
+        // cached fetch the bubbles use, so opening the panel costs nothing extra.
+        const curatedP = typeof fetchCuratedTrivia === 'function'
+            ? fetchCuratedTrivia(_currentImdbId).catch(() => null)
+            : Promise.resolve(null);
+        Promise.all([curatedP, fetchImdbTrivia(_currentImdbId)]).then(([curated, items]) => {
             const list = panel.querySelector('#sc-trivia-list');
             if (!list) return;
-            if (!items || !items.length) { list.innerHTML = '<div class="sc-trivia-item">No trivia found.</div>'; return; }
-            list.innerHTML = items.map(t => `<div class="sc-trivia-item">${_escHtml(t)}</div>`).join('');
+            let html = '';
+            if (curated && curated.length) {
+                html += `<div class="sc-trivia-section">Pop-up Video trivia (${curated.length})</div>`
+                    + curated.map(_triviaCuratedItemHtml).join('');
+            }
+            if (items && items.length) {
+                if (html) html += `<div class="sc-trivia-section">IMDb trivia (${items.length})</div>`;
+                html += items.map(t => `<div class="sc-trivia-item">${_escHtml(t)}</div>`).join('');
+            }
+            list.innerHTML = html || '<div class="sc-trivia-item">No trivia found.</div>';
+            list.querySelectorAll('img.sc-trivia-face').forEach(img => img.addEventListener('error', () => img.remove()));
             list.scrollTop = 0;
         });
+    }
+
+    function _triviaFmtTime(sec) {
+        const s = Math.max(0, Math.round(sec));
+        const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = String(s % 60).padStart(2, '0');
+        return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+    }
+
+    // image / sourceUrl were already allowlisted by trivia-popup's
+    // tpValidateCurated (IMDb CDN only / plain http(s) with no quotes or
+    // brackets); quotes are escaped here as well for the attributes.
+    function _triviaCuratedItemHtml(f) {
+        const attr = s => _escHtml(s).replace(/"/g, '&quot;');
+        const face = f.image ? `<img class="sc-trivia-face" src="${attr(f.image)}" alt="">` : '';
+        const by = f.byline ? ` <span class="sc-trivia-by">— ${_escHtml(f.byline)}</span>` : '';
+        const src = f.sourceUrl ? ` <a class="sc-trivia-src" href="${attr(f.sourceUrl)}" target="_blank" rel="noopener noreferrer">source</a>` : '';
+        return `<div class="sc-trivia-item sc-trivia-curated"><span class="sc-trivia-time">${_triviaFmtTime(f.t)}</span>${face}${_escHtml(f.text)}${by}${src}</div>`;
     }
 
     function hideTriviaCard() {
