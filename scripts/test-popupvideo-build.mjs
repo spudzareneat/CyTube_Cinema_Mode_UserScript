@@ -28,21 +28,28 @@ for (const present of ['SC_POPUPVIDEO_STANDALONE', 'imdbSearchTitle', 'parseMovi
 }
 try { new Function(src); } catch (e) { ok('syntax: ' + e.message, false); }
 
-// Boot in a stub browser. Returns what the socket saw bound.
+// Boot in a stub browser. Returns what the socket saw bound, console.error /
+// console.info calls, and the elements appended to <head> / <html>.
 function boot({ marker }) {
     const listeners = {};
     const socketOn = [];
+    const errors = [];
+    const infos = [];
+    const headAppends = [];
     const attrs = marker ? { 'data-sc-trivia-popup': '1' } : {};
-    const el = () => ({ style: { setProperty() {} }, classList: { add() {}, toggle() {}, contains: () => false }, addEventListener() {}, appendChild() {}, remove() {}, setAttribute() {}, querySelector: () => null, getBoundingClientRect: () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }) });
+    const el = (tag) => ({ tagName: String(tag || '').toUpperCase(), style: { setProperty() {} }, classList: { add() {}, toggle() {}, contains: () => false }, addEventListener() {}, appendChild() {}, remove() {}, setAttribute() {}, querySelector: () => null, getBoundingClientRect: () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }) });
+    const head = el('head');
+    head.appendChild = (n) => { headAppends.push(n); return n; };
     const store = {};
+    const stubConsole = { ...console, error: (...a) => { errors.push(a); }, info: (...a) => { infos.push(a); } };
     const ctx = {
-        console, setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {},
+        console: stubConsole, setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {},
         localStorage: { getItem: k => store[k] ?? null, setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } },
         GM_xmlhttpRequest() {},
         socket: { on: (ev) => socketOn.push(ev) },
         document: {
-            head: el(), body: el(),
-            documentElement: { getAttribute: k => attrs[k] ?? null, setAttribute: (k, v) => { attrs[k] = v; } },
+            head, body: el('body'),
+            documentElement: { getAttribute: k => attrs[k] ?? null, setAttribute: (k, v) => { attrs[k] = v; }, appendChild: (n) => { headAppends.push(n); return n; } },
             createElement: el, createElementNS: el, getElementById: () => null, querySelector: () => null, querySelectorAll: () => [],
             addEventListener() {}, hasFocus: () => true,
         },
@@ -54,14 +61,20 @@ function boot({ marker }) {
     vm.createContext(ctx);
     vm.runInContext(src, ctx);
     for (const fn of listeners.load || []) fn();
-    return { socketOn, attrs };
+    const styles = headAppends.filter(n => n && n.tagName === 'STYLE');
+    return { socketOn, attrs, errors, infos, styles };
 }
 
 const solo = boot({ marker: false });
 ok('runs alone: binds changeMedia', solo.socketOn.includes('changeMedia'));
 ok('standalone never sets the stand-down marker', solo.attrs['data-sc-trivia-popup'] !== '1');
+ok('runs alone: no console.error (' + JSON.stringify(solo.errors.map(a => String(a[1] || a[0]))) + ')', solo.errors.length === 0);
+ok('runs alone: injects at least one style element', solo.styles.length >= 1);
 const withMain = boot({ marker: true });
 ok('stands down when main script marker present', withMain.socketOn.length === 0);
+ok('stand-down: no console.error (' + JSON.stringify(withMain.errors.map(a => String(a[1] || a[0]))) + ')', withMain.errors.length === 0);
+ok('stand-down: injects no style element', withMain.styles.length === 0);
+ok('stand-down: logs the console.info notice once', withMain.infos.filter(a => /standing down/.test(String(a[0]))).length === 1);
 
 if (failed) { console.error(`\n${failed} check(s) failed`); process.exit(1); }
 console.log('PASS: popupvideo standalone build — header, contents, syntax, boot, stand-down');

@@ -1,6 +1,8 @@
-            /* Standalone: stock CyTube has no --sc-chat-w / top bar, so pin the
-               mute pill to the top-right corner of the page. */
+            /* Standalone: stock CyTube has no --sc-chat-w / top bar. The mute pill is
+               pinned inside the video's top-right corner by watcher.js (top/left set
+               from #videowrap), so it never covers the navbar's login/logout.
+               z-index stays below Bootstrap modals (1050) but above the video. */
             #sc-trivia-popup-btn {
-                position: fixed !important; top: 10px !important; right: 12px !important;
-                left: auto !important; bottom: auto !important; z-index: 15600 !important;
+                position: fixed !important; z-index: 1040 !important;
+                right: auto !important; bottom: auto !important;
             }

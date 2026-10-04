@@ -286,7 +286,7 @@ The main script is no longer a single file you copy-paste — it's assembled to 
 
 > **Legacy standalone scripts:** The original single-purpose scripts this project shipped before the customizer existed — `cytube.gifmaker.user.js`, `cytube.chatimages.user.js`, `cytube.subtitles.user.js`, and `cytube.rename-title.user.js` — still live at the repo root for anyone who'd rather install one individually the old way (each is still a self-contained Tampermonkey script). They're kept around as-is, but they are **unsupported and legacy going forward**: they won't receive further updates, and future module work targets only the customizer-built script. The supported path is checking the equivalent module in the customizer, as described above.
 
-- **Pop-up Video only** — `cytube.popupvideo.user.js`: just the VH1-style trivia bubbles (curated timed facts + IMDb fallback) on stock CyTube, nothing else. Stays off automatically if the full Grindhouse script with Pop-up Trivia is installed.
+- **Pop-up Video only** — `cytube.popupvideo.user.js`: just the VH1-style trivia bubbles (curated timed facts + IMDb fallback) on stock CyTube, nothing else. If the full Grindhouse script is also installed, this one stays off — turn on Pop-up trivia in that script's Settings instead.
 
 ### 3. Enter your API keys (first run)
 
