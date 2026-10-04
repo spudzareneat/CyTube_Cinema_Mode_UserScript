@@ -86,3 +86,26 @@ function load(withControls) {
 
 if (failed) { console.error(`\n${failed} assertion(s) failed`); process.exit(1); }
 console.log('PASS: popupvideo — toggle mounts in #videocontrols, styled + painted like CyTube controls');
+
+/* ---- _pvDomTitle: priority order, not document order ---------------------- */
+{
+    const TS = '// ── test marker: pv-title slice start ──', TE = '// ── test marker: pv-title slice end ──';
+    const ts = src.indexOf(TS), te = src.indexOf(TE);
+    if (ts === -1 || te === -1 || te < ts) { console.error('FAIL: could not locate the "pv-title" test-marker slice'); process.exit(1); }
+    // Stock CyTube: <p id="videowrap-header"><span id="resize-video-smaller"></span>...<span id="currenttitle">Currently Playing: X</span></p>
+    const els = {
+        '#currenttitle': { textContent: 'Currently Playing: Attack.Of.The.50.Foot.Woman.[1958].mp4' },
+        '#videowrap-header span': { textContent: '' }, // the empty resize glyph comes first in document order
+    };
+    const doc = {
+        querySelector: sel => sel.includes(',') ? els['#videowrap-header span'] /* document-order winner */ : (els[sel] || null),
+    };
+    // eslint-disable-next-line no-new-func
+    const { _pvDomTitle } = new Function('document', `${src.slice(ts, te)}\n;return { _pvDomTitle };`)(doc);
+    eq('DOM title prefers #currenttitle over an earlier empty header span', _pvDomTitle(), 'Currently Playing: Attack.Of.The.50.Foot.Woman.[1958].mp4');
+    const docNoTitle = { querySelector: sel => sel === '#videowrap-header span' ? { textContent: 'Some Title' } : null };
+    const t2 = new Function('document', `${src.slice(ts, te)}\n;return { _pvDomTitle };`)(docNoTitle);
+    eq('falls back through the list when #currenttitle is missing', t2._pvDomTitle(), 'Some Title');
+}
+if (failed) { console.error(`\n${failed} assertion(s) failed`); process.exit(1); }
+console.log('PASS: popupvideo — DOM title lookup uses priority order');
