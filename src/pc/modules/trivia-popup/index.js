@@ -24,10 +24,17 @@
        popups, and a pop could fire while the user is in another window.
     ========================================================== */
 
+    // True only inside the standalone Pop-up Video build (its shim declares the
+    // const before this module). typeof on an undeclared name is safe.
+    const TP_STANDALONE = typeof SC_POPUPVIDEO_STANDALONE !== 'undefined' && SC_POPUPVIDEO_STANDALONE === true;
+    // Mark the page as soon as the main script's module loads (document-start),
+    // so a standalone Pop-up Video script checking at its own `load` stands down.
+    if (!TP_STANDALONE) document.documentElement.setAttribute('data-sc-trivia-popup', '1');
+
     const LS_TRIVIA_POPUP_ENABLED = 'sc_trivia_popup_enabled';
     // Master opt-in (Settings modal). Ignores the session mute below -- used
     // for deciding whether the top-bar quick-toggle button should show at all.
-    const popupTriviaConfigured = () => getKey(LS_TRIVIA_POPUP_ENABLED) === 'on'; // opt-in, off by default
+    const popupTriviaConfigured = () => TP_STANDALONE || getKey(LS_TRIVIA_POPUP_ENABLED) === 'on'; // opt-in, off by default
 
     // Session-only quick mute, driven by the #sc-trivia-popup-btn top-bar
     // button (see scRenderTriviaPopupBtn below). Deliberately NOT persisted:
@@ -38,7 +45,7 @@
     const popupTriviaEnabled = () => popupTriviaConfigured() && !_tpMuted;
 
     const LS_TRIVIA_POPUP_FREQUENCY = 'sc_trivia_popup_frequency';
-    const TP_FREQUENCY_DEFAULT = 'occasional';
+    const TP_FREQUENCY_DEFAULT = TP_STANDALONE ? 'frequent' : 'occasional';
     // Gap-between-pops ranges per tier -- read live (poll-per-use, like
     // popupTriviaEnabled()) each time a pop is scheduled, so changing the
     // setting mid-movie takes effect on the very next pop instead of
@@ -564,10 +571,6 @@
     }
 
     function triviaPopupBoot() {
-        // Lets the standalone Pop-up Video script (separate Tampermonkey
-        // sandbox, so a window global wouldn't be visible) stand down instead
-        // of showing a second stream of bubbles.
-        document.documentElement.setAttribute('data-sc-trivia-popup', '1');
         _tpMoviePollTick();
         setInterval(_tpMoviePollTick, TP_POLL_MS);
     }
@@ -761,6 +764,8 @@
     // (css/00-layout-core.css), so the usable floor there is the video-area
     // bottom, not the viewport bottom.
     function _tpUsableArea() {
+        // The standalone build defines scPopupUsableArea() for stock CyTube's layout.
+        if (typeof scPopupUsableArea === 'function') { const a = scPopupUsableArea(); if (a) return a; }
         const vw = window.innerWidth, vh = window.innerHeight;
         const m = 14;
         const topInset = 44; // clear the fixed #videowrap-header title strip
