@@ -39,11 +39,12 @@
        so the bytes are downloaded with GM_xmlhttpRequest (see
        downloadEmoteImage() below) rather than fetch() -- a plain
        fetch() fails for those hosts and logs a console error per
-       emote on every page load. Anything that still fails is
-       caught and swallowed like every other best-effort path here;
-       that particular emote just falls back to the plain
-       live-URL/browser-cache behavior, exactly as if this module
-       didn't exist for it.
+       emote on every page load. Only the big image hosts in
+       EMOTE_CACHE_HOSTS are cached (deliberately NOT "@connect *");
+       an emote on any other host is never requested at all and just
+       keeps the plain live-URL/browser-cache behavior, exactly as if
+       this module didn't exist for it. Anything on an allowed host
+       that still fails is caught and swallowed the same way.
 
        _uw is core's shared unsafeWindow/window fallback (see
        03-gif-bridge.js) -- this module doesn't redeclare it.
@@ -51,6 +52,19 @@
     ========================================================== */
     // ── test marker: emote-cache slice start ──
     const EMOTE_IMAGE_CACHE = 'sc-emote-image-cache-v1';
+
+    // Hosts whose emotes get cached -- each entry also matches its subdomains
+    // (i.ibb.co, media2.giphy.com, ...). Adding a host is a manual two-step: add
+    // it here AND to emote-cache's "connects" in src/pc/manifest.json +
+    // docs/manifest.json (Tampermonkey's @connect matches subdomains the same way),
+    // otherwise Tampermonkey blocks/prompts for the request.
+    const EMOTE_CACHE_HOSTS = ['postimg.cc', 'ibb.co', 'prnt.sc', 'prntscr.com', 'imgur.com', 'giphy.com', 'tenor.com'];
+
+    function emoteHostCacheable(url) {
+        let host;
+        try { host = new URL(url).hostname.toLowerCase(); } catch (e) { return false; }
+        return EMOTE_CACHE_HOSTS.some(h => host === h || host.endsWith('.' + h));
+    }
 
     function openEmoteCache() {
         if (!('caches' in window)) return Promise.resolve(null);
@@ -104,8 +118,8 @@
     // redirects) and resolves to a Response, or null on any failure. Never
     // a page-context fetch(): that fails for every CDN without CORS headers
     // AND logs a "Cross-Origin Request Blocked" console error per emote on
-    // every page load. Needs "@connect *" (see the manifest entry) since
-    // emotes live on dozens of hosts.
+    // every page load. Only ever called for EMOTE_CACHE_HOSTS urls, each of
+    // which has a matching "connects" entry in the manifest.
     function downloadEmoteImage(url) {
         return new Promise(resolve => {
             GM_xmlhttpRequest({
@@ -171,7 +185,7 @@
         if (!emotes || !emotes.length) return;
         const cache = await openEmoteCache();
         if (!cache) return;
-        const todo = emotes.filter(e => e && e.name && e.image && !_scEmoteBlobUrls.has(e.name) && !_scEmotePriming.has(e.name) && !_scEmoteCacheFailed.has(e.name));
+        const todo = emotes.filter(e => e && e.name && e.image && emoteHostCacheable(e.image) && !_scEmoteBlobUrls.has(e.name) && !_scEmotePriming.has(e.name) && !_scEmoteCacheFailed.has(e.name));
         if (!todo.length) return;
         todo.forEach(e => _scEmotePriming.add(e.name));
         try {

@@ -96,7 +96,7 @@ await test('downloads an emote via GM_xmlhttpRequest, never a page-context fetch
 });
 
 await test('a successful download is put in Cache Storage under its URL and exposed as a blob URL', async () => {
-    const url = 'https://i.pinimg.com/originals/aa/bb/cc.gif';
+    const url = 'https://i.imgur.com/aabbcc.gif';
     const env = makeEnv({ [url]: ok() });
     await env.api.primeEmoteCache([{ name: 'wave', image: url }]);
     assert.ok(env.store.has(url), 'cached under the image URL so cache.match(e.image) hits next load');
@@ -105,14 +105,14 @@ await test('a successful download is put in Cache Storage under its URL and expo
 });
 
 await test('the response Content-Type is preserved on the cached copy', async () => {
-    const url = 'https://i.gifer.com/85q.gif';
+    const url = 'https://media2.giphy.com/media/85q/giphy.gif';
     const env = makeEnv({ [url]: ok('Server: x\r\nContent-Type: image/gif; charset=binary\r\nX-Other: 1\r\n') });
     await env.api.primeEmoteCache([{ name: 'g', image: url }]);
     assert.equal(env.store.get(url).headers.get('content-type'), 'image/gif; charset=binary');
 });
 
 await test('a missing Content-Type header still caches (no crash, no type)', async () => {
-    const url = 'https://i.gifer.com/me.gif';
+    const url = 'https://media.tenor.com/me.gif';
     const env = makeEnv({ [url]: ok('') });
     await env.api.primeEmoteCache([{ name: 'm', image: url }]);
     assert.ok(env.store.has(url));
@@ -120,7 +120,7 @@ await test('a missing Content-Type header still caches (no crash, no type)', asy
 });
 
 await test('a non-2xx status is not cached and is remembered as failed for the session', async () => {
-    const url = 'https://i.makeagif.com/media/x.gif';
+    const url = 'https://i.postimg.cc/x.gif';
     const env = makeEnv({ [url]: d => d.onload({ status: 403, response: bytes(), responseHeaders: '' }) });
     await env.api.primeEmoteCache([{ name: 'bad', image: url }]);
     assert.equal(env.store.has(url), false);
@@ -131,8 +131,8 @@ await test('a non-2xx status is not cached and is remembered as failed for the s
 });
 
 await test('a network error and a timeout are swallowed and remembered as failed', async () => {
-    const u1 = 'https://dead.example/a.gif';
-    const u2 = 'https://slow.example/b.gif';
+    const u1 = 'https://i.ibb.co/dead/a.gif';
+    const u2 = 'https://image.prntscr.com/b.gif';
     const env = makeEnv({ [u1]: d => d.onerror({}), [u2]: d => d.ontimeout({}) });
     await env.api.primeEmoteCache([{ name: 'a', image: u1 }, { name: 'b', image: u2 }]);
     assert.ok(env.api._scEmoteCacheFailed.has('a'));
@@ -147,6 +147,26 @@ await test('an already-cached emote is served from Cache Storage with no request
     assert.equal(env.gmCalls.length, 0);
     assert.equal(env.fetchCalls.length, 0);
     assert.ok(env.api.getEmoteBlobUrl('cached'));
+});
+
+await test('an emote on a host outside EMOTE_CACHE_HOSTS is never requested or cached', async () => {
+    const off = 'https://i.pinimg.com/originals/aa/bb/cc.gif';
+    const lookalike = 'https://notimgur.com/x.gif'; // suffix match must be on a dot boundary
+    const env = makeEnv({ [off]: ok(), [lookalike]: ok() });
+    await env.api.primeEmoteCache([{ name: 'off', image: off }, { name: 'look', image: lookalike }]);
+    assert.equal(env.gmCalls.length, 0, 'no GM request for a non-allowed host');
+    assert.equal(env.fetchCalls.length, 0);
+    assert.equal(env.store.size, 0);
+    assert.equal(env.api.getEmoteBlobUrl('off'), null);
+    assert.equal(env.api._scEmoteCacheFailed.has('off'), false, 'skipped, not counted as a failure');
+});
+
+await test('allowed hosts match themselves and their subdomains, case-insensitively', async () => {
+    const urls = ['https://ibb.co/a.gif', 'https://I.IBB.CO/b.gif', 'https://media4.giphy.com/c.gif', 'https://prnt.sc/d.png'];
+    const replies = Object.fromEntries(urls.map(u => [u, ok()]));
+    const env = makeEnv(replies);
+    await env.api.primeEmoteCache(urls.map((u, i) => ({ name: 'e' + i, image: u })));
+    assert.equal(env.gmCalls.length, urls.length);
 });
 
 console.log(`test-emote-cache: ${passed} passed`);

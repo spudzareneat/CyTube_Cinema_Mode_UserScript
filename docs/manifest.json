@@ -1,7 +1,7 @@
 {
   "scriptId": "cytube.pc",
   "displayName": "Spuds Grindhouse Experience",
-  "baseVersion": "4.13.61",
+  "baseVersion": "4.13.62",
   "headerTemplate": "src/pc/header.template.js",
   "match": [
     "https://cytu.be/r/420Grindhouse",
@@ -233,8 +233,20 @@
         "src/pc/modules/emote-cache/index.js"
       ],
       "dependsOn": ["core"],
+      "grants": [
+        "GM_xmlhttpRequest"
+      ],
+      "connects": [
+        "postimg.cc",
+        "ibb.co",
+        "prnt.sc",
+        "prntscr.com",
+        "imgur.com",
+        "giphy.com",
+        "tenor.com"
+      ],
       "features": [
-        "Caches every channel emote's image in Cache Storage instead of relying on the browser's shared HTTP cache, which gets evicted constantly by ordinary chat/gif traffic",
+        "Caches channel emotes hosted on the big image sites (postimg, ImgBB, Lightshot, Imgur, Giphy, Tenor) in Cache Storage instead of relying on the browser's shared HTTP cache, which gets evicted constantly by ordinary chat/gif traffic",
         "Stops emotes from re-downloading and rate-limiting the CDN when scrolling the emote picker or viewing them in chat",
         "Stays fresh via the channel's live emote add/edit/remove events, plus an on-demand top-up whenever the emote picker panel opens"
       ]
