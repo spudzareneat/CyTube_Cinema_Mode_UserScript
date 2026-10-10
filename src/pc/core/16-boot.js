@@ -58,6 +58,8 @@
     scRegisterInit(initUserCount);
     scRegisterInit(initPollWatcher);
     scRegisterInit(function scApplyInitialChatFontSize() { applyChatFontSize(getChatFontSize()); });
+    scRegisterInit(initRoundedVideoCorners);
+    scRegisterInit(initChatStickToBottom);
 
     window.addEventListener('load', () => {
         SC_INIT_REGISTRY.forEach(fn => {

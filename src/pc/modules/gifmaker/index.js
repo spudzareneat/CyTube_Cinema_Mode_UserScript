@@ -423,9 +423,10 @@
             #sc-gif-dl { background: transparent !important; color: rgba(244,244,242,0.62) !important;
                          border: 1px solid rgba(244,244,242,0.14) !important; border-radius: 8px !important;
                          padding: 5px 12px !important; font-size: 12px !important; cursor: pointer !important;
-                         text-decoration: none !important;
+                         text-decoration: none !important; font-family: inherit !important;
                          transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease !important; }
-            #sc-gif-dl:hover { background: rgba(255,176,32,0.14) !important; border-color: #ffb020 !important; color: #f4f4f2 !important; }
+            #sc-gif-dl:disabled { opacity: 0.5 !important; cursor: default !important; }
+            #sc-gif-dl:hover:not(:disabled) { background: rgba(255,176,32,0.14) !important; border-color: #ffb020 !important; color: #f4f4f2 !important; }
             #sc-gif-size { color: rgba(244,244,242,0.34) !important; font-size: 11px !important; margin-left: auto !important; }
             #sc-gif-optimize-row { display: flex !important; align-items: center !important; gap: 8px !important; margin-top: 6px !important; }
             #sc-gif-optimize-row label { flex: 0 0 auto !important; white-space: nowrap !important; color: rgba(244,244,242,0.62) !important; font-size: 12px !important; }
@@ -987,6 +988,10 @@
                 canvas = document.createElement('canvas');
                 canvas.width = w; canvas.height = h;
                 ctx = canvas.getContext('2d');
+                // Default smoothing is a cheap bilinear pass that aliases badly
+                // on big downscales (1080p -> 480px); 'high' is noticeably cleaner.
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
                 try { vid.currentTime = startT; } catch (e) {}
             });
             vid.addEventListener('seeked', function onSeek() {
@@ -1272,29 +1277,43 @@
         return applyFilters(input, w, h, filters, i, sequence.length);
     }
 
-    function encodeGif({ frames, w, h, delay, playback, filters }, onProgress) {
+    const GIF_WORKERS = Math.max(2, Math.min(4, navigator.hardwareConcurrency || 2));
+
+    // Applies the playback sequence (boomerang / speed / freeze-hold), the
+    // per-frame filters and the fade-out, yielding the exact frame list to
+    // encode — shared by the gif.js and gifski encoders.
+    function buildOutputFrames({ frames, w, h, delay, playback, filters }) {
+        const sequence = buildPlaybackSequence(frames.length, playback || {});
+        const fadeOutMs = (playback && playback.fadeOutMs) || 0;
+        const fadeFps = (playback && playback.fps) || (delay ? 1000 / delay : 12);
+        // Fade runs over the LAST N sequence positions — after boomerang,
+        // speed and freeze-hold have already shaped the sequence — so a
+        // freeze-hold then fades out during the hold, which reads right.
+        const fadeFrames = fadeOutMs > 0
+            ? Math.max(1, Math.min(sequence.length, Math.round((fadeOutMs / 1000) * fadeFps)))
+            : 0;
+        const out = [];
+        for (let i = 0; i < sequence.length; i++) {
+            let frame = renderSequenceFrame(frames, sequence, i, w, h, filters || {});
+            if (fadeFrames > 0 && i >= sequence.length - fadeFrames) {
+                const stepsFromEnd = sequence.length - 1 - i; // 0 on the final frame
+                frame = applyFadeToBlack(frame, (fadeFrames - stepsFromEnd) / fadeFrames);
+            }
+            out.push(frame);
+        }
+        return out;
+    }
+
+    // gif.js encode — the quick preview (quality 20 = coarse NeuQuant
+    // sampling) and the fallback when gifski can't load (quality 10).
+    function encodeGif(input, onProgress, quality) {
         return getGifWorkerUrl().then(workerScript => new Promise((resolve, reject) => {
             const Ctor = getGifCtor();
             if (!Ctor) { reject(new Error('gif.js not loaded (@require missing?)')); return; }
+            const { w, h, delay, playback } = input;
             const repeat = (playback && playback.mode === 'stop') ? -1 : 0;
-            const gif = new Ctor({ workers: 2, quality: 10, width: w, height: h, workerScript, repeat });
-            const sequence = buildPlaybackSequence(frames.length, playback || {});
-            const fadeOutMs = (playback && playback.fadeOutMs) || 0;
-            const fadeFps = (playback && playback.fps) || (delay ? 1000 / delay : 12);
-            // Fade runs over the LAST N sequence positions — after boomerang,
-            // speed and freeze-hold have already shaped the sequence — so a
-            // freeze-hold then fades out during the hold, which reads right.
-            const fadeFrames = fadeOutMs > 0
-                ? Math.max(1, Math.min(sequence.length, Math.round((fadeOutMs / 1000) * fadeFps)))
-                : 0;
-            for (let i = 0; i < sequence.length; i++) {
-                let frame = renderSequenceFrame(frames, sequence, i, w, h, filters || {});
-                if (fadeFrames > 0 && i >= sequence.length - fadeFrames) {
-                    const stepsFromEnd = sequence.length - 1 - i; // 0 on the final frame
-                    frame = applyFadeToBlack(frame, (fadeFrames - stepsFromEnd) / fadeFrames);
-                }
-                gif.addFrame(frame, { delay });
-            }
+            const gif = new Ctor({ workers: GIF_WORKERS, quality: quality || 10, width: w, height: h, workerScript, repeat });
+            buildOutputFrames(input).forEach(frame => gif.addFrame(frame, { delay }));
             gif.on('progress', p => onProgress && onProgress(p));
             gif.on('finished', blob => resolve(blob));
             gif.on('abort', () => reject(new Error('encode aborted')));
@@ -1302,11 +1321,95 @@
         }));
     }
 
+    // gifski (pngquant palettes + temporal dithering, thousands of colors
+    // across frames) — the full-quality encode. gifski-wasm's wasm-bindgen
+    // glue is an ES module that can't be loaded as-is here, and the wasm's
+    // only import is __wbindgen_throw, so the worker below re-implements the
+    // few lines of glue encode() needs. Single-threaded (the parallel build
+    // needs SharedArrayBuffer, which cytu.be doesn't enable), so it runs in a
+    // Worker and takes seconds; startGifskiEncode returns a cancel handle.
+    const GIFSKI_WASM_URL = 'https://cdn.jsdelivr.net/npm/gifski-wasm@2.2.0/pkg/gifski_wasm_bg.wasm';
+    let _gifskiWasmBytes = null;
+    function getGifskiWasm() {
+        if (_gifskiWasmBytes) return _gifskiWasmBytes;
+        _gifskiWasmBytes = new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'GET', url: GIFSKI_WASM_URL, responseType: 'arraybuffer',
+                onload: r => (r.status >= 200 && r.status < 300 && r.response)
+                    ? resolve(r.response) : reject(new Error('gifski HTTP ' + r.status)),
+                onerror: () => reject(new Error('gifski fetch failed')),
+            });
+        });
+        _gifskiWasmBytes.catch(() => { _gifskiWasmBytes = null; }); // allow a retry next time
+        return _gifskiWasmBytes;
+    }
+    const GIFSKI_WORKER_SRC = `
+        onmessage = async (e) => {
+            const { wasmBytes, frames, n, w, h, durations, quality, repeat } = e.data;
+            try {
+                let wasm;
+                const dec = new TextDecoder();
+                const { instance } = await WebAssembly.instantiate(wasmBytes, { wbg: {
+                    __wbindgen_throw: (p, l) => { throw new Error(dec.decode(new Uint8Array(wasm.memory.buffer, p, l))); },
+                } });
+                wasm = instance.exports;
+                const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+                try {
+                    const p0 = wasm.__wbindgen_malloc(frames.length, 1);
+                    new Uint8Array(wasm.memory.buffer).set(frames, p0);
+                    const p1 = wasm.__wbindgen_malloc(durations.length * 4, 4);
+                    new Uint32Array(wasm.memory.buffer).set(durations, p1 / 4);
+                    wasm.encode(retptr, p0, frames.length, n, w, h, 0xFFFFFF, p1, durations.length,
+                        quality, repeat != null, repeat == null ? 0 : repeat, false, 0, false, 0);
+                    const i32 = new Int32Array(wasm.memory.buffer);
+                    const r0 = i32[retptr / 4], r1 = i32[retptr / 4 + 1];
+                    const out = new Uint8Array(wasm.memory.buffer, r0, r1).slice();
+                    postMessage({ ok: true, gif: out }, [out.buffer]);
+                } finally { wasm.__wbindgen_add_to_stack_pointer(16); }
+            } catch (err) {
+                postMessage({ ok: false, error: String((err && err.message) || err) });
+            }
+        };`;
+    let _gifskiWorkerUrl = null;
+    function startGifskiEncode(input, quality) {
+        let worker = null, cancelled = false, rejectFn = null;
+        const promise = getGifskiWasm().then(wasmBytes => new Promise((resolve, reject) => {
+            if (cancelled) { reject(new Error('cancelled')); return; }
+            rejectFn = reject;
+            const out = buildOutputFrames(input);
+            if (out.length < 2) { reject(new Error('gifski needs at least 2 frames')); return; }
+            const { w, h, delay, playback } = input;
+            const frameBytes = w * h * 4;
+            const frames = new Uint8Array(frameBytes * out.length);
+            out.forEach((f, i) => frames.set(f.data, i * frameBytes));
+            const durations = new Uint32Array(out.length).fill(delay);
+            if (!_gifskiWorkerUrl) _gifskiWorkerUrl = URL.createObjectURL(new Blob([GIFSKI_WORKER_SRC], { type: 'application/javascript' }));
+            worker = new Worker(_gifskiWorkerUrl);
+            worker.onmessage = (e) => {
+                worker.terminate(); worker = null;
+                if (e.data && e.data.ok) resolve(new Blob([e.data.gif], { type: 'image/gif' }));
+                else reject(new Error('gifski: ' + ((e.data && e.data.error) || 'encode failed')));
+            };
+            worker.onerror = (e) => { if (worker) { worker.terminate(); worker = null; } reject(new Error('gifski worker: ' + (e.message || 'error'))); };
+            worker.postMessage({
+                wasmBytes: wasmBytes.slice(0), frames, n: out.length, w, h, durations, quality,
+                // gifski: unset = loop forever, 0 = play once (the 'stop' mode)
+                repeat: (playback && playback.mode === 'stop') ? 0 : null,
+            }, [frames.buffer, durations.buffer]);
+        }));
+        const cancel = () => {
+            cancelled = true;
+            if (worker) { worker.terminate(); worker = null; }
+            if (rejectFn) rejectFn(new Error('cancelled'));
+        };
+        return { promise, cancel };
+    }
+
     // Size-shrink pass via gifsicle -O3, optionally plus a lossy pass at the
-    // given level (0 = lossless only). User-triggered from the result view's
-    // Optimize button, always run against the pristine raw encode (never a
-    // previously-optimized blob), so repeated clicks at different levels
-    // never compound lossy artifacts. Any failure falls back to the input
+    // given level (0 = lossless only). Runs as part of the result view's
+    // finalize step (Download / Upload / Optimize), always against the
+    // pristine full-quality gifski encode (never a previously-optimized
+    // blob), so re-running at different levels never compounds lossy artifacts. Any failure falls back to the input
     // blob silently — this step must never leave the user without a GIF.
     async function optimizeGif(blob, lossy) {
         try {
@@ -1324,6 +1427,8 @@
     }
 
     let _gifResultUrl = null;
+    let _cancelHqEncode = null; // cancels the in-flight background gifski encode, if any
+    function _cancelHq() { if (_cancelHqEncode) { _cancelHqEncode(); _cancelHqEncode = null; } }
     function _revokeGifResult() {
         if (_gifResultUrl) { URL.revokeObjectURL(_gifResultUrl); _gifResultUrl = null; }
     }
@@ -1779,8 +1884,8 @@
                     </div>
                 </div>
                 <div id="sc-gif-status"></div>
-                <div id="sc-gif-result"></div>
                 <button id="sc-gif-go" type="button">● Make GIF</button>
+                <div id="sc-gif-result"></div>
             </div>`;
         document.body.appendChild(panel);
 
@@ -1793,7 +1898,7 @@
             clearTimeout(_filmstripTimer);
             Object.values(thumbTimers).forEach(clearTimeout);
             stopSelectionAutoScroll();
-            _revokeGifResult(); destroyScrubClone(); panel.remove();
+            _cancelHq(); _revokeGifResult(); destroyScrubClone(); panel.remove();
         };
         $('#sc-gif-close').addEventListener('click', close);
 
@@ -2708,6 +2813,7 @@
                 midHeader.setAttribute('aria-expanded', 'false');
             }
 
+            _cancelHq();
             _revokeGifResult();
             result.innerHTML = '<div class="sc-gif-working"><span class="sc-gif-spinner"></span><span id="sc-gif-working-txt">Capturing frames…</span></div>';
             const workTxt = $('#sc-gif-working-txt');
@@ -2721,8 +2827,12 @@
                 const playback = { mode: fx.mode, speed: fx.speed, freezeHoldMs: fx.freezeHoldMs, fadeOutMs: fx.fadeOutMs, fps };
                 const filters = { deepFry: fx.deepFry, vhs: fx.vhs, zoomShake: fx.zoomShake };
                 setWork('Encoding GIF… (' + cap.frames.length + ' frames)');
-                let blob = await encodeGif({ ...cap, playback, filters }, p => setWork('Encoding GIF… ' + Math.round(p * 100) + '%'));
-                const rawBlob = blob; // pristine encode — Optimize always re-derives from this, never from a prior optimize pass
+                const encodeInput = { ...cap, playback, filters };
+                // Quick gif.js preview so iterating on trims stays fast; the
+                // full-quality gifski encode then runs in the background and
+                // swaps into the preview when done (see hqPromise below).
+                const blob = await encodeGif(encodeInput, p => setWork('Encoding GIF… ' + Math.round(p * 100) + '%'), 20);
+                getGifsicleCtor().catch(() => {}); // warm the gifsicle fetch for finalize
                 _gifResultUrl = URL.createObjectURL(blob);
                 const kb = Math.round(blob.size / 1024);
                 const slug = activeTitleSlug();
@@ -2739,49 +2849,103 @@
                     `<button id="sc-gif-optimize-btn" type="button">⚙ Optimize</button>` +
                     `</div>` +
                     `<div id="sc-gif-actions">` +
-                    `<a id="sc-gif-dl" href="${_gifResultUrl}" download="${_gifEscHtml(fnameBaseFor('') + '.gif')}">⬇ Download</a>` +
+                    `<button id="sc-gif-dl" type="button">⬇ Download</button>` +
                     (hasImgbbKey ? `<button id="sc-gif-upload" type="button">☁ Upload</button>` : '') +
                     `<input type="text" id="sc-gif-tag" class="sc-gif-tag-input" placeholder="tag" maxlength="40">` +
-                    `<span id="sc-gif-size">${kb} KB</span></div>` +
+                    `<span id="sc-gif-size">~${kb} KB · rendering full quality…</span></div>` +
                     (hasImgbbKey ? `<div id="sc-gif-link"></div>` : '');
                 setStatus('Done.');
                 result.scrollIntoView({ block: 'nearest' });
 
                 const resultImg = result.querySelector('img');
-                const dlLink = $('#sc-gif-dl');
+                const dlBtn = $('#sc-gif-dl');
                 const sizeEl = $('#sc-gif-size');
                 const tagEl = $('#sc-gif-tag');
-                if (tagEl && dlLink) {
-                    tagEl.addEventListener('input', () => {
-                        dlLink.setAttribute('download', fnameBaseFor(sanitizeTag(tagEl.value)) + '.gif');
-                    });
-                }
-
                 const lossyInput = $('#sc-gif-lossy');
                 const lossyVal = $('#sc-gif-lossy-val');
                 const optimizeBtn = $('#sc-gif-optimize-btn');
-                if (lossyInput && lossyVal) {
-                    lossyInput.addEventListener('input', () => { lossyVal.textContent = lossyInput.value; });
-                }
-                if (optimizeBtn) optimizeBtn.addEventListener('click', async () => {
+                const currentName = () => fnameBaseFor(tagEl ? sanitizeTag(tagEl.value) : '');
+
+                const showBlob = (b, label) => {
+                    if (!resultImg || !resultImg.isConnected) return; // re-encoded meanwhile
+                    _revokeGifResult();
+                    _gifResultUrl = URL.createObjectURL(b);
+                    resultImg.src = _gifResultUrl;
+                    if (sizeEl) sizeEl.textContent = Math.round(b.size / 1024) + ' KB' + (label ? ' · ' + label : '');
+                };
+
+                let finalBlob = null, finalLossy = null, finalizing = null; // see finalize()
+
+                // Full-quality gifski encode, started right away in the background.
+                // Falls back to a gif.js quality-10 encode if gifski can't load.
+                const hqJob = startGifskiEncode(encodeInput, 100);
+                _cancelHqEncode = hqJob.cancel;
+                const hqPromise = hqJob.promise.catch(e => {
+                    if (e && e.message === 'cancelled') throw e;
+                    console.warn('[GIFMaker] gifski encode failed, using gif.js:', e);
+                    return encodeGif(encodeInput, null, 10);
+                }).then(b => {
+                    if (_cancelHqEncode === hqJob.cancel) _cancelHqEncode = null;
+                    if (!finalBlob) showBlob(b, 'full quality');
+                    return b;
+                });
+                hqPromise.catch(() => {});
+
+                // gifsicle over the HQ encode at the slider's level (cached per
+                // level, always re-derived from the HQ encode so lossy passes
+                // never compound). Concurrent callers share one run.
+                function finalize() {
                     const lossy = parseInt(lossyInput.value, 10) || 0;
+                    if (finalBlob && finalLossy === lossy) return Promise.resolve(finalBlob);
+                    // A run is already in flight (maybe for another level): wait
+                    // for it, then re-check — a match hits the cache above.
+                    if (finalizing) return finalizing.catch(() => {}).then(() => finalize());
                     lastLossyValue = lossy;
                     writeGifPrefs({ lossy });
+                    finalizing = (async () => {
+                        const hq = await hqPromise;
+                        const out = await optimizeGif(hq, lossy);
+                        finalBlob = out; finalLossy = lossy;
+                        showBlob(out, 'optimized');
+                        if (optimizeBtn && resultImg.isConnected && (parseInt(lossyInput.value, 10) || 0) === lossy) optimizeBtn.textContent = '✓ Optimized';
+                        return out;
+                    })().finally(() => { finalizing = null; });
+                    return finalizing;
+                }
+
+                if (lossyInput && lossyVal) {
+                    lossyInput.addEventListener('input', () => {
+                        lossyVal.textContent = lossyInput.value;
+                        if (optimizeBtn) optimizeBtn.textContent = '⚙ Optimize';
+                    });
+                }
+                if (optimizeBtn) optimizeBtn.addEventListener('click', async () => {
                     optimizeBtn.disabled = true;
-                    const prevLabel = optimizeBtn.textContent;
                     optimizeBtn.textContent = 'Optimizing…';
+                    try { await finalize(); }
+                    catch (e) { console.warn('[GIFMaker] finalize failed:', e); optimizeBtn.textContent = '⚙ Optimize'; }
+                    finally { optimizeBtn.disabled = false; }
+                });
+
+                if (dlBtn) dlBtn.addEventListener('click', async () => {
+                    dlBtn.disabled = true;
+                    dlBtn.textContent = 'Optimizing…';
                     try {
-                        blob = await optimizeGif(rawBlob, lossy);
-                        _revokeGifResult();
-                        _gifResultUrl = URL.createObjectURL(blob);
-                        if (resultImg) resultImg.src = _gifResultUrl;
-                        if (dlLink) dlLink.href = _gifResultUrl;
-                        if (sizeEl) sizeEl.textContent = Math.round(blob.size / 1024) + ' KB';
-                        optimizeBtn.textContent = '✓ Optimized';
+                        const out = await finalize();
+                        const url = URL.createObjectURL(out);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = currentName() + '.gif';
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        setTimeout(() => URL.revokeObjectURL(url), 60000);
                     } catch (e) {
-                        optimizeBtn.textContent = prevLabel;
+                        console.warn('[GIFMaker] download failed:', e);
+                        setStatus('Download failed: ' + (e.message || e));
                     } finally {
-                        optimizeBtn.disabled = false;
+                        dlBtn.disabled = false;
+                        dlBtn.textContent = '⬇ Download';
                     }
                 });
 
@@ -2794,10 +2958,11 @@
                         return;
                     }
                     uploadBtn.disabled = true;
-                    linkBox.innerHTML = '<span class="sc-gif-spinner sc-gif-spinner-sm"></span><span class="sc-gif-link-msg">Uploading to ImgBB…</span>';
+                    linkBox.innerHTML = '<span class="sc-gif-spinner sc-gif-spinner-sm"></span><span class="sc-gif-link-msg">Optimizing…</span>';
                     try {
-                        const uploadName = fnameBaseFor(tagEl ? sanitizeTag(tagEl.value) : '');
-                        const link = await uploadToImgbb(blob, apiKey, uploadName);
+                        const out = await finalize();
+                        linkBox.innerHTML = '<span class="sc-gif-spinner sc-gif-spinner-sm"></span><span class="sc-gif-link-msg">Uploading to ImgBB…</span>';
+                        const link = await uploadToImgbb(out, apiKey, currentName());
                         linkBox.innerHTML =
                             `<a class="sc-gif-link-url" href="${_gifEscHtml(link)}" target="_blank" rel="noopener">${_gifEscHtml(link)}</a>` +
                             `<button id="sc-gif-copylink" type="button">⧉ Copy link</button>`;
@@ -2955,5 +3120,6 @@
     });
 
     // The old "Optimize GIFs before upload" auto-toggle was replaced by the
-    // manual Compression slider + Optimize button in the result view (always
-    // available, no setting needed) — see the goBtn click handler above.
+    // Compression slider + Optimize button in the result view (the preview is
+    // a quick encode; Download/Upload/Optimize run the full encode + gifsicle;
+    // always available, no setting needed) — see the goBtn click handler above.

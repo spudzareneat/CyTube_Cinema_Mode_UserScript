@@ -170,6 +170,25 @@
             }
             #sc-np-fix:hover { background: rgba(245,197,24,0.28) !important; }
 
+            /* Row holding "Wrong match?" + "Log on Simkl"; owns the bottom gap. */
+            #sc-np-actions { display: flex !important; flex-wrap: wrap !important; gap: 8px !important; margin: 2px 0 16px !important; }
+            #sc-np-actions > button { margin: 0 !important; }
+            #sc-np-actions:not(:has(> button[style*="inline-flex"])) { margin: 0 !important; }
+            /* Same pill as #sc-np-fix; display is set inline (!important) by showNowPlayingCard(). */
+            #sc-np-simkl {
+                display: none !important; align-items: center !important; gap: 6px !important;
+                padding: 5px 12px !important;
+                border-radius: 999px !important;
+                background: rgba(255,255,255,0.10) !important;
+                border: 1px solid rgba(255,255,255,0.45) !important;
+                color: #fff !important;
+                font-size: 12px !important; font-weight: 600 !important; line-height: 1 !important;
+                letter-spacing: 0.02em !important;
+                cursor: pointer !important;
+                transition: background 0.15s ease !important;
+            }
+            #sc-np-simkl:hover { background: rgba(255,255,255,0.22) !important; }
+
             /* ===== FIX-MATCH MODAL ===== */
             #sc-fix-overlay {
                 position: fixed !important; inset: 0 !important;

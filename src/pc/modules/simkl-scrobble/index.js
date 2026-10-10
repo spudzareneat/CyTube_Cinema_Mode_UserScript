@@ -722,6 +722,13 @@
         simklShowPanel(simklSnapshot(), { manual: true });
     }
 
+    // Called by movie-title-links' "Log on Simkl" button on the Now Playing card
+    // (typeof-guarded there). Open-only: unlike the hotkey it never closes the card.
+    function simklOpenFromInfoCard() {
+        if (!simklEnabled() || _simklPanelEl) return;
+        simklShowPanel(simklSnapshot(), { manual: true });
+    }
+
     function simklBoot() {
         setInterval(simklTick, SIMKL_POLL_MS);
         // Capture phase, and deliberately not ignored while typing in chat: Alt+Shift+S types nothing on Windows/Linux.
@@ -746,7 +753,7 @@
         group: 'simkl-scrobble',
         type: 'section',
         label: 'Simkl',
-        note: 'Log movies you finish on simkl.com. Register a free app at <a href="https://simkl.com/settings/developer/" target="_blank" rel="noopener">simkl.com/settings/developer</a> (choose <b>TV, devices &amp; command line</b>), paste its Client ID below, then press <b>Test connection</b>. Press <b>Alt+Shift+S</b> any time to open the scrobble card for the current movie — handy for testing.',
+        note: 'Log movies you finish on simkl.com. Register a free app at <a href="https://simkl.com/settings/developer/" target="_blank" rel="noopener">simkl.com/settings/developer</a> (choose <b>TV, devices &amp; command line</b>), paste its Client ID below, then press <b>Test connection</b>. To log the current movie any time, click <b>✓ Log on Simkl</b> on the Now Playing info card (or press <b>Alt+Shift+S</b>).',
         order: 13,
     });
     scRegisterSetting({

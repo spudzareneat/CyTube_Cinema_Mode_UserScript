@@ -552,7 +552,10 @@
                         <div id="sc-np-title"></div>
                         <div id="sc-np-meta"></div>
                         <div id="sc-np-match"></div>
-                        <button id="sc-np-fix" type="button" title="Pin the correct movie for this file">✎ Wrong match?</button>
+                        <div id="sc-np-actions">
+                            <button id="sc-np-fix" type="button" title="Pin the correct movie for this file">✎ Wrong match?</button>
+                            <button id="sc-np-simkl" type="button" title="Open the Simkl scrobble card (Alt+Shift+S)">✓ Log on Simkl</button>
+                        </div>
                         <div id="sc-np-overview"></div>
                         <div id="sc-np-mpaa"></div>
                         <div id="sc-np-chips"></div>
@@ -569,6 +572,13 @@
                 if (_npData && _npData.rawFilename && _npData.parsedTitle) {
                     openFixMatchModal(_npData.rawFilename, _npData.parsedTitle, _npData.parsedYear);
                 }
+            });
+            // Optional simkl-scrobble module: typeof-guarded so a build without it
+            // just never shows (or wires up) a working button.
+            card.querySelector('#sc-np-simkl').addEventListener('click', (e) => {
+                e.stopPropagation();
+                hideNowPlayingCard();
+                if (typeof simklOpenFromInfoCard === 'function') simklOpenFromInfoCard();
             });
         }
         const title = data.cleanTitle || '';
@@ -613,6 +623,12 @@
         // Gate is deliberately rawFilename && parsedTitle, NOT imdbId -- a
         // total match failure is exactly when the user most needs this.
         fixBtn.style.setProperty('display', (data.rawFilename && data.parsedTitle) ? 'inline-flex' : 'none', 'important');
+        // "Log on Simkl": only for the live now-playing movie (not tonights-lineup's
+        // per-item cards -- the scrobble card always targets _currentImdbId), only
+        // when the Simkl module is built in and opted into, and never for episodes.
+        const simklOk = typeof simklOpenFromInfoCard === 'function' && typeof simklEnabled === 'function' && simklEnabled()
+            && data === _npData && data.imdbId && data.imdbId === _currentImdbId && data.episode == null;
+        card.querySelector('#sc-np-simkl').style.setProperty('display', simklOk ? 'inline-flex' : 'none', 'important');
         if (data.imdbId && data.parsedTitle) {
             const SRC_LABEL = { tmdb: 'TMDB', imdb: 'IMDb search', pinned: 'pinned' };
             const srcLabel = SRC_LABEL[data.matchSource] || '';

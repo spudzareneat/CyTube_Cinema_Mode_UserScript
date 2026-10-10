@@ -333,4 +333,4 @@ This project was 100% vibe coded using [Claude](https://claude.ai) by Anthropic.
 | [lklynet/Kill-Count](https://github.com/lklynet/Kill-Count) | On-screen kill counts | No |
 | [ImgBB](https://imgbb.com/) | GIF hosting / shareable links | Yes (free) |
 | [cdnjs.cloudflare.com](https://cdnjs.com/) | Serves gif.js (GIF encoding library, GIF Maker module) | No |
-| [cdn.jsdelivr.net](https://www.jsdelivr.com/) | Serves gifsicle (GIF optimization library, GIF Maker module) | No |
+| [cdn.jsdelivr.net](https://www.jsdelivr.com/) | Serves gifsicle (GIF optimization library) and gifski-wasm (full-quality GIF encoder, AGPL-3.0), both for the GIF Maker module | No |

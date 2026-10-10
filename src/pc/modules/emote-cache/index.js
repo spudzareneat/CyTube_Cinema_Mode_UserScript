@@ -35,16 +35,21 @@
        codebase's existing per-module convention of copying rather
        than sharing tiny logic like this.
 
-       Cross-origin emote CDNs without CORS headers make fetch()
-       below throw -- caught and swallowed like every other
-       best-effort path here; that particular emote just falls back
-       to the plain live-URL/browser-cache behavior, exactly as if
-       this module didn't exist for it.
+       Emote CDNs are cross-origin and mostly send no CORS headers,
+       so the bytes are downloaded with GM_xmlhttpRequest (see
+       downloadEmoteImage() below) rather than fetch() -- a plain
+       fetch() fails for those hosts and logs a console error per
+       emote on every page load. Anything that still fails is
+       caught and swallowed like every other best-effort path here;
+       that particular emote just falls back to the plain
+       live-URL/browser-cache behavior, exactly as if this module
+       didn't exist for it.
 
        _uw is core's shared unsafeWindow/window fallback (see
        03-gif-bridge.js) -- this module doesn't redeclare it.
        getKey/setKey are core's (02-keys-and-helpers.js).
     ========================================================== */
+    // ── test marker: emote-cache slice start ──
     const EMOTE_IMAGE_CACHE = 'sc-emote-image-cache-v1';
 
     function openEmoteCache() {
@@ -95,12 +100,37 @@
         if (prev) { URL.revokeObjectURL(prev); _scEmoteBlobUrls.delete(name); }
     }
 
-    // Fetches+persists one emote's bytes. Best-effort: a CORS-less CDN
-    // throws here and is silently skipped (see block comment above).
+    // Downloads one image through the userscript manager (no CORS, follows
+    // redirects) and resolves to a Response, or null on any failure. Never
+    // a page-context fetch(): that fails for every CDN without CORS headers
+    // AND logs a "Cross-Origin Request Blocked" console error per emote on
+    // every page load. Needs "@connect *" (see the manifest entry) since
+    // emotes live on dozens of hosts.
+    function downloadEmoteImage(url) {
+        return new Promise(resolve => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url,
+                responseType: 'arraybuffer',
+                timeout: 30000,
+                onload: r => {
+                    if (r.status < 200 || r.status >= 300 || !r.response) { resolve(null); return; }
+                    const type = /^content-type:\s*([^\r\n]+)/im.exec(r.responseHeaders || '');
+                    resolve(new Response(r.response, type ? { headers: { 'Content-Type': type[1].trim() } } : undefined));
+                },
+                onerror: () => resolve(null),
+                ontimeout: () => resolve(null),
+            });
+        });
+    }
+
+    // Fetches+persists one emote's bytes. Best-effort: any failure (bad
+    // status, network error, cache.put quota error) is silently skipped and
+    // remembered in _scEmoteCacheFailed.
     async function cacheEmoteImage(cache, name, url) {
         try {
-            const res = await fetch(url);
-            if (!res.ok) { _scEmoteCacheFailed.add(name); return; }
+            const res = await downloadEmoteImage(url);
+            if (!res) { _scEmoteCacheFailed.add(name); return; }
             await cache.put(url, res.clone());
             setEmoteBlobUrl(name, await res.blob());
         } catch (e) { _scEmoteCacheFailed.add(name); }
@@ -156,6 +186,7 @@
             todo.forEach(e => _scEmotePriming.delete(e.name));
         }
     }
+    // ── test marker: emote-cache slice end ──
 
     /* ==========================================================
        PRUNING -- LS_EMOTE_CACHE_MANIFEST (core's

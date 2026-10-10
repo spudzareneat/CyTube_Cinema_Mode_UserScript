@@ -292,6 +292,42 @@
     }
 
     /* ==========================================================
+       CHAT STICK-TO-BOTTOM
+       CyTube's scrollChat() scrolls #messagebuffer to the bottom once,
+       at the moment a message is appended. The message keeps growing
+       after that (emotes have no size until they load -- and emote-cache
+       swaps their src to a blob URL, loading them twice -- plus our own
+       observers add emoji/badges/padding), so the newest line often ended
+       up clipped below the fold. While the user is at the bottom, re-pin
+       on any later growth: DOM changes, image loads (load doesn't bubble
+       but does capture), and buffer resizes. Scrolling up unpins, so
+       reading backlog is never yanked.
+    ========================================================== */
+
+    function initChatStickToBottom() {
+        const buf = document.getElementById('messagebuffer');
+        if (!buf) { requestAnimationFrame(initChatStickToBottom); return; }
+        let pinned = true, queued = false;
+        const stick = () => {
+            if (queued) return;
+            queued = true;
+            requestAnimationFrame(() => {
+                queued = false;
+                if (pinned) buf.scrollTop = buf.scrollHeight;
+            });
+        };
+        buf.addEventListener('scroll', () => {
+            pinned = buf.scrollHeight - buf.scrollTop - buf.clientHeight < 40;
+        }, { passive: true });
+        new MutationObserver(stick).observe(buf, {
+            childList: true, subtree: true,
+            attributes: true, attributeFilter: ['src', 'class', 'style', 'data-emoji'],
+        });
+        buf.addEventListener('load', stick, true);
+        if (typeof ResizeObserver === 'function') new ResizeObserver(stick).observe(buf);
+    }
+
+    /* ==========================================================
        CHAT PANEL RESIZER
        Drags --sc-chat-w (horizontal layout) / --sc-chat-h (vertical layout)
        live, then persists the result so it survives reload.
