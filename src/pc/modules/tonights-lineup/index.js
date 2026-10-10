@@ -159,13 +159,19 @@
         return items;
     }
 
-    // Case-insensitive "is this schedule item the film called `title`?" -- checks the
-    // primary title and every post-provided aka. Tolerates cached schedules written
-    // before akas existed (no `akas` field).
+    // Case- and punctuation-insensitive "is this schedule item the film called `title`?" --
+    // checks the primary title and every post-provided aka. Tolerates cached schedules
+    // written before akas existed (no `akas` field). Punctuation is ignored because filename
+    // parsing drops it: "Ms..45.[1981].mp4" parses to "Ms 45" while the post lists "Ms. 45"
+    // (confirmed live 2026-10-10 -- that film never matched as now-playing or in the queue).
+    function lineupNormTitle(s) {
+        return (s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim();
+    }
     function lineupItemMatchesTitle(item, title) {
-        const t = (title || '').toLowerCase();
-        if (item.title.toLowerCase() === t) return true;
-        return (item.akas || []).some(a => a.toLowerCase() === t);
+        const t = lineupNormTitle(title);
+        if (!t) return false;
+        if (lineupNormTitle(item.title) === t) return true;
+        return (item.akas || []).some(a => lineupNormTitle(a) === t);
     }
 
     // Walks the post body in document order, assigning each <ul> of films to the most
@@ -239,6 +245,42 @@
         };
     }
 
+    // The channel's community Up Next bot (the same dashboard the up-next module embeds)
+    // serves its queue as JSON: the current item's remaining seconds plus every queued item
+    // after it with its real duration. Fetched once per lineup-screen open, only while live
+    // timing is on. Resolves null on any failure -- callers then just keep the guess model.
+    // Only trusted when the bot's room is the channel we're in (the script also runs in
+    // /r/testing, whose queue the bot knows nothing about).
+    const LINEUP_BOT_SCHEDULE_URL = 'https://bot.420grindhouseserver.com/schedule';
+    const LINEUP_BOT_TIMEOUT_MS = 6000;
+
+    function lineupFetchBotQueue() {
+        return new Promise((resolve) => {
+            const fail = (why) => { console.warn('[SC] lineup: Up Next bot queue unavailable, using estimates:', why); resolve(null); };
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: LINEUP_BOT_SCHEDULE_URL + '?t=' + Date.now(),
+                timeout: LINEUP_BOT_TIMEOUT_MS,
+                onload: (res) => {
+                    try {
+                        if (!res || res.status !== 200) return fail('HTTP ' + (res && res.status));
+                        const d = JSON.parse(res.responseText);
+                        if (!d || !Array.isArray(d.playlist)) return fail('no playlist in response');
+                        const room = _uw.CHANNEL && _uw.CHANNEL.name;
+                        if (room && d.room && String(d.room).toLowerCase() !== String(room).toLowerCase()) return resolve(null);
+                        resolve({
+                            anchorMs: Date.now(),
+                            remainingSec: d.remainingSeconds ?? (d.currentMedia && d.currentMedia.seconds) ?? 0,
+                            playlist: d.playlist.map(p => ({ title: (p.media && p.media.title) || '', seconds: (p.media && p.media.seconds) || 0 })),
+                        });
+                    } catch (e) { fail(e && e.message); }
+                },
+                onerror: () => fail('network error'),
+                ontimeout: () => fail('timeout'),
+            });
+        });
+    }
+
     /* ==========================================================
        TONIGHT'S LINEUP -- timing/ETA model.
        Precision decays honestly the further out an estimate is: 'exact' (current
@@ -266,14 +308,15 @@
 
     // Friendly display rounding for an ETA instant: these are guesses, so don't show
     // oddly-specific minutes. 'approx' floors to the previous quarter-hour (4:39 -> 4:30);
-    // 'exact' has a real live anchor behind it, so it only snaps to the nearest 5 minutes.
+    // 'exact' has a real live anchor behind it, so it only snaps to the nearest 5 minutes;
+    // 'queue' is walked from the Up Next bot's real queued durations, so the nearest minute.
     // A displayed time must never already be in the past (it reads as broken -- e.g. a long
     // bumper block pushed the walk behind the clock), so anything that rounds to before
     // `nowMs` clamps up to the next grid point at-or-after now instead. Epoch flooring lands
     // on local :00/:15/:30/:45 because real UTC offsets are 15-min multiples.
     function lineupRoundEtaMs(etaMs, precision, nowMs) {
-        const grid = precision === 'exact' ? 5 * 60000 : 15 * 60000;
-        const round = precision === 'exact' ? Math.round : Math.floor;
+        const grid = precision === 'queue' ? 60000 : precision === 'exact' ? 5 * 60000 : 15 * 60000;
+        const round = precision === 'exact' || precision === 'queue' ? Math.round : Math.floor;
         const rounded = round(etaMs / grid) * grid;
         if (nowMs != null && rounded < nowMs) return Math.ceil(nowMs / grid) * grid;
         return rounded;
@@ -286,6 +329,7 @@
     // input is a number/array so the whole branch tree is easy to reason about without
     // the socket/DOM state the data layer feeds it from. Returns one entry per film
     // (same order): { played, isNowPlaying, etaMs: epoch-ms | null, precision: 'exact' | 'approx' }
+    // (lineupMergeQueueEstimates below may later upgrade queued films to precision 'queue')
     // Estimates degrade honestly by evidence quality: a confirmed now-playing film gives
     // the next film an 'exact' ETA; a bumper anchor or the noon-Pacific clock projection
     // only ever supports 'approx'.
@@ -389,6 +433,63 @@
         });
     }
 
+    // ── test marker: queue-times slice start ──
+    // Up Next bot queue -> real start times. The bot's /schedule endpoint (see
+    // lineupFetchBotQueue) lists everything queued after the current item, each with its
+    // real file duration -- bumpers, commercials, trailers and features alike -- so walking
+    // it gives true start instants instead of IMDb runtimes + a learned median gap.
+    // queue: { anchorMs, remainingSec, playlist: [{ title, seconds }] }. Returns one entry per
+    // schedule item: { startMs, endMs } if that film is in the queue, else null. A queue entry
+    // only counts as a feature when it runs at least minFeatureSeconds (the same guard as
+    // lineupObserveTitleChange, so "Hellraiser (1987) Trailer" can't claim Hellraiser's slot),
+    // and claims the first still-unclaimed schedule item it matches (reruns fill in order).
+    function lineupQueueTimesFor(items, queue, titleOf, matches, minFeatureSeconds) {
+        const out = items.map(() => null);
+        if (!queue || !Array.isArray(queue.playlist)) return out;
+        let cursor = queue.anchorMs + Math.max(0, Number(queue.remainingSec) || 0) * 1000;
+        for (const entry of queue.playlist) {
+            const sec = Math.max(0, Number(entry.seconds) || 0);
+            if (sec >= minFeatureSeconds) {
+                const title = titleOf(entry.title || '');
+                const idx = title ? items.findIndex((item, i) => out[i] === null && matches(item, title)) : -1;
+                if (idx !== -1) out[idx] = { startMs: cursor, endMs: cursor + sec * 1000 };
+            }
+            cursor += sec * 1000;
+        }
+        return out;
+    }
+
+    // Overlays queue times (lineupQueueTimesFor) onto lineupEstimateDayItems' guesses. The
+    // queue is authoritative for anything it lists: a queued film gets its real start
+    // (precision 'queue') and is by definition not played yet. A film missing from the queue
+    // but sitting before a queued one has no trustworthy time (a title we failed to match, or
+    // pulled from tonight), so its guess is dropped rather than contradicting its neighbors.
+    // Past the last queued film the usual guess model resumes, re-anchored to that film's
+    // real end: up to maxAhead films, latching off after an unknown runtime like the base walk.
+    // With nothing queued for this day (another day, or the bot unreachable) the estimates
+    // come back untouched.
+    function lineupMergeQueueEstimates(estimates, queueTimes, { runtimesMin, gapMsFor, maxAhead }) {
+        let lastQueued = -1;
+        queueTimes.forEach((q, i) => { if (q) lastQueued = i; });
+        if (lastQueued === -1) return estimates;
+        let cursor = queueTimes[lastQueued].endMs;
+        let confident = true;
+        return estimates.map((est, idx) => {
+            if (est.isNowPlaying) return est;
+            const q = queueTimes[idx];
+            if (q) return { ...est, played: false, etaMs: q.startMs, precision: 'queue' };
+            if (idx < lastQueued) return { ...est, etaMs: null };
+            cursor += gapMsFor(idx);
+            const withEta = idx - lastQueued <= maxAhead && confident
+                ? { ...est, played: false, etaMs: cursor, precision: 'approx' }
+                : { ...est, etaMs: null };
+            if (runtimesMin[idx] == null) confident = false;
+            cursor += (runtimesMin[idx] || 0) * 60000;
+            return withEta;
+        });
+    }
+    // ── test marker: queue-times slice end ──
+
     // Pacific-timezone offset (minutes) of the UTC instant `d`. Noon is never within a
     // couple hours of a DST transition (those happen at 2am local), so a single
     // read-back is safe -- no iteration needed.
@@ -414,15 +515,26 @@
         return new Date(guess.getTime() - offsetMinutes * 60000);
     }
 
-    // Today's Pacific calendar date as 'YYYY-MM-DD' -- used to pick the default day
-    // tab (isToday) and to decide whether "now playing" should even be searched for.
+    // ── test marker: show-day slice start ──
+    // The current SHOW day as a Pacific 'YYYY-MM-DD' -- used to pick the default day tab
+    // (isToday), to decide whether "now playing" should even be searched for, and to key
+    // the persisted played-progress. A night's lineup runs from noon until roughly 5 AM the
+    // next morning, so the show day only rolls over at LINEUP_DAY_ROLLOVER_HOUR Pacific, not
+    // midnight: at 1 AM Sunday, Saturday's late films are still "today" (live ETAs, played
+    // graying) instead of the screen jumping to Sunday with Saturday marked fully played.
+    const LINEUP_DAY_ROLLOVER_HOUR = 6;
     function lineupPacificDateString(now = new Date()) {
         const parts = new Intl.DateTimeFormat('en-US', {
-            timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit',
+            timeZone: 'America/Los_Angeles', hourCycle: 'h23',
+            year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit',
         }).formatToParts(now);
-        const get = (t) => parts.find(p => p.type === t).value;
-        return `${get('year')}-${get('month')}-${get('day')}`;
+        const get = (t) => parseInt(parts.find(p => p.type === t).value, 10);
+        // Calendar arithmetic on a UTC date so month/year boundaries roll correctly.
+        const d = new Date(Date.UTC(get('year'), get('month') - 1, get('day')));
+        if (get('hour') < LINEUP_DAY_ROLLOVER_HOUR) d.setUTCDate(d.getUTCDate() - 1);
+        return d.toISOString().slice(0, 10);
     }
+    // ── test marker: show-day slice end ──
 
     // True once a cached schedule's own weekend has fully elapsed. The pinned Reddit post
     // always describes the upcoming Fri-Sun, so once Sunday's date is in the past there is
@@ -480,10 +592,10 @@
     /* ==========================================================
        TONIGHT'S LINEUP -- data interface consumed by the lineup screen (below).
        Fetches + caches the Reddit schedule post, persisted to localStorage and
-       re-checked every time the lineup screen opens: a background revalidate past
-       LINEUP_CACHE_MAX_AGE_MS, or an awaited one once the cached weekend's own dates
-       are in the past (lineupScheduleExpired) -- the latter guarantees a new pinned
-       post gets picked up even if this tab has sat open since before it rolled over.
+       re-checked every time the lineup screen opens: never refetched while the cached
+       weekend is still current, and once its dates are in the past (lineupScheduleExpired)
+       an awaited refetch at most every LINEUP_EXPIRED_RETRY_MS until the new pinned post
+       shows up -- even if this tab has sat open since before it rolled over.
        Locates "now" within TODAY's day only, and feeds the pure timing model
        (lineupEstimateDayItems above) each day's TMDB runtimes, section boundaries, the
        learned same-section and cross-section median bumper gaps, the confirmed
@@ -527,7 +639,12 @@
     // to wait and see how long it actually plays. Doesn't catch a coincidental FULL-length
     // rerun of unrelated content under the same title; only short-clip collisions.
     const LINEUP_MIN_PLAUSIBLE_FEATURE_SECONDS = 10 * 60;
-    const LINEUP_CACHE_MAX_AGE_MS = 20 * 60 * 60 * 1000; // background-revalidate if older than this
+    // Once the cached weekend is over, the new pinned post usually lands midweek (Wed), so
+    // Mon-Wed every open would otherwise refetch and just get last weekend's post back.
+    // Throttle those attempts (persisted, so reloads don't bypass it). A cache whose weekend
+    // hasn't ended yet is never refetched at all -- it's good through Sunday.
+    const LS_LINEUP_LAST_ATTEMPT = 'sc_lineup_last_attempt_v1';
+    const LINEUP_EXPIRED_RETRY_MS = 2 * 60 * 60 * 1000;
     const LINEUP_FALLBACK_TITLE = 'Coming Attractions';
     const LINEUP_PROGRESS_CONFIRM_MS = 5 * 60 * 1000; // a match this brief was a queue jump, not a showing
 
@@ -709,6 +826,7 @@
     async function lineupRefetchAndCache() {
         if (_lineupRevalidating) return;
         _lineupRevalidating = true;
+        try { localStorage.setItem(LS_LINEUP_LAST_ATTEMPT, String(Date.now())); } catch (e) { /* ignore */ }
         try {
             const result = await fetchTonightsSchedule();
             _lineupScheduleCache = result;
@@ -735,20 +853,16 @@
             if (cached) _lineupScheduleCache = cached;
         }
         if (_lineupScheduleCache) {
+            // Current weekend's schedule in hand -- good through Sunday, no refetch.
+            if (!lineupScheduleExpired(_lineupScheduleCache)) return;
+            // Cached weekend is over; the new post may not be up yet (usually Wed), so only
+            // try again once per LINEUP_EXPIRED_RETRY_MS instead of on every open.
+            let lastAttempt = 0;
+            try { lastAttempt = Number(localStorage.getItem(LS_LINEUP_LAST_ATTEMPT)) || 0; } catch (e) { /* ignore */ }
+            if (Date.now() - lastAttempt < LINEUP_EXPIRED_RETRY_MS) return;
+            await lineupRefetchAndCache();
             if (lineupScheduleExpired(_lineupScheduleCache)) {
-                await lineupRefetchAndCache(); // the cached weekend is over -- there IS a new post, wait for it
-                // Unlike routine revalidation (below), a still-expired cache here is known to be
-                // wrong, not just possibly stale -- worth one immediate retry before accepting a
-                // transient failure (rate limit, flaky network) as the final answer for however
-                // long this tab stays open before the lineup screen is opened again.
-                if (lineupScheduleExpired(_lineupScheduleCache)) {
-                    await lineupRefetchAndCache();
-                    if (lineupScheduleExpired(_lineupScheduleCache)) {
-                        console.warn('[SC] lineup schedule still expired after refetch retry -- showing stale cached schedule:', _lineupScheduleCache.title);
-                    }
-                }
-            } else if (Date.now() - (_lineupScheduleCache.fetchedAt || 0) > LINEUP_CACHE_MAX_AGE_MS) {
-                lineupRefetchAndCache(); // just routine revalidation (e.g. a same-weekend post edit) -- fire-and-forget
+                console.log('[SC] lineup: new weekend post not up yet, showing last weekend:', _lineupScheduleCache.title);
             }
             return;
         }
@@ -832,7 +946,7 @@
     // across section boundaries), hands the timing model (lineupEstimateDayItems) the flat
     // facts -- runtimes, learned gap, confirmed now-playing, persisted played-progress,
     // bumper start -- then re-nests the built items back into their sections.
-    function lineupBuildDaySections(day, dayStatus, infosByKey) {
+    function lineupBuildDaySections(day, dayStatus, infosByKey, botQueue) {
         const flat = [];
         day.sections.forEach((section, si) => {
             section.items.forEach(item => flat.push({ section, si, item }));
@@ -879,10 +993,11 @@
         // 10-min cold-start default.
         const sameSectionGapSeconds = lineupMedianGapSeconds(_lineupObservedSameSectionGaps) ?? 600;
         const crossSectionGapSeconds = lineupMedianGapSeconds(_lineupObservedCrossSectionGaps) ?? sameSectionGapSeconds;
-        const estimates = lineupEstimateDayItems({
+        const runtimesMin = flat.map(f => infoFor(f).runtime ?? null);
+        const guessed = lineupEstimateDayItems({
             nowMs,
             anchorMs: lineupDayAnchorPacific(day.date).getTime(),
-            runtimesMin: flat.map(f => infoFor(f).runtime ?? null),
+            runtimesMin,
             sectionOf: flat.map(f => f.si),
             sameSectionGapSeconds,
             crossSectionGapSeconds,
@@ -900,6 +1015,15 @@
             furthestPlayedIndex: isToday ? lineupReadProgress() : -1,
             bumperStartMs: _lineupLastUnmatchedStart,
         });
+        // Today only: films the Up Next bot has queued get their real start times; the
+        // rest of today, and every other day, keep the guesses above.
+        const estimates = isToday && botQueue
+            ? lineupMergeQueueEstimates(guessed,
+                lineupQueueTimesFor(flat.map(f => f.item), botQueue,
+                    (raw) => parseMovieFilename(raw).title, lineupItemMatchesTitle, LINEUP_MIN_PLAUSIBLE_FEATURE_SECONDS),
+                { runtimesMin, gapMsFor: lineupMakeGapMsFor(flat.map(f => f.si), sameSectionGapSeconds, crossSectionGapSeconds),
+                    maxAhead: LINEUP_MAX_ESTIMATED_AHEAD })
+            : guessed;
 
         const builtFlat = flat.map((f, idx) => {
             const est = estimates[idx];
@@ -936,17 +1060,22 @@
         await lineupEnsureSchedule();
         if (!_lineupScheduleCache) return lineupFallbackView();
 
+        const todayStr = lineupPacificDateString(); // ISO date strings order lexicographically
+        const hasToday = _lineupScheduleCache.days.some(day => day.date === todayStr);
         const allItems = lineupAllScheduleTitles();
-        const infos = await Promise.all(allItems.map(lineupLookupItem));
+        // Bot queue fetched in parallel with the poster/runtime lookups, once per open.
+        const [infos, botQueue] = await Promise.all([
+            Promise.all(allItems.map(lineupLookupItem)),
+            lineupTimingEnabled() && hasToday ? lineupFetchBotQueue() : Promise.resolve(null),
+        ]);
         const infosByKey = new Map(allItems.map((item, i) => [item.title + '|' + item.year, infos[i]]));
 
-        const todayStr = lineupPacificDateString(); // ISO date strings order lexicographically
         const days = _lineupScheduleCache.days.map((day) => ({
             day: day.day, date: day.date, isToday: day.date === todayStr,
             sections: lineupBuildDaySections(
                 day,
                 day.date < todayStr ? 'past' : day.date === todayStr ? 'today' : 'future',
-                infosByKey),
+                infosByKey, botQueue),
         }));
         return { listTitle: _lineupScheduleCache.title || LINEUP_FALLBACK_TITLE, fallback: false, days };
     }
@@ -1210,4 +1339,4 @@
     // because this toggle is opt-in (LS_LINEUP_TIMING defaults off -- see
     // lineupTimingEnabled() in core/02-keys-and-helpers.js), unlike the other rows'
     // opt-out default.
-    scRegisterSetting({ id: 'sc-input-lineuptiming', group: 'tonights-lineup', label: 'Coming Attractions live timing (Experimental)', note: 'Shows NOW PLAYING and estimated start times in Tonight\'s Lineup. Runtimes come from IMDb, no key needed; TMDB above only improves poster/backdrop image quality. Off by default, still being tuned.', key: LS_LINEUP_TIMING, defaultOn: false, order: 5 });
+    scRegisterSetting({ id: 'sc-input-lineuptiming', group: 'tonights-lineup', label: 'Coming Attractions live timing (Experimental)', note: 'Shows NOW PLAYING and estimated start times in Tonight\'s Lineup. Films already in tonight\'s Up Next queue get to-the-minute times from the queue; the rest are estimated from IMDb runtimes, no key needed; TMDB above only improves poster/backdrop image quality. Off by default, still being tuned.', key: LS_LINEUP_TIMING, defaultOn: false, order: 5 });

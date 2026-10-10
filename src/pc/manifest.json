@@ -1,7 +1,7 @@
 {
   "scriptId": "cytube.pc",
   "displayName": "Spuds Grindhouse Experience",
-  "baseVersion": "4.13.57",
+  "baseVersion": "4.13.61",
   "headerTemplate": "src/pc/header.template.js",
   "match": [
     "https://cytu.be/r/420Grindhouse",
@@ -162,13 +162,14 @@
         "GM_xmlhttpRequest"
       ],
       "connects": [
-        "www.reddit.com"
+        "www.reddit.com",
+        "bot.420grindhouseserver.com"
       ],
       "features": [
         "Full-screen \"Coming Attractions\" overlay with Friday/Saturday/Sunday tabs",
         "Each night's themed blocks get distinct color/font, with poster art for every film",
         "Glowing NOW PLAYING badge + dims already-shown films; click a poster to open its Now Playing card",
-        "Optional experimental ETA timing toggle"
+        "Optional experimental ETA timing toggle; tonight's queued films get to-the-minute start times from the Up Next bot"
       ],
       "screenshot": "screenshots/tonights-lineup.png"
     },
