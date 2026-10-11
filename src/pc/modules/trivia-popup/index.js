@@ -216,13 +216,15 @@
     }
 
     // 'due' at its moment (within the same window as timed facts), 'catchup'
-    // once missed and the last pop was a while ago (same gap rule as
-    // tpCatchUpFact), else null.
+    // once missed: a late joiner gets it TP_DRIVEIN_CATCHUP_S after the movie
+    // is identified (or after the last pop) -- same 15s lead-in as the start
+    // of the movie, not the 45s bubble catch-up gap. Else null.
+    const TP_DRIVEIN_CATCHUP_S = 15;
     function tpDriveInAction(card, currentTime, seenTexts, secsSinceLastPop) {
         if (!card || typeof currentTime !== 'number' || !Number.isFinite(currentTime)) return null;
         if (seenTexts.includes(TP_DRIVEIN_SEEN_KEY) || currentTime < card.t) return null;
         if (currentTime - card.t <= TP_TIMELINE_WINDOW_S) return 'due';
-        return secsSinceLastPop >= TP_CATCHUP_MIN_GAP_S ? 'catchup' : null;
+        return secsSinceLastPop >= TP_DRIVEIN_CATCHUP_S ? 'catchup' : null;
     }
 
     // Four star slots: 1 full, 0.5 half, 0 empty outline.

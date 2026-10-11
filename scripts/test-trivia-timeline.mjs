@@ -148,8 +148,8 @@ eq('driveIn field does not change the facts',
 eq('card: not before t', tpDriveInAction(DI, 14, [], 999), null);
 eq('card: due at t and through the window',
     [tpDriveInAction(DI, 15, [], 0), tpDriveInAction(DI, 15 + TP_TIMELINE_WINDOW_S, [], 0)], ['due', 'due']);
-eq('card: missed -> catch-up only after a quiet gap',
-    [tpDriveInAction(DI, 600, [], 10), tpDriveInAction(DI, 600, [], 45)], [null, 'catchup']);
+eq('card: late joiner gets it 15s after joining (or after the last pop), not before',
+    [tpDriveInAction(DI, 600, [], 14), tpDriveInAction(DI, 600, [], 15)], [null, 'catchup']);
 eq('card: seen -> never', tpDriveInAction(DI, 15, [TP_DRIVEIN_SEEN_KEY], 999), null);
 eq('card: none -> null', tpDriveInAction(null, 15, [], 999), null);
 eq('card: bad currentTime -> null', tpDriveInAction(DI, NaN, [], 999), null);
