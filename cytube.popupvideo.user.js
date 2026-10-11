@@ -1013,6 +1013,13 @@
     function tpStarFills(stars) {
         return [0, 1, 2, 3].map(k => Math.max(0, Math.min(1, stars - k)));
     }
+
+    // Shift+D ("Drive-In") plays the card on demand, for checking its look.
+    // Not plain T/I -- imdb-trivia and movie-title-links own those -- and not
+    // Alt+Shift, which switches keyboard layouts on Windows.
+    function tpIsCardTestKey(e) {
+        return !!e && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && (e.key === 'D' || e.key === 'd');
+    }
     // ── test marker: curated-timeline slice end ──
 
     const TP_CURATED_BASE = 'https://raw.githubusercontent.com/spudzareneat/grindhouse-popup-trivia/main/data/';
@@ -1405,9 +1412,22 @@
         _tpTimelineTick();
     }
 
+    // Shift+D: play this movie's Drive-In Totals card now (a sample one when it
+    // has none); again to close it. Doesn't count as seen, works while muted.
+    const TP_SAMPLE_CARD = { t: 0, lines: ['No Breasts (1962)', '19 Dead Bodies', 'About 15 Zombies', '1 Motor Vehicle Chase, with Watery Crash',
+        'Zombie Bus Tour', 'Church Organ Fu', 'Zombie Fu'], stars: 4, says: 'Joe Bob says check it out.' };
+    function _tpCardTestKey(e) {
+        const t = e.target;
+        if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;
+        if (!tpIsCardTestKey(e) || !popupTriviaConfigured()) return;
+        if (_tpCardEl) { _tpHideDriveInCard(false); return; }
+        _tpShowDriveInCard(_tpDriveIn || TP_SAMPLE_CARD);
+    }
+
     function triviaPopupBoot() {
         _tpMoviePollTick();
         setInterval(_tpMoviePollTick, TP_POLL_MS);
+        document.addEventListener('keydown', _tpCardTestKey);
     }
 
     /* ==========================================================
@@ -1842,7 +1862,7 @@
        grindhouse-popup-trivia docs/superpowers/specs/2026-10-10-drive-in-totals-card-*.
     ========================================================== */
 
-    const TP_CARD_MS = { header: 900, line: 1100, pause: 1200, clear: 600, starStart: 150, star: 280, says: 300, hold: 5000, fade: 800 };
+    const TP_CARD_MS = { header: 1200, line: 1500, pause: 1200, clear: 600, starStart: 150, star: 280, says: 300, hold: 6000, fade: 800 };
     const TP_CARD_FONT_LINK_ID = 'sc-tp-card-font';
     const TP_STAR_PATH = 'M12 1.8l3.1 6.6 7.1.8-5.3 4.9 1.4 7.1L12 17.6l-6.3 3.6 1.4-7.1L1.8 9.2l7.1-.8z';
     let _tpCardEl = null;
@@ -1871,14 +1891,14 @@
     function _tpShowDriveInCard(card) {
         _tpHideDriveInCard(true);
         _tpEnsureCardFont();
-        // Right side of the actual picture, sized from it (fonts too) so it
-        // reads the same in any layout or window size.
+        // Top-right corner of the actual picture, sized from it (fonts too) so
+        // it reads the same in any layout or window size.
         const P = _tpPictureRect(_tpUsableArea());
         const el = document.createElement('div');
         el.id = 'sc-tp-card';
-        el.style.setProperty('left', (P.left + P.width * 0.51) + 'px', 'important');
-        el.style.setProperty('top', (P.top + P.height * 0.07) + 'px', 'important');
-        el.style.setProperty('width', (P.width * 0.44) + 'px', 'important');
+        el.style.setProperty('left', (P.left + P.width * 0.575) + 'px', 'important');
+        el.style.setProperty('top', (P.top + P.height * 0.03) + 'px', 'important');
+        el.style.setProperty('width', (P.width * 0.40) + 'px', 'important');
         el.style.setProperty('--sc-tp-head', Math.max(18, P.height * 0.09) + 'px');
         el.style.setProperty('--sc-tp-line', Math.max(12, P.height * 0.046) + 'px');
         el.innerHTML = `

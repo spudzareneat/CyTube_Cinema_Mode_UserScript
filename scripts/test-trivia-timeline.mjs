@@ -23,8 +23,8 @@ if (s === -1 || e === -1 || e < s) {
     process.exit(1);
 }
 // eslint-disable-next-line no-new-func
-const { tpValidateCurated, tpRankAllowed, tpDueFact, tpCatchUpFact, TP_TIMELINE_WINDOW_S, tpValidateDriveIn, tpDriveInAction, tpStarFills, TP_DRIVEIN_SEEN_KEY } = new Function(
-    `${src.slice(s, e)}\n;return { tpValidateCurated, tpRankAllowed, tpDueFact, tpCatchUpFact, TP_TIMELINE_WINDOW_S, tpValidateDriveIn, tpDriveInAction, tpStarFills, TP_DRIVEIN_SEEN_KEY };`
+const { tpValidateCurated, tpRankAllowed, tpDueFact, tpCatchUpFact, TP_TIMELINE_WINDOW_S, tpValidateDriveIn, tpDriveInAction, tpStarFills, TP_DRIVEIN_SEEN_KEY, tpIsCardTestKey } = new Function(
+    `${src.slice(s, e)}\n;return { tpValidateCurated, tpRankAllowed, tpDueFact, tpCatchUpFact, TP_TIMELINE_WINDOW_S, tpValidateDriveIn, tpDriveInAction, tpStarFills, TP_DRIVEIN_SEEN_KEY, tpIsCardTestKey };`
 )();
 
 let failed = 0;
@@ -156,6 +156,13 @@ eq('card: bad currentTime -> null', tpDriveInAction(DI, NaN, [], 999), null);
 eq('stars: fill per slot',
     [tpStarFills(4), tpStarFills(3.5), tpStarFills(0), tpStarFills(1.5)],
     [[1, 1, 1, 1], [1, 1, 1, 0.5], [0, 0, 0, 0], [1, 0.5, 0, 0]]);
+
+const K = (key, mods = {}) => ({ key, shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, ...mods });
+eq('test key: Shift+D only',
+    [tpIsCardTestKey(K('D', { shiftKey: true })), tpIsCardTestKey(K('d', { shiftKey: true })), tpIsCardTestKey(K('d')),
+     tpIsCardTestKey(K('D', { shiftKey: true, ctrlKey: true })), tpIsCardTestKey(K('D', { shiftKey: true, altKey: true })),
+     tpIsCardTestKey(K('D', { shiftKey: true, metaKey: true })), tpIsCardTestKey(K('T', { shiftKey: true }))],
+    [true, true, false, false, false, false, false]);
 
 if (failed) { console.error(`\n${failed} assertion(s) failed`); process.exit(1); }
 console.log('PASS: trivia-popup — curated timeline helpers, all assertions green');
