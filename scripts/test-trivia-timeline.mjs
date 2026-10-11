@@ -23,8 +23,8 @@ if (s === -1 || e === -1 || e < s) {
     process.exit(1);
 }
 // eslint-disable-next-line no-new-func
-const { tpValidateCurated, tpRankAllowed, tpDueFact, tpCatchUpFact, TP_TIMELINE_WINDOW_S } = new Function(
-    `${src.slice(s, e)}\n;return { tpValidateCurated, tpRankAllowed, tpDueFact, tpCatchUpFact, TP_TIMELINE_WINDOW_S };`
+const { tpValidateCurated, tpRankAllowed, tpDueFact, tpCatchUpFact, TP_TIMELINE_WINDOW_S, tpValidateDriveIn, tpDriveInAction, tpStarFills, TP_DRIVEIN_SEEN_KEY } = new Function(
+    `${src.slice(s, e)}\n;return { tpValidateCurated, tpRankAllowed, tpDueFact, tpCatchUpFact, TP_TIMELINE_WINDOW_S, tpValidateDriveIn, tpDriveInAction, tpStarFills, TP_DRIVEIN_SEEN_KEY };`
 )();
 
 let failed = 0;
@@ -123,6 +123,39 @@ eq('upcoming timed fact already seen does not block catch-up',
 eq('nothing missed at movie start -> null', tpCatchUpFact(cu, 50, 'frequent', [], 100), null);
 eq('NaN currentTime -> null', tpCatchUpFact(cu, NaN, 'frequent', [], 100), null);
 eq('null facts -> null', tpCatchUpFact(null, 600, 'frequent', [], 100), null);
+
+/* ---- Drive-In Totals card --------------------------------------------- */
+
+const DI = { t: 15, lines: ['19 Dead Bodies', 'Zombie Fu'], stars: 4, says: 'Joe Bob says check it out.' };
+eq('driveIn: valid card normalized',
+    tpValidateDriveIn(doc([F(100, 'a')], { driveIn: { ...DI, lines: [' 19 Dead Bodies ', '', 42, 'Zombie Fu'], stars: 3.7 } })),
+    { t: 15, lines: ['19 Dead Bodies', 'Zombie Fu'], stars: 3.5, says: 'Joe Bob says check it out.' });
+eq('driveIn: missing -> null', tpValidateDriveIn(doc([F(100, 'a')])), null);
+eq('driveIn: bad t -> null', tpValidateDriveIn(doc([], { driveIn: { ...DI, t: 'soon' } })), null);
+eq('driveIn: negative t -> null', tpValidateDriveIn(doc([], { driveIn: { ...DI, t: -1 } })), null);
+eq('driveIn: no usable lines -> null', tpValidateDriveIn(doc([], { driveIn: { ...DI, lines: ['', '  '] } })), null);
+eq('driveIn: lines not an array -> null', tpValidateDriveIn(doc([], { driveIn: { ...DI, lines: '19 Dead Bodies' } })), null);
+eq('driveIn: stars clamped; junk stars -> null, junk says -> ""',
+    [tpValidateDriveIn(doc([], { driveIn: { ...DI, stars: 9 } })).stars, tpValidateDriveIn(doc([], { driveIn: { ...DI, stars: 'four', says: 7 } }))],
+    [4, { t: 15, lines: DI.lines, stars: null, says: '' }]);
+eq('driveIn: max 60 lines, over-long lines dropped',
+    [tpValidateDriveIn(doc([], { driveIn: { ...DI, lines: Array(80).fill('x') } })).lines.length,
+     tpValidateDriveIn(doc([], { driveIn: { ...DI, lines: ['x'.repeat(301), 'ok'] } })).lines],
+    [60, ['ok']]);
+eq('driveIn field does not change the facts',
+    tpValidateCurated(doc([F(100, 'a')], { driveIn: DI }), 'tt0055830'), tpValidateCurated(doc([F(100, 'a')]), 'tt0055830'));
+
+eq('card: not before t', tpDriveInAction(DI, 14, [], 999), null);
+eq('card: due at t and through the window',
+    [tpDriveInAction(DI, 15, [], 0), tpDriveInAction(DI, 15 + TP_TIMELINE_WINDOW_S, [], 0)], ['due', 'due']);
+eq('card: missed -> catch-up only after a quiet gap',
+    [tpDriveInAction(DI, 600, [], 10), tpDriveInAction(DI, 600, [], 45)], [null, 'catchup']);
+eq('card: seen -> never', tpDriveInAction(DI, 15, [TP_DRIVEIN_SEEN_KEY], 999), null);
+eq('card: none -> null', tpDriveInAction(null, 15, [], 999), null);
+eq('card: bad currentTime -> null', tpDriveInAction(DI, NaN, [], 999), null);
+eq('stars: fill per slot',
+    [tpStarFills(4), tpStarFills(3.5), tpStarFills(0), tpStarFills(1.5)],
+    [[1, 1, 1, 1], [1, 1, 1, 0.5], [0, 0, 0, 0], [1, 0.5, 0, 0]]);
 
 if (failed) { console.error(`\n${failed} assertion(s) failed`); process.exit(1); }
 console.log('PASS: trivia-popup — curated timeline helpers, all assertions green');

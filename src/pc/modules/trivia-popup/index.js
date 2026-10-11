@@ -195,6 +195,39 @@
         if (!missed.length) return null;
         return missed.slice().sort((a, b) => a.rank - b.rank || a.t - b.t)[0];
     }
+
+    // Drive-In Totals card: one per movie, from the doc's optional `driveIn`
+    // (Joe Bob's counts, then his star rating -- see _tpShowDriveInCard).
+    // Shown on every frequency tier; remembered in the seen list under
+    // TP_DRIVEIN_SEEN_KEY so a reload doesn't replay it. A bad `driveIn` is
+    // just ignored -- the facts don't depend on it.
+    const TP_DRIVEIN_SEEN_KEY = '[drive-in-totals card]';
+    function tpValidateDriveIn(doc) {
+        const d = doc && doc.driveIn;
+        if (!d || typeof d !== 'object') return null;
+        if (typeof d.t !== 'number' || !Number.isFinite(d.t) || d.t < 0) return null;
+        if (!Array.isArray(d.lines)) return null;
+        const lines = d.lines.filter(l => typeof l === 'string').map(l => l.trim()).filter(l => l && l.length <= 300).slice(0, 60);
+        if (!lines.length) return null;
+        const stars = typeof d.stars === 'number' && Number.isFinite(d.stars) ? Math.min(4, Math.max(0, Math.round(d.stars * 2) / 2)) : null;
+        const says = typeof d.says === 'string' ? d.says.trim().slice(0, 120) : '';
+        return { t: d.t, lines, stars, says };
+    }
+
+    // 'due' at its moment (within the same window as timed facts), 'catchup'
+    // once missed and the last pop was a while ago (same gap rule as
+    // tpCatchUpFact), else null.
+    function tpDriveInAction(card, currentTime, seenTexts, secsSinceLastPop) {
+        if (!card || typeof currentTime !== 'number' || !Number.isFinite(currentTime)) return null;
+        if (seenTexts.includes(TP_DRIVEIN_SEEN_KEY) || currentTime < card.t) return null;
+        if (currentTime - card.t <= TP_TIMELINE_WINDOW_S) return 'due';
+        return secsSinceLastPop >= TP_CATCHUP_MIN_GAP_S ? 'catchup' : null;
+    }
+
+    // Four star slots: 1 full, 0.5 half, 0 empty outline.
+    function tpStarFills(stars) {
+        return [0, 1, 2, 3].map(k => Math.max(0, Math.min(1, stars - k)));
+    }
     // ── test marker: curated-timeline slice end ──
 
     const TP_CURATED_BASE = 'https://raw.githubusercontent.com/spudzareneat/grindhouse-popup-trivia/main/data/';
