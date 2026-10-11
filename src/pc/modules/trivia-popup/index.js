@@ -1224,7 +1224,7 @@
         id: 'sc-input-triviapopup',
         group: 'trivia-popup',
         label: 'Pop-up trivia bubbles during movies (Experimental)',
-        note: 'Every few minutes, shows a small trivia fact for about 15 seconds, VH1 Pop-up Video style, then fades out. Off by default. Movies with curated Pop-up Video trivia get hand-picked, sourced facts timed to the movie -- everyone in the channel sees each one at the same moment; join late and the ones you missed show up in the gaps. Other movies fall back to IMDb trivia at random intervals. Facts never repeat, and this is remembered for a few hours so a page reload won\'t re-show ones you already saw. While a movie is playing, a "Pop-ups" button in the top bar mutes or resumes the bubbles for the session.',
+        note: 'Every few minutes, shows a small trivia fact for about 15 seconds, VH1 Pop-up Video style, then fades out. Off by default. Movies with curated Pop-up Video trivia get hand-picked, sourced facts timed to the movie -- everyone in the channel sees each one at the same moment; join late and the ones you missed show up in the gaps. Movies Joe Bob Briggs reviewed open with his Drive-In Totals card — the counts, then his star rating. Other movies fall back to IMDb trivia at random intervals. Facts never repeat, and this is remembered for a few hours so a page reload won\'t re-show ones you already saw. While a movie is playing, a "Pop-ups" button in the top bar mutes or resumes the bubbles for the session.',
         key: LS_TRIVIA_POPUP_ENABLED,
         defaultOn: false,
         order: 9,

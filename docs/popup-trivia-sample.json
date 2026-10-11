@@ -85,5 +85,19 @@
         "type": "imdb"
       }
     }
-  ]
+  ],
+  "driveIn": {
+    "t": 15,
+    "lines": [
+      "No Breasts (1962)",
+      "19 Dead Bodies",
+      "About 15 Zombies",
+      "1 Motor Vehicle Chase, with Watery Crash",
+      "Zombie Bus Tour",
+      "Church Organ Fu",
+      "Zombie Fu"
+    ],
+    "stars": 4,
+    "says": "Joe Bob says check it out."
+  }
 }

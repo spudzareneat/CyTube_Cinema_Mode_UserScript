@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grindhouse Pop-up Video
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      1.1.0
 // @description  VH1 Pop-up Video style trivia bubbles for movies on the r/420Grindhouse CyTube channel — curated timed facts when available, IMDb trivia otherwise.
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -865,6 +865,7 @@
     let _tpBubbleEl = null;
     let _tpDismissTimer = null;
     let _tpTimeline = null;  // curated facts (sorted by t) for the current movie; null = IMDb random-gap mode
+    let _tpDriveIn = null;   // the current movie's validated Drive-In Totals card, or null
     let _tpLastPopAt = 0;    // Date.now() of the last timeline bubble -- spaces out catch-up pops
     let _tpCuratedRecheckAt = 0; // when to look for a curated file again while the movie has none
 
@@ -977,6 +978,39 @@
         if (!missed.length) return null;
         return missed.slice().sort((a, b) => a.rank - b.rank || a.t - b.t)[0];
     }
+
+    // Drive-In Totals card: one per movie, from the doc's optional `driveIn`
+    // (Joe Bob's counts, then his star rating -- see _tpShowDriveInCard).
+    // Shown on every frequency tier; remembered in the seen list under
+    // TP_DRIVEIN_SEEN_KEY so a reload doesn't replay it. A bad `driveIn` is
+    // just ignored -- the facts don't depend on it.
+    const TP_DRIVEIN_SEEN_KEY = '[drive-in-totals card]';
+    function tpValidateDriveIn(doc) {
+        const d = doc && doc.driveIn;
+        if (!d || typeof d !== 'object') return null;
+        if (typeof d.t !== 'number' || !Number.isFinite(d.t) || d.t < 0) return null;
+        if (!Array.isArray(d.lines)) return null;
+        const lines = d.lines.filter(l => typeof l === 'string').map(l => l.trim()).filter(l => l && l.length <= 300).slice(0, 60);
+        if (!lines.length) return null;
+        const stars = typeof d.stars === 'number' && Number.isFinite(d.stars) ? Math.min(4, Math.max(0, Math.round(d.stars * 2) / 2)) : null;
+        const says = typeof d.says === 'string' ? d.says.trim().slice(0, 120) : '';
+        return { t: d.t, lines, stars, says };
+    }
+
+    // 'due' at its moment (within the same window as timed facts), 'catchup'
+    // once missed and the last pop was a while ago (same gap rule as
+    // tpCatchUpFact), else null.
+    function tpDriveInAction(card, currentTime, seenTexts, secsSinceLastPop) {
+        if (!card || typeof currentTime !== 'number' || !Number.isFinite(currentTime)) return null;
+        if (seenTexts.includes(TP_DRIVEIN_SEEN_KEY) || currentTime < card.t) return null;
+        if (currentTime - card.t <= TP_TIMELINE_WINDOW_S) return 'due';
+        return secsSinceLastPop >= TP_CATCHUP_MIN_GAP_S ? 'catchup' : null;
+    }
+
+    // Four star slots: 1 full, 0.5 half, 0 empty outline.
+    function tpStarFills(stars) {
+        return [0, 1, 2, 3].map(k => Math.max(0, Math.min(1, stars - k)));
+    }
     // ── test marker: curated-timeline slice end ──
 
     const TP_CURATED_BASE = 'https://raw.githubusercontent.com/spudzareneat/grindhouse-popup-trivia/main/data/';
@@ -985,7 +1019,7 @@
     // (id check skipped). Sample: docs/popup-trivia-sample.json. Remove the
     // key to go back to normal.
     const LS_TRIVIA_CURATED_DEV = 'sc_trivia_curated_dev';
-    // Session cache keyed by tconst: { facts, at }. A found file is kept for
+    // Session cache keyed by tconst: { curated, at }. A found file is kept for
     // the session; "not curated" (404 / invalid) expires after
     // TP_CURATED_RECHECK_MS, because the generator publishes files during the
     // weekend and a movie that started before its file landed should pick it
@@ -994,17 +1028,23 @@
     const TP_CURATED_RECHECK_MS = 10 * 60 * 1000;
     const _tpCuratedCache = {};
 
+    // { facts, driveIn } for a usable curated doc, else null.
+    function _tpCurated(doc, id) {
+        const facts = tpValidateCurated(doc, id);
+        return facts ? { facts, driveIn: tpValidateDriveIn(doc) } : null;
+    }
+
     function fetchCuratedTrivia(id) {
         if (!id) return Promise.resolve(null);
         let devRaw = null;
         try { devRaw = localStorage.getItem(LS_TRIVIA_CURATED_DEV); } catch (e) {}
         if (devRaw) {
             console.warn('[trivia-popup] curated dev override active (localStorage sc_trivia_curated_dev) -- applies to every movie');
-            try { return Promise.resolve(tpValidateCurated(JSON.parse(devRaw), null)); }
+            try { return Promise.resolve(_tpCurated(JSON.parse(devRaw), null)); }
             catch (e) { return Promise.resolve(null); }
         }
         const cached = _tpCuratedCache[id];
-        if (cached && (cached.facts || Date.now() - cached.at < TP_CURATED_RECHECK_MS)) return Promise.resolve(cached.facts);
+        if (cached && (cached.curated || Date.now() - cached.at < TP_CURATED_RECHECK_MS)) return Promise.resolve(cached.curated);
         return new Promise(resolve => {
             GM_xmlhttpRequest({
                 method: 'GET',
@@ -1012,10 +1052,10 @@
                 timeout: 10000,
                 onload: r => {
                     const ok = r.status >= 200 && r.status < 300;
-                    let facts = null;
-                    if (ok) { try { facts = tpValidateCurated(JSON.parse(r.responseText), id); } catch (e) {} }
-                    if (ok || r.status === 404) _tpCuratedCache[id] = { facts, at: Date.now() };
-                    resolve(facts);
+                    let curated = null;
+                    if (ok) { try { curated = _tpCurated(JSON.parse(r.responseText), id); } catch (e) {} }
+                    if (ok || r.status === 404) _tpCuratedCache[id] = { curated, at: Date.now() };
+                    resolve(curated);
                 },
                 onerror: () => resolve(null),
                 ontimeout: () => resolve(null),
@@ -1178,6 +1218,8 @@
     function _tpResetForNewMovie(id) {
         clearTimeout(_tpPopTimer); _tpPopTimer = null;
         _tpDismissBubble(true); // hard-remove instantly -- stale trivia, no exit animation
+        _tpHideDriveInCard(true);
+        _tpDriveIn = null;
         _tpQueue = [];
         _tpExhausted = false;
         _tpTimeline = null;
@@ -1192,9 +1234,9 @@
         // cast / known-for fetching below happens -- the generator already
         // folded those sources in. No file / bad file -> the IMDb path,
         // unchanged.
-        fetchCuratedTrivia(id).then(facts => {
+        fetchCuratedTrivia(id).then(curated => {
             if (id !== _tpLastImdbId) return; // movie changed again while this was in flight
-            if (facts) { _tpTimeline = facts; return; }
+            if (curated) { _tpTimeline = curated.facts; _tpDriveIn = curated.driveIn; return; }
             _tpStartImdbQueue(id);
         });
     }
@@ -1306,7 +1348,8 @@
         _tpScheduleNextPop(); // arms the next pop, or flips _tpExhausted if that was the last one
     }
 
-    // Timeline mode's whole scheduler: every heartbeat, pop whichever curated
+    // Timeline mode's whole scheduler: every heartbeat, show the Drive-In
+    // Totals card when it's due (or missed), else pop whichever curated
     // fact is due at the current playback position (synced for everyone);
     // otherwise, in the gaps, catch up on a fact this viewer missed by joining
     // late, skipping ahead, or being paused/unfocused past its window
@@ -1316,12 +1359,19 @@
     function _tpTimelineTick() {
         if (!_tpTimeline || _currentImdbId !== _tpLastImdbId) return;
         if (!popupTriviaEnabled() || !_tpMovieIsPlaying() || !document.hasFocus()) return;
+        if (_tpCardEl) return; // bubbles wait for the Drive-In Totals card
         if (_tpBubbleEl) return; // let the current bubble finish; the next fact's 20s window usually outlasts it
         const v = getPlayerVideoEl();
         const tier = getKey(LS_TRIVIA_POPUP_FREQUENCY) || TP_FREQUENCY_DEFAULT;
         const seen = _tpLoadSeenTexts(_tpLastImdbId);
+        const sinceLastPop = (Date.now() - _tpLastPopAt) / 1000;
+        if (tpDriveInAction(_tpDriveIn, v.currentTime, seen, sinceLastPop)) {
+            _tpShowDriveInCard(_tpDriveIn);
+            _tpMarkSeen(_tpLastImdbId, TP_DRIVEIN_SEEN_KEY);
+            return;
+        }
         const fact = tpDueFact(_tpTimeline, v.currentTime, tier, seen)
-            || tpCatchUpFact(_tpTimeline, v.currentTime, tier, seen, (Date.now() - _tpLastPopAt) / 1000);
+            || tpCatchUpFact(_tpTimeline, v.currentTime, tier, seen, sinceLastPop);
         if (!fact) return;
         showTriviaBubble(fact);
         _tpMarkSeen(_tpLastImdbId, fact.text);
@@ -1334,12 +1384,13 @@
     // then surface through catch-up.
     function _tpRecheckCurated(id) {
         _tpCuratedRecheckAt = Date.now() + TP_CURATED_RECHECK_MS;
-        fetchCuratedTrivia(id).then(facts => {
-            if (!facts || id !== _tpLastImdbId || _tpTimeline) return;
+        fetchCuratedTrivia(id).then(curated => {
+            if (!curated || id !== _tpLastImdbId || _tpTimeline) return;
             clearTimeout(_tpPopTimer); _tpPopTimer = null;
             _tpQueue = [];
             _tpExhausted = true;
-            _tpTimeline = facts;
+            _tpTimeline = curated.facts;
+            _tpDriveIn = curated.driveIn;
         });
     }
 
@@ -1780,6 +1831,117 @@
     }
 
     /* ==========================================================
+       DRIVE-IN TOTALS CARD -- MonsterVision-style: transparent over
+       the picture, "Drive-In Totals" header, Joe Bob's counts rolling
+       in one at a time (long lists scroll, oldest off the top), then
+       his star rating and sign-off. No fixed length: it stays until
+       every count has shown and the verdict has held. Bubbles wait
+       while it's up (_tpTimelineTick). Design + mockup:
+       grindhouse-popup-trivia docs/superpowers/specs/2026-10-10-drive-in-totals-card-*.
+    ========================================================== */
+
+    const TP_CARD_MS = { header: 900, line: 1100, pause: 1200, clear: 600, starStart: 150, star: 280, says: 300, hold: 5000, fade: 800 };
+    const TP_CARD_FONT_LINK_ID = 'sc-tp-card-font';
+    const TP_STAR_PATH = 'M12 1.8l3.1 6.6 7.1.8-5.3 4.9 1.4 7.1L12 17.6l-6.3 3.6 1.4-7.1L1.8 9.2l7.1-.8z';
+    let _tpCardEl = null;
+    let _tpCardTimers = [];
+
+    // Patua One: free stand-in for ITC La Bamba, MonsterVision's face. Loaded
+    // on first use, like core's Inter; Georgia until it arrives.
+    function _tpEnsureCardFont() {
+        if (document.getElementById(TP_CARD_FONT_LINK_ID)) return;
+        const link = document.createElement('link');
+        link.id = TP_CARD_FONT_LINK_ID;
+        link.rel = 'stylesheet';
+        link.href = 'https://fonts.googleapis.com/css2?family=Patua+One&display=swap';
+        document.head.appendChild(link);
+    }
+
+    function _tpStarSvg(fill, k) {
+        const id = `sc-tp-star-clip-${k}`;
+        return `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><defs><clipPath id="${id}"><rect x="0" y="0" width="${24 * fill}" height="24"/></clipPath></defs>`
+            + `<path d="${TP_STAR_PATH}" fill="rgba(20,20,20,.35)" stroke="#f5d76e" stroke-width="1.2"/>`
+            + `<path d="${TP_STAR_PATH}" fill="#f5d76e" stroke="#7a5a10" stroke-width=".6" clip-path="url(#${id})"/></svg>`;
+    }
+
+    function _tpCardLater(ms, fn) { _tpCardTimers.push(setTimeout(fn, ms)); }
+
+    function _tpShowDriveInCard(card) {
+        _tpHideDriveInCard(true);
+        _tpEnsureCardFont();
+        // Right side of the actual picture, sized from it (fonts too) so it
+        // reads the same in any layout or window size.
+        const P = _tpPictureRect(_tpUsableArea());
+        const el = document.createElement('div');
+        el.id = 'sc-tp-card';
+        el.style.setProperty('left', (P.left + P.width * 0.51) + 'px', 'important');
+        el.style.setProperty('top', (P.top + P.height * 0.07) + 'px', 'important');
+        el.style.setProperty('width', (P.width * 0.44) + 'px', 'important');
+        el.style.setProperty('--sc-tp-head', Math.max(18, P.height * 0.09) + 'px');
+        el.style.setProperty('--sc-tp-line', Math.max(12, P.height * 0.046) + 'px');
+        el.innerHTML = `
+            <div class="sc-tp-card-h">Drive-In<br>Totals</div>
+            <div class="sc-tp-card-rule"></div>
+            <div class="sc-tp-card-lines"><div class="sc-tp-card-track"></div></div>
+            <div class="sc-tp-card-verdict">
+                ${card.stars !== null ? `<div class="sc-tp-card-stars">${tpStarFills(card.stars).map(_tpStarSvg).join('')}</div>` : ''}
+                <div class="sc-tp-card-says">${_escHtml(card.says)}</div>
+            </div>`;
+        document.body.appendChild(el);
+        _tpCardEl = el;
+        const linesEl = el.querySelector('.sc-tp-card-lines');
+        const track = el.querySelector('.sc-tp-card-track');
+
+        requestAnimationFrame(() => el.classList.add('sc-tp-card-on'));
+        let t = TP_CARD_MS.header;
+        for (const text of card.lines) {
+            _tpCardLater(t, () => {
+                const line = document.createElement('div');
+                line.className = 'sc-tp-card-line';
+                line.textContent = text;
+                track.appendChild(line);
+                requestAnimationFrame(() => line.classList.add('sc-tp-card-in'));
+                // Fill top-down; once full, roll the oldest counts off the top.
+                const over = track.offsetHeight - linesEl.clientHeight;
+                if (over > 0) {
+                    linesEl.classList.add('sc-tp-card-scrolling');
+                    track.style.setProperty('transform', `translateY(${-over}px)`, 'important');
+                }
+            });
+            t += TP_CARD_MS.line;
+        }
+        if (card.stars !== null || card.says) {
+            t += TP_CARD_MS.pause;
+            _tpCardLater(t, () => linesEl.classList.add('sc-tp-card-gone'));
+            t += TP_CARD_MS.clear;
+            const verdict = el.querySelector('.sc-tp-card-verdict');
+            _tpCardLater(t, () => verdict.classList.add('sc-tp-card-on'));
+            const stars = el.querySelectorAll('.sc-tp-card-stars svg');
+            stars.forEach((s, k) => _tpCardLater(t + TP_CARD_MS.starStart + k * TP_CARD_MS.star, () => s.classList.add('sc-tp-card-in')));
+            t += TP_CARD_MS.starStart + stars.length * TP_CARD_MS.star + TP_CARD_MS.says;
+            const says = el.querySelector('.sc-tp-card-says');
+            _tpCardLater(t, () => says.classList.add('sc-tp-card-on'));
+        }
+        t += TP_CARD_MS.hold;
+        _tpCardLater(t, () => _tpHideDriveInCard(false));
+    }
+
+    // _tpCardEl stays set through the fade, so bubbles wait until it's gone.
+    function _tpHideDriveInCard(instant) {
+        _tpCardTimers.forEach(clearTimeout);
+        _tpCardTimers = [];
+        if (!_tpCardEl) return;
+        const el = _tpCardEl;
+        const done = () => {
+            el.remove();
+            if (_tpCardEl === el) { _tpCardEl = null; _tpLastPopAt = Date.now(); }
+        };
+        if (instant) { done(); return; }
+        el.classList.add('sc-tp-card-out');
+        _tpCardTimers.push(setTimeout(done, TP_CARD_MS.fade));
+    }
+
+    /* ==========================================================
        QUICK-TOGGLE BUTTON -- a small top-bar button that mutes/resumes
        the bubbles for the session without opening Settings. Created by
        movie-title-links/index.js alongside #sc-trivia-btn (same lifecycle:
@@ -1817,6 +1979,7 @@
         clearTimeout(_tpPopTimer); _tpPopTimer = null;
         if (_tpMuted) {
             _tpDismissBubble(true); // yank any bubble that's currently up
+            _tpHideDriveInCard(false);
         } else if (!_tpTimeline) {
             // Resume promptly rather than waiting out a full frequency gap.
             // (Timeline mode needs nothing -- the heartbeat picks up the next due fact.)
@@ -1843,7 +2006,7 @@
         id: 'sc-input-triviapopup',
         group: 'trivia-popup',
         label: 'Pop-up trivia bubbles during movies (Experimental)',
-        note: 'Every few minutes, shows a small trivia fact for about 15 seconds, VH1 Pop-up Video style, then fades out. Off by default. Movies with curated Pop-up Video trivia get hand-picked, sourced facts timed to the movie -- everyone in the channel sees each one at the same moment; join late and the ones you missed show up in the gaps. Other movies fall back to IMDb trivia at random intervals. Facts never repeat, and this is remembered for a few hours so a page reload won\'t re-show ones you already saw. While a movie is playing, a "Pop-ups" button in the top bar mutes or resumes the bubbles for the session.',
+        note: 'Every few minutes, shows a small trivia fact for about 15 seconds, VH1 Pop-up Video style, then fades out. Off by default. Movies with curated Pop-up Video trivia get hand-picked, sourced facts timed to the movie -- everyone in the channel sees each one at the same moment; join late and the ones you missed show up in the gaps. Movies Joe Bob Briggs reviewed open with his Drive-In Totals card — the counts, then his star rating. Other movies fall back to IMDb trivia at random intervals. Facts never repeat, and this is remembered for a few hours so a page reload won\'t re-show ones you already saw. While a movie is playing, a "Pop-ups" button in the top bar mutes or resumes the bubbles for the session.',
         key: LS_TRIVIA_POPUP_ENABLED,
         defaultOn: false,
         order: 9,
@@ -1961,6 +2124,98 @@ injectCSS('pv-popup', `            /* ===== POP-UP TRIVIA BUBBLE ===== */
             #sc-trivia-popup-btn:hover { color: rgba(255,255,255,0.9) !important; }
             #sc-trivia-popup-btn.sc-tp-btn-on { color: rgba(255,255,255,0.9) !important; }
             body.sc-vertical #sc-trivia-popup-btn { right: 298px !important; top: 0 !important; }
+            /* ===== DRIVE-IN TOTALS CARD ===== */
+            /* MonsterVision's on-screen Drive-In Totals: no panel, shadowed
+               text right over the picture. left/top/width and the two font
+               sizes (--sc-tp-head / --sc-tp-line) are set inline by
+               _tpShowDriveInCard() from the picture's size. */
+            #sc-tp-card {
+                position: fixed !important;
+                z-index: 15400 !important; /* just under the bubble */
+                pointer-events: none !important;
+                text-align: center !important;
+                font-family: 'Patua One', Georgia, serif !important;
+                font-weight: 400 !important;
+                opacity: 1 !important;
+                transition: opacity 0.8s ease !important;
+            }
+            #sc-tp-card.sc-tp-card-out { opacity: 0 !important; }
+            #sc-tp-card .sc-tp-card-h {
+                color: #a6e27a !important;
+                font-size: var(--sc-tp-head) !important;
+                line-height: 1.02 !important;
+                text-shadow: 2px 2px 0 #10140c, 0 0 10px rgba(0,0,0,0.75) !important;
+                opacity: 0 !important;
+                transition: opacity 0.6s !important;
+            }
+            #sc-tp-card .sc-tp-card-rule {
+                height: 3px !important;
+                width: 0 !important;
+                margin: 8px auto 10px !important;
+                background: #c8352b !important;
+                box-shadow: 1px 1px 0 #000 !important;
+                transition: width 0.6s 0.2s !important;
+            }
+            #sc-tp-card.sc-tp-card-on .sc-tp-card-h { opacity: 1 !important; }
+            #sc-tp-card.sc-tp-card-on .sc-tp-card-rule { width: 80% !important; }
+            #sc-tp-card .sc-tp-card-lines {
+                position: relative !important;
+                overflow: hidden !important;
+                font-size: var(--sc-tp-line) !important;
+                height: calc(var(--sc-tp-line) * 10.5) !important;
+                transition: opacity 0.5s !important;
+            }
+            #sc-tp-card .sc-tp-card-lines.sc-tp-card-scrolling {
+                -webkit-mask-image: linear-gradient(transparent 0, #000 14%) !important;
+                mask-image: linear-gradient(transparent 0, #000 14%) !important;
+            }
+            #sc-tp-card .sc-tp-card-lines.sc-tp-card-gone { opacity: 0 !important; }
+            #sc-tp-card .sc-tp-card-track {
+                position: absolute !important;
+                left: 0 !important;
+                right: 0 !important;
+                top: 0 !important;
+                transition: transform 0.45s ease !important;
+            }
+            /* Long counts wrap (balanced), never ellipsized. */
+            #sc-tp-card .sc-tp-card-line {
+                color: #f4e8c6 !important;
+                line-height: 1.22 !important;
+                margin-top: 0.32em !important;
+                text-wrap: balance !important;
+                text-shadow: 2px 2px 0 #000, 0 0 6px rgba(0,0,0,0.85) !important;
+                opacity: 0 !important;
+                transform: translateY(8px) !important;
+                transition: opacity 0.35s, transform 0.35s !important;
+            }
+            #sc-tp-card .sc-tp-card-line.sc-tp-card-in { opacity: 1 !important; transform: none !important; }
+            #sc-tp-card .sc-tp-card-verdict {
+                position: absolute !important;
+                left: 0 !important;
+                right: 0 !important;
+                top: 46% !important;
+                opacity: 0 !important;
+                transition: opacity 0.4s !important;
+            }
+            #sc-tp-card .sc-tp-card-verdict.sc-tp-card-on { opacity: 1 !important; }
+            #sc-tp-card .sc-tp-card-stars { display: flex !important; justify-content: center !important; gap: 4% !important; }
+            #sc-tp-card .sc-tp-card-stars svg {
+                width: 17% !important;
+                height: auto !important;
+                filter: drop-shadow(2px 2px 0 #000) drop-shadow(0 0 6px rgba(0,0,0,0.6)) !important;
+                transform: scale(0) !important;
+                transition: transform 0.35s cubic-bezier(.3,1.6,.5,1) !important;
+            }
+            #sc-tp-card .sc-tp-card-stars svg.sc-tp-card-in { transform: scale(1) !important; }
+            #sc-tp-card .sc-tp-card-says {
+                color: #f4e8c6 !important;
+                font-size: calc(var(--sc-tp-line) * 1.1) !important;
+                margin-top: 10px !important;
+                text-shadow: 2px 2px 0 #000, 0 0 6px rgba(0,0,0,0.85) !important;
+                opacity: 0 !important;
+                transition: opacity 0.5s !important;
+            }
+            #sc-tp-card .sc-tp-card-says.sc-tp-card-on { opacity: 1 !important; }
 `);
     /* Standalone title watcher: CyTube media title -> IMDb id, the minimum the
        pop-up module needs (_currentImdbId, _npData.episode). Same parser
