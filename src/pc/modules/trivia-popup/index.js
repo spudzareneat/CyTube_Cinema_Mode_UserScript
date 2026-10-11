@@ -83,6 +83,7 @@
     let _tpBubbleEl = null;
     let _tpDismissTimer = null;
     let _tpTimeline = null;  // curated facts (sorted by t) for the current movie; null = IMDb random-gap mode
+    let _tpDriveIn = null;   // the current movie's validated Drive-In Totals card, or null
     let _tpLastPopAt = 0;    // Date.now() of the last timeline bubble -- spaces out catch-up pops
     let _tpCuratedRecheckAt = 0; // when to look for a curated file again while the movie has none
 
@@ -236,7 +237,7 @@
     // (id check skipped). Sample: docs/popup-trivia-sample.json. Remove the
     // key to go back to normal.
     const LS_TRIVIA_CURATED_DEV = 'sc_trivia_curated_dev';
-    // Session cache keyed by tconst: { facts, at }. A found file is kept for
+    // Session cache keyed by tconst: { curated, at }. A found file is kept for
     // the session; "not curated" (404 / invalid) expires after
     // TP_CURATED_RECHECK_MS, because the generator publishes files during the
     // weekend and a movie that started before its file landed should pick it
@@ -245,17 +246,23 @@
     const TP_CURATED_RECHECK_MS = 10 * 60 * 1000;
     const _tpCuratedCache = {};
 
+    // { facts, driveIn } for a usable curated doc, else null.
+    function _tpCurated(doc, id) {
+        const facts = tpValidateCurated(doc, id);
+        return facts ? { facts, driveIn: tpValidateDriveIn(doc) } : null;
+    }
+
     function fetchCuratedTrivia(id) {
         if (!id) return Promise.resolve(null);
         let devRaw = null;
         try { devRaw = localStorage.getItem(LS_TRIVIA_CURATED_DEV); } catch (e) {}
         if (devRaw) {
             console.warn('[trivia-popup] curated dev override active (localStorage sc_trivia_curated_dev) -- applies to every movie');
-            try { return Promise.resolve(tpValidateCurated(JSON.parse(devRaw), null)); }
+            try { return Promise.resolve(_tpCurated(JSON.parse(devRaw), null)); }
             catch (e) { return Promise.resolve(null); }
         }
         const cached = _tpCuratedCache[id];
-        if (cached && (cached.facts || Date.now() - cached.at < TP_CURATED_RECHECK_MS)) return Promise.resolve(cached.facts);
+        if (cached && (cached.curated || Date.now() - cached.at < TP_CURATED_RECHECK_MS)) return Promise.resolve(cached.curated);
         return new Promise(resolve => {
             GM_xmlhttpRequest({
                 method: 'GET',
@@ -263,10 +270,10 @@
                 timeout: 10000,
                 onload: r => {
                     const ok = r.status >= 200 && r.status < 300;
-                    let facts = null;
-                    if (ok) { try { facts = tpValidateCurated(JSON.parse(r.responseText), id); } catch (e) {} }
-                    if (ok || r.status === 404) _tpCuratedCache[id] = { facts, at: Date.now() };
-                    resolve(facts);
+                    let curated = null;
+                    if (ok) { try { curated = _tpCurated(JSON.parse(r.responseText), id); } catch (e) {} }
+                    if (ok || r.status === 404) _tpCuratedCache[id] = { curated, at: Date.now() };
+                    resolve(curated);
                 },
                 onerror: () => resolve(null),
                 ontimeout: () => resolve(null),
@@ -429,6 +436,8 @@
     function _tpResetForNewMovie(id) {
         clearTimeout(_tpPopTimer); _tpPopTimer = null;
         _tpDismissBubble(true); // hard-remove instantly -- stale trivia, no exit animation
+        _tpHideDriveInCard(true);
+        _tpDriveIn = null;
         _tpQueue = [];
         _tpExhausted = false;
         _tpTimeline = null;
@@ -443,9 +452,9 @@
         // cast / known-for fetching below happens -- the generator already
         // folded those sources in. No file / bad file -> the IMDb path,
         // unchanged.
-        fetchCuratedTrivia(id).then(facts => {
+        fetchCuratedTrivia(id).then(curated => {
             if (id !== _tpLastImdbId) return; // movie changed again while this was in flight
-            if (facts) { _tpTimeline = facts; return; }
+            if (curated) { _tpTimeline = curated.facts; _tpDriveIn = curated.driveIn; return; }
             _tpStartImdbQueue(id);
         });
     }
@@ -557,7 +566,8 @@
         _tpScheduleNextPop(); // arms the next pop, or flips _tpExhausted if that was the last one
     }
 
-    // Timeline mode's whole scheduler: every heartbeat, pop whichever curated
+    // Timeline mode's whole scheduler: every heartbeat, show the Drive-In
+    // Totals card when it's due (or missed), else pop whichever curated
     // fact is due at the current playback position (synced for everyone);
     // otherwise, in the gaps, catch up on a fact this viewer missed by joining
     // late, skipping ahead, or being paused/unfocused past its window
@@ -567,12 +577,19 @@
     function _tpTimelineTick() {
         if (!_tpTimeline || _currentImdbId !== _tpLastImdbId) return;
         if (!popupTriviaEnabled() || !_tpMovieIsPlaying() || !document.hasFocus()) return;
+        if (_tpCardEl) return; // bubbles wait for the Drive-In Totals card
         if (_tpBubbleEl) return; // let the current bubble finish; the next fact's 20s window usually outlasts it
         const v = getPlayerVideoEl();
         const tier = getKey(LS_TRIVIA_POPUP_FREQUENCY) || TP_FREQUENCY_DEFAULT;
         const seen = _tpLoadSeenTexts(_tpLastImdbId);
+        const sinceLastPop = (Date.now() - _tpLastPopAt) / 1000;
+        if (tpDriveInAction(_tpDriveIn, v.currentTime, seen, sinceLastPop)) {
+            _tpShowDriveInCard(_tpDriveIn);
+            _tpMarkSeen(_tpLastImdbId, TP_DRIVEIN_SEEN_KEY);
+            return;
+        }
         const fact = tpDueFact(_tpTimeline, v.currentTime, tier, seen)
-            || tpCatchUpFact(_tpTimeline, v.currentTime, tier, seen, (Date.now() - _tpLastPopAt) / 1000);
+            || tpCatchUpFact(_tpTimeline, v.currentTime, tier, seen, sinceLastPop);
         if (!fact) return;
         showTriviaBubble(fact);
         _tpMarkSeen(_tpLastImdbId, fact.text);
@@ -585,12 +602,13 @@
     // then surface through catch-up.
     function _tpRecheckCurated(id) {
         _tpCuratedRecheckAt = Date.now() + TP_CURATED_RECHECK_MS;
-        fetchCuratedTrivia(id).then(facts => {
-            if (!facts || id !== _tpLastImdbId || _tpTimeline) return;
+        fetchCuratedTrivia(id).then(curated => {
+            if (!curated || id !== _tpLastImdbId || _tpTimeline) return;
             clearTimeout(_tpPopTimer); _tpPopTimer = null;
             _tpQueue = [];
             _tpExhausted = true;
-            _tpTimeline = facts;
+            _tpTimeline = curated.facts;
+            _tpDriveIn = curated.driveIn;
         });
     }
 
@@ -1031,6 +1049,117 @@
     }
 
     /* ==========================================================
+       DRIVE-IN TOTALS CARD -- MonsterVision-style: transparent over
+       the picture, "Drive-In Totals" header, Joe Bob's counts rolling
+       in one at a time (long lists scroll, oldest off the top), then
+       his star rating and sign-off. No fixed length: it stays until
+       every count has shown and the verdict has held. Bubbles wait
+       while it's up (_tpTimelineTick). Design + mockup:
+       grindhouse-popup-trivia docs/superpowers/specs/2026-10-10-drive-in-totals-card-*.
+    ========================================================== */
+
+    const TP_CARD_MS = { header: 900, line: 1100, pause: 1200, clear: 600, starStart: 150, star: 280, says: 300, hold: 5000, fade: 800 };
+    const TP_CARD_FONT_LINK_ID = 'sc-tp-card-font';
+    const TP_STAR_PATH = 'M12 1.8l3.1 6.6 7.1.8-5.3 4.9 1.4 7.1L12 17.6l-6.3 3.6 1.4-7.1L1.8 9.2l7.1-.8z';
+    let _tpCardEl = null;
+    let _tpCardTimers = [];
+
+    // Patua One: free stand-in for ITC La Bamba, MonsterVision's face. Loaded
+    // on first use, like core's Inter; Georgia until it arrives.
+    function _tpEnsureCardFont() {
+        if (document.getElementById(TP_CARD_FONT_LINK_ID)) return;
+        const link = document.createElement('link');
+        link.id = TP_CARD_FONT_LINK_ID;
+        link.rel = 'stylesheet';
+        link.href = 'https://fonts.googleapis.com/css2?family=Patua+One&display=swap';
+        document.head.appendChild(link);
+    }
+
+    function _tpStarSvg(fill, k) {
+        const id = `sc-tp-star-clip-${k}`;
+        return `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><defs><clipPath id="${id}"><rect x="0" y="0" width="${24 * fill}" height="24"/></clipPath></defs>`
+            + `<path d="${TP_STAR_PATH}" fill="rgba(20,20,20,.35)" stroke="#f5d76e" stroke-width="1.2"/>`
+            + `<path d="${TP_STAR_PATH}" fill="#f5d76e" stroke="#7a5a10" stroke-width=".6" clip-path="url(#${id})"/></svg>`;
+    }
+
+    function _tpCardLater(ms, fn) { _tpCardTimers.push(setTimeout(fn, ms)); }
+
+    function _tpShowDriveInCard(card) {
+        _tpHideDriveInCard(true);
+        _tpEnsureCardFont();
+        // Right side of the actual picture, sized from it (fonts too) so it
+        // reads the same in any layout or window size.
+        const P = _tpPictureRect(_tpUsableArea());
+        const el = document.createElement('div');
+        el.id = 'sc-tp-card';
+        el.style.setProperty('left', (P.left + P.width * 0.51) + 'px', 'important');
+        el.style.setProperty('top', (P.top + P.height * 0.07) + 'px', 'important');
+        el.style.setProperty('width', (P.width * 0.44) + 'px', 'important');
+        el.style.setProperty('--sc-tp-head', Math.max(18, P.height * 0.09) + 'px');
+        el.style.setProperty('--sc-tp-line', Math.max(12, P.height * 0.046) + 'px');
+        el.innerHTML = `
+            <div class="sc-tp-card-h">Drive-In<br>Totals</div>
+            <div class="sc-tp-card-rule"></div>
+            <div class="sc-tp-card-lines"><div class="sc-tp-card-track"></div></div>
+            <div class="sc-tp-card-verdict">
+                ${card.stars !== null ? `<div class="sc-tp-card-stars">${tpStarFills(card.stars).map(_tpStarSvg).join('')}</div>` : ''}
+                <div class="sc-tp-card-says">${_escHtml(card.says)}</div>
+            </div>`;
+        document.body.appendChild(el);
+        _tpCardEl = el;
+        const linesEl = el.querySelector('.sc-tp-card-lines');
+        const track = el.querySelector('.sc-tp-card-track');
+
+        requestAnimationFrame(() => el.classList.add('sc-tp-card-on'));
+        let t = TP_CARD_MS.header;
+        for (const text of card.lines) {
+            _tpCardLater(t, () => {
+                const line = document.createElement('div');
+                line.className = 'sc-tp-card-line';
+                line.textContent = text;
+                track.appendChild(line);
+                requestAnimationFrame(() => line.classList.add('sc-tp-card-in'));
+                // Fill top-down; once full, roll the oldest counts off the top.
+                const over = track.offsetHeight - linesEl.clientHeight;
+                if (over > 0) {
+                    linesEl.classList.add('sc-tp-card-scrolling');
+                    track.style.setProperty('transform', `translateY(${-over}px)`, 'important');
+                }
+            });
+            t += TP_CARD_MS.line;
+        }
+        if (card.stars !== null || card.says) {
+            t += TP_CARD_MS.pause;
+            _tpCardLater(t, () => linesEl.classList.add('sc-tp-card-gone'));
+            t += TP_CARD_MS.clear;
+            const verdict = el.querySelector('.sc-tp-card-verdict');
+            _tpCardLater(t, () => verdict.classList.add('sc-tp-card-on'));
+            const stars = el.querySelectorAll('.sc-tp-card-stars svg');
+            stars.forEach((s, k) => _tpCardLater(t + TP_CARD_MS.starStart + k * TP_CARD_MS.star, () => s.classList.add('sc-tp-card-in')));
+            t += TP_CARD_MS.starStart + stars.length * TP_CARD_MS.star + TP_CARD_MS.says;
+            const says = el.querySelector('.sc-tp-card-says');
+            _tpCardLater(t, () => says.classList.add('sc-tp-card-on'));
+        }
+        t += TP_CARD_MS.hold;
+        _tpCardLater(t, () => _tpHideDriveInCard(false));
+    }
+
+    // _tpCardEl stays set through the fade, so bubbles wait until it's gone.
+    function _tpHideDriveInCard(instant) {
+        _tpCardTimers.forEach(clearTimeout);
+        _tpCardTimers = [];
+        if (!_tpCardEl) return;
+        const el = _tpCardEl;
+        const done = () => {
+            el.remove();
+            if (_tpCardEl === el) { _tpCardEl = null; _tpLastPopAt = Date.now(); }
+        };
+        if (instant) { done(); return; }
+        el.classList.add('sc-tp-card-out');
+        _tpCardTimers.push(setTimeout(done, TP_CARD_MS.fade));
+    }
+
+    /* ==========================================================
        QUICK-TOGGLE BUTTON -- a small top-bar button that mutes/resumes
        the bubbles for the session without opening Settings. Created by
        movie-title-links/index.js alongside #sc-trivia-btn (same lifecycle:
@@ -1068,6 +1197,7 @@
         clearTimeout(_tpPopTimer); _tpPopTimer = null;
         if (_tpMuted) {
             _tpDismissBubble(true); // yank any bubble that's currently up
+            _tpHideDriveInCard(false);
         } else if (!_tpTimeline) {
             // Resume promptly rather than waiting out a full frequency gap.
             // (Timeline mode needs nothing -- the heartbeat picks up the next due fact.)
