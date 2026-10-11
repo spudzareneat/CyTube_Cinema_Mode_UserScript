@@ -1896,8 +1896,8 @@
         const P = _tpPictureRect(_tpUsableArea());
         const el = document.createElement('div');
         el.id = 'sc-tp-card';
-        el.style.setProperty('left', (P.left + P.width * 0.575) + 'px', 'important');
-        el.style.setProperty('top', (P.top + P.height * 0.03) + 'px', 'important');
+        el.style.setProperty('left', (P.left + P.width * 0.59) + 'px', 'important');
+        el.style.setProperty('top', (P.top + P.height * 0.01) + 'px', 'important');
         el.style.setProperty('width', (P.width * 0.40) + 'px', 'important');
         el.style.setProperty('--sc-tp-head', Math.max(18, P.height * 0.09) + 'px');
         el.style.setProperty('--sc-tp-line', Math.max(12, P.height * 0.046) + 'px');
