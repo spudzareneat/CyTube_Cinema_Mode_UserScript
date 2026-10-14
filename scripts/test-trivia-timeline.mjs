@@ -2,7 +2,7 @@
 //
 // Assertions for the pure curated-timeline helpers in
 // src/pc/modules/trivia-popup/index.js (tpValidateCurated, tpRankAllowed,
-// tpDueFact). src/pc/** files are IIFE fragments, not ES modules, so this
+// tpDueFact, the Drive-In Totals CSV -> card helpers). src/pc/** files are IIFE fragments, not ES modules, so this
 // slices the code between its test markers and evals it -- same convention
 // as scripts/test-imdb-link-preview.mjs.
 //
@@ -23,8 +23,10 @@ if (s === -1 || e === -1 || e < s) {
     process.exit(1);
 }
 // eslint-disable-next-line no-new-func
-const { tpValidateCurated, tpRankAllowed, tpDueFact, tpCatchUpFact, TP_TIMELINE_WINDOW_S, tpValidateDriveIn, tpDriveInAction, tpStarFills, TP_DRIVEIN_SEEN_KEY, tpIsCardTestKey } = new Function(
-    `${src.slice(s, e)}\n;return { tpValidateCurated, tpRankAllowed, tpDueFact, tpCatchUpFact, TP_TIMELINE_WINDOW_S, tpValidateDriveIn, tpDriveInAction, tpStarFills, TP_DRIVEIN_SEEN_KEY, tpIsCardTestKey };`
+const { tpValidateCurated, tpRankAllowed, tpDueFact, tpCatchUpFact, TP_TIMELINE_WINDOW_S, tpDriveInAction, tpStarFills, TP_DRIVEIN_SEEN_KEY, tpIsCardTestKey,
+    tpParseCsv, tpIndexDriveInCsv, tpDriveInCardFromRow, tpNominationLines } = new Function(
+    `${src.slice(s, e)}\n;return { tpValidateCurated, tpRankAllowed, tpDueFact, tpCatchUpFact, TP_TIMELINE_WINDOW_S, tpDriveInAction, tpStarFills, TP_DRIVEIN_SEEN_KEY, tpIsCardTestKey,
+        tpParseCsv, tpIndexDriveInCsv, tpDriveInCardFromRow, tpNominationLines };`
 )();
 
 let failed = 0;
@@ -126,24 +128,57 @@ eq('null facts -> null', tpCatchUpFact(null, 600, 'frequent', [], 100), null);
 
 /* ---- Drive-In Totals card --------------------------------------------- */
 
-const DI = { t: 15, lines: ['19 Dead Bodies', 'Zombie Fu'], stars: 4, says: 'Joe Bob says check it out.' };
-eq('driveIn: valid card normalized',
-    tpValidateDriveIn(doc([F(100, 'a')], { driveIn: { ...DI, lines: [' 19 Dead Bodies ', '', 42, 'Zombie Fu'], stars: 3.7 } })),
-    { t: 15, lines: ['19 Dead Bodies', 'Zombie Fu'], stars: 3.5, says: 'Joe Bob says check it out.' });
-eq('driveIn: missing -> null', tpValidateDriveIn(doc([F(100, 'a')])), null);
-eq('driveIn: bad t -> null', tpValidateDriveIn(doc([], { driveIn: { ...DI, t: 'soon' } })), null);
-eq('driveIn: negative t -> null', tpValidateDriveIn(doc([], { driveIn: { ...DI, t: -1 } })), null);
-eq('driveIn: no usable lines -> null', tpValidateDriveIn(doc([], { driveIn: { ...DI, lines: ['', '  '] } })), null);
-eq('driveIn: lines not an array -> null', tpValidateDriveIn(doc([], { driveIn: { ...DI, lines: '19 Dead Bodies' } })), null);
-eq('driveIn: stars clamped; junk stars -> null, junk says -> ""',
-    [tpValidateDriveIn(doc([], { driveIn: { ...DI, stars: 9 } })).stars, tpValidateDriveIn(doc([], { driveIn: { ...DI, stars: 'four', says: 7 } }))],
-    [4, { t: 15, lines: DI.lines, stars: null, says: '' }]);
-eq('driveIn: max 60 lines, over-long lines dropped',
-    [tpValidateDriveIn(doc([], { driveIn: { ...DI, lines: Array(80).fill('x') } })).lines.length,
-     tpValidateDriveIn(doc([], { driveIn: { ...DI, lines: ['x'.repeat(301), 'ok'] } })).lines],
-    [60, ['ok']]);
-eq('driveIn field does not change the facts',
-    tpValidateCurated(doc([F(100, 'a')], { driveIn: DI }), 'tt0055830'), tpValidateCurated(doc([F(100, 'a')]), 'tt0055830'));
+const DI = { t: 15, lines: ['19 Dead Bodies', 'Zombie Fu'], stars: 4, says: 'Four stars.', awards: [] };
+
+const CSV = [
+    '"title","year","imdb_id","first_air_date","totals","academy_award_nominations","star_rating","stars","transcribed","llm_model","source"',
+    '"Carnival of Souls","1962","tt0055830","1992-05-16","No breasts (1962). Nineteen dead bodies. Approximately 15 zombies. One motor vehicle chase, with watery crash. Zombie Fu.","Drive-In Academy Award nominations for Candace Hilligoss, for saying ""I don\'t belong in the world""; Frances Feist, as the creepy old rooming house lady; and Herk Harvey, for producing. In the Drive-In Hall of Fame.","Four stars.","4","","","letterboxd: ty0005"',
+    '"Texas","1974","tt0072271","","7 Dead Bodies. Bone Fu. Joe Bob say check it out.","","Four stars.","4","","",""',
+    '"Unrated","1980","tt0000002","","Three dead bodies, one dead dog, two breasts, and arm slashing.","","","","","",""',
+    '"Empty","1981","tt0000003","","","","Two stars.","2","","",""',
+    '"Bad id","1982","nope","","1 Dead Body.","","","","","",""',
+].join('\r\n') + '\r\n';
+const IDX = tpIndexDriveInCsv(CSV);
+
+eq('csv: indexed by imdb_id, bad ids skipped, quotes/commas/CRLF parsed',
+    [Object.keys(IDX), IDX.tt0055830.starRating, IDX.tt0055830.nominations.includes('"I don\'t belong in the world"')],
+    [['tt0055830', 'tt0072271', 'tt0000002', 'tt0000003'], 'Four stars.', true]);
+eq('csv: empty / missing columns -> {}', [tpIndexDriveInCsv(''), tpIndexDriveInCsv('"a","b"\n"1","2"')], [{}, {}]);
+eq('csv: embedded newline inside a quoted field', tpParseCsv('a,"x\ny",b\n'), [['a', 'x\ny', 'b']]);
+
+eq('card from row: counts cleaned, stars + star phrase, one nominee per line',
+    tpDriveInCardFromRow(IDX.tt0055830),
+    { t: 15, lines: ['No Breasts (1962)', '19 Dead Bodies', 'About 15 Zombies', '1 Motor Vehicle Chase, with Watery Crash', 'Zombie Fu'],
+      stars: 4, says: 'Four stars.',
+      awards: ['Candace Hilligoss, for saying "I don\'t belong in the world"', 'Frances Feist, as the creepy old rooming house lady',
+               'Herk Harvey, for producing', 'In the Drive-In Hall of Fame'] });
+eq('card from row: "check it out" moves off the counts onto the star phrase',
+    [tpDriveInCardFromRow(IDX.tt0072271).lines, tpDriveInCardFromRow(IDX.tt0072271).says],
+    [['7 Dead Bodies', 'Bone Fu'], 'Four stars. Joe Bob says check it out.']);
+eq('card from row: unrated -> no stars, empty phrase; long comma list is one count per item',
+    tpDriveInCardFromRow(IDX.tt0000002),
+    { t: 15, lines: ['3 Dead Bodies', '1 Dead Dog', '2 Breasts', 'Arm Slashing'], stars: null, says: '', awards: [] });
+eq('card from row: no totals / no row -> null', [tpDriveInCardFromRow(IDX.tt0000003), tpDriveInCardFromRow(undefined)], [null, null]);
+eq('card from row: odd star values clamp to half steps',
+    ['2.25', '4.5', '0', 'x'].map(stars => tpDriveInCardFromRow({ totals: 'Zombie Fu.', stars, starRating: '', nominations: '' }).stars),
+    [2.5, 4, 0, null]);
+
+eq('nominations: plain comma list -> one name each, prefix and "and" dropped',
+    tpNominationLines('Drive-In Academy Award nominations for John Karlen, Danielle Ouimet, Delphine Seyrig, and Andrea Rau.'),
+    ['John Karlen', 'Danielle Ouimet', 'Delphine Seyrig', 'Andrea Rau']);
+eq('nominations: "for:" prefix, single nominee, DIAA prefix',
+    [tpNominationLines('Drive-in academy award nominations for: Terrence G. Ross. Victor Désy.'),
+     tpNominationLines('Drive-In Academy Award nomination for Umberto Lenzi.'),
+     tpNominationLines('DIAA Nominations For Walken, As A Geek School Teacher; And Martin Sheen for Acting Like A Politician.')],
+    [['Terrence G. Ross', 'Victor Désy'], ['Umberto Lenzi'], ['Walken, As A Geek School Teacher', 'Martin Sheen for Acting Like A Politician']]);
+eq('nominations: ";" inside a quote does not split; leaked verdict dropped',
+    tpNominationLines('Drive-In Academy Awards for Rolfe Kanefsky, for writing the line "I am not a piece of meat who can perform on cue;" Kiva, as Pamela, for ignoring Rick. Three and a half stars. Joe Bob says check it out.'),
+    ['Rolfe Kanefsky, for writing the line "I am not a piece of meat who can perform on cue;" Kiva, as Pamela, for ignoring Rick']);
+eq('nominations: comma list with long parts stays one line',
+    tpNominationLines('Drive-In Academy Award nominations for Brian Cox, as the world-weary coroner who says hi, and Olwen Kelly.').length, 1);
+eq('nominations: chained initials are not a sentence end',
+    tpNominationLines('Drive-In Academy Award nominations for Hy Pyke, D.C. Lacroix, and Regina Starr.'), ['Hy Pyke', 'D.C. Lacroix', 'Regina Starr']);
+eq('nominations: empty -> []', [tpNominationLines(''), tpNominationLines(undefined)], [[], []]);
 
 eq('card: not before t', tpDriveInAction(DI, 14, [], 999), null);
 eq('card: due at t and through the window',

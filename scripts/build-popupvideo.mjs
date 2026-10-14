@@ -11,7 +11,7 @@ import { assemble } from './assemble.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(__dirname, '..');
 
-export const POPUPVIDEO_VERSION = '1.1.0';
+export const POPUPVIDEO_VERSION = '1.2.0';
 
 export const POPUPVIDEO_MANIFEST = {
     headerTemplate: 'src/popupvideo/header.template.js',
