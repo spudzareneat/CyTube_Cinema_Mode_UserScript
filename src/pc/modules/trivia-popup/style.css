@@ -128,6 +128,13 @@
                 transition: width 0.6s 0.2s !important;
             }
             #sc-tp-card.sc-tp-card-on .sc-tp-card-h { opacity: 1 !important; }
+            /* Academy Award slide: header fades out, swaps text, fades back in
+               smaller (two long lines instead of "Drive-In / Totals"). */
+            #sc-tp-card.sc-tp-card-on .sc-tp-card-h.sc-tp-card-swap { opacity: 0 !important; }
+            #sc-tp-card.sc-tp-card-awards .sc-tp-card-h { font-size: calc(var(--sc-tp-head) * 0.62) !important; }
+            /* Nominees can run long (role + quote): smaller text, same box, so
+               even a 300-char entry fits whole before the track scrolls. */
+            #sc-tp-card.sc-tp-card-awards .sc-tp-card-line { font-size: 0.8em !important; }
             #sc-tp-card.sc-tp-card-on .sc-tp-card-rule { width: 80% !important; }
             #sc-tp-card .sc-tp-card-lines {
                 position: relative !important;

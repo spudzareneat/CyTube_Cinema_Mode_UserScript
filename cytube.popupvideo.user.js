@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Grindhouse Pop-up Video
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
+// @version      1.2.0
 // @description  VH1 Pop-up Video style trivia bubbles for movies on the r/420Grindhouse CyTube channel — curated timed facts when available, IMDb trivia otherwise.
 // @match        https://cytu.be/r/420Grindhouse
 // @match        https://cytu.be/r/testing
@@ -979,22 +979,197 @@
         return missed.slice().sort((a, b) => a.rank - b.rank || a.t - b.t)[0];
     }
 
-    // Drive-In Totals card: one per movie, from the doc's optional `driveIn`
-    // (Joe Bob's counts, then his star rating -- see _tpShowDriveInCard).
-    // Shown on every frequency tier; remembered in the seen list under
-    // TP_DRIVEIN_SEEN_KEY so a reload doesn't replay it. A bad `driveIn` is
-    // just ignored -- the facts don't depend on it.
+    // Drive-In Totals card: one per movie, for any movie in Joe Bob's Drive-In
+    // Totals CSV (spudzareneat/JoeBobBriggsDriveInTotals), curated or not --
+    // his counts, then his star rating, then (if any) a Drive-In Academy Award
+    // nominations slide (see _tpShowDriveInCard). Shown on every frequency
+    // tier at TP_DRIVEIN_T; remembered in the seen list under
+    // TP_DRIVEIN_SEEN_KEY so a reload doesn't replay it.
     const TP_DRIVEIN_SEEN_KEY = '[drive-in-totals card]';
-    function tpValidateDriveIn(doc) {
-        const d = doc && doc.driveIn;
-        if (!d || typeof d !== 'object') return null;
-        if (typeof d.t !== 'number' || !Number.isFinite(d.t) || d.t < 0) return null;
-        if (!Array.isArray(d.lines)) return null;
-        const lines = d.lines.filter(l => typeof l === 'string').map(l => l.trim()).filter(l => l && l.length <= 300).slice(0, 60);
+    const TP_DRIVEIN_T = 15; // plays over the opening of the movie
+
+    // Minimal RFC 4180 parser: quoted fields, "" escapes, embedded commas/newlines, CRLF.
+    function tpParseCsv(text) {
+        const rows = [];
+        let row = [], field = '', inQuotes = false;
+        for (let i = 0; i < text.length; i++) {
+            const c = text[i];
+            if (inQuotes) {
+                if (c === '"' && text[i + 1] === '"') { field += '"'; i++; }
+                else if (c === '"') inQuotes = false;
+                else field += c;
+            } else if (c === '"') inQuotes = true;
+            else if (c === ',') { row.push(field); field = ''; }
+            else if (c === '\n' || c === '\r') {
+                if (c === '\r' && text[i + 1] === '\n') i++;
+                row.push(field); rows.push(row); row = []; field = '';
+            } else field += c;
+        }
+        if (field !== '' || row.length) { row.push(field); rows.push(row); }
+        return rows;
+    }
+
+    // { tconst: { totals, nominations, starRating, stars } } from the CSV text.
+    function tpIndexDriveInCsv(text) {
+        const [header, ...rows] = tpParseCsv(text || '');
+        const index = {};
+        if (!header) return index;
+        const col = name => header.indexOf(name);
+        const ii = col('imdb_id'), ti = col('totals'), ai = col('academy_award_nominations'), ri = col('star_rating'), si = col('stars');
+        if (ii < 0 || ti < 0) return index;
+        for (const r of rows) {
+            const id = (r[ii] || '').trim();
+            if (!/^tt\d+$/.test(id)) continue;
+            index[id] = { totals: (r[ti] || '').trim(), nominations: (r[ai] || '').trim(), starRating: (r[ri] || '').trim(), stars: (r[si] || '').trim() };
+        }
+        return index;
+    }
+
+    // Ported from the generator's deterministic Totals splitter
+    // (grindhouse-popup-trivia src/driveintotals.js).
+    const TP_ABBREV = new Set(['mr', 'mrs', 'ms', 'dr', 'st', 'jr', 'sr', 'vs', 'etc', 'approx', 'lt', 'sgt', 'capt', 'col', 'gen', 'prof', 'mt']);
+
+    // Sentence split that ignores periods inside quotes/parentheses, after abbreviations and initials.
+    function tpSplitSentences(text) {
+        const out = [];
+        let buf = '', depth = 0, inQuote = false;
+        for (const c of text) {
+            if (c === '(') depth++;
+            else if (c === ')') depth = Math.max(0, depth - 1);
+            else if (c === '"') inQuote = !inQuote;
+            else if (c === '“') inQuote = true;
+            else if (c === '”') inQuote = false;
+            if (/\s/.test(c) && depth === 0 && !inQuote && /[.!?]["'”’)]*$/.test(buf)) {
+                const lastWord = (buf.match(/([A-Za-z]+)\.$/) || [])[1];
+                const initial = /(^|[\s.])[A-Z]\.$/.test(buf); // "G. Ross", "D.C. Lacroix"
+                if (!(lastWord && TP_ABBREV.has(lastWord.toLowerCase())) && !initial) {
+                    if (buf.trim()) out.push(buf.trim());
+                    buf = '';
+                    continue;
+                }
+            }
+            buf += c;
+        }
+        if (buf.trim()) out.push(buf.trim());
+        return out;
+    }
+
+    // Splits on `sep` only outside quotes/parentheses ("...on cue;" stays whole).
+    function tpSplitOutside(text, sep) {
+        const out = [];
+        let buf = '', depth = 0, inQuote = false;
+        for (const c of text) {
+            if (c === '(') depth++;
+            else if (c === ')') depth = Math.max(0, depth - 1);
+            else if (c === '"') inQuote = !inQuote;
+            else if (c === '“') inQuote = true;
+            else if (c === '”') inQuote = false;
+            if (c === sep && depth === 0 && !inQuote) { out.push(buf); buf = ''; continue; }
+            buf += c;
+        }
+        out.push(buf);
+        return out;
+    }
+
+    const TP_SMALL_WORDS = new Set(['a', 'an', 'and', 'as', 'at', 'but', 'by', 'for', 'from', 'in', 'of', 'on', 'or', 'the', 'to', 'with', 'n', 'vs']);
+    const TP_UNITS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve',
+        'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+    const TP_TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+
+    // "Seventy-Six breasts" -> "76 breasts". Only the number phrase that starts the line.
+    function tpLeadingNumberToDigits(s) {
+        const m = s.match(/^((?:one|a)\s+hundred\s+(?:and\s+)?)?([a-z]+)(?:[-\s]([a-z]+))?\b/i);
+        if (!m) return s;
+        const hundred = m[1] ? 100 : 0;
+        const w1 = m[2].toLowerCase(), w2 = m[3] && m[3].toLowerCase();
+        const t = TP_TENS.indexOf(w1), u2 = w2 ? TP_UNITS.indexOf(w2) : -1;
+        if (t >= 2 && u2 >= 1 && u2 <= 9) return `${hundred + t * 10 + u2}${s.slice(m[0].length)}`;
+        if (t >= 2) return `${hundred + t * 10}${s.slice((m[1] || '').length + m[2].length)}`;
+        if (TP_UNITS.includes(w1)) return `${hundred + TP_UNITS.indexOf(w1)}${s.slice((m[1] || '').length + m[2].length)}`;
+        return s;
+    }
+
+    // Capitalize each word (and each hyphenated part); small words stay lower mid-line.
+    // Never lowercases the rest of a word, so "McCoy" and "TV" survive.
+    function tpTitleCase(s) {
+        let first = true;
+        return s.replace(/[A-Za-z][A-Za-z']*/g, (w, off) => {
+            const prev = s[off - 1];
+            const lead = first || prev === '(' || prev === '-';
+            first = false;
+            if (!lead && TP_SMALL_WORDS.has(w.toLowerCase())) return w.toLowerCase();
+            return w[0].toUpperCase() + w.slice(1);
+        });
+    }
+
+    function tpCleanTotalsLine(sentence) {
+        let s = sentence.trim().replace(/\.+$/, '').trim();
+        s = s.replace(/^(?:we(?:'ve)?\s+(?:got|have)\s+(?:a\s+total\s+of\s+)?|we're\s+talking\s+|there\s+(?:are|is|were|was)\s+)/i, '');
+        s = s.replace(/^approximately\b/i, 'About');
+        return tpTitleCase(tpLeadingNumberToDigits(s));
+    }
+
+    const TP_STAR_SENTENCE = /\b(?:zero|no|one|two|three|four|[0-4](?:\.5)?)(?:\s+and\s+(?:a\s+)?half)?\s+stars?\b/i;
+    const TP_SIGN_OFF = /check (?:it|this) out|joe bob says?\b/i;
+    // Only short sentences count as a verdict/sign-off ("Three stars.", "Joe Bob says check it out.").
+    const tpIsVerdict = s => (TP_STAR_SENTENCE.test(s) || TP_SIGN_OFF.test(s)) && s.split(/\s+/).length <= 8;
+    const tpTrimTail = s => s.replace(/[\s,;:.-]+$/, '');
+    function tpClip(s, max) {
+        if (s.length <= max) return s;
+        const cut = s.lastIndexOf(' ', max - 1);
+        return tpTrimTail(s.slice(0, cut > 0 ? cut : max - 1)) + '…';
+    }
+
+    // The nominations column -> one line per nominee. "Drive-In Academy Award
+    // nominations for A, B, and C." gives [A, B, C]; ";"-separated entries
+    // (nominee plus role/quote) are one line each; a comma list with long
+    // parts (a role or quote inside) stays one line. Sentences after the
+    // first ("In the Drive-In Hall of Fame.") follow as their own lines; a
+    // leaked star rating / "check it out" is dropped.
+    const TP_NOMS_PREFIX = /^(?:drive-?in\s+academy\s+awards?(?:\s+nominations?)?|diaa(?:\s+nominations?)?)\s*(?:go(?:es)?\s+to|for)?\s*:?\s*/i;
+    function tpNominationLines(text) {
+        const sentences = tpSplitSentences((text || '').trim()).filter(s => !tpIsVerdict(s));
+        if (!sentences.length) return [];
+        const [first, ...rest] = sentences;
+        const body = tpTrimTail(first.replace(TP_NOMS_PREFIX, ''));
+        let names = tpSplitOutside(body, ';');
+        if (names.length === 1) {
+            const parts = body.split(/,\s+(?:and\s+)?|\s+and\s+/);
+            if (parts.length > 1 && parts.every(p => p.trim().split(/\s+/).length <= 5)) names = parts;
+        }
+        return names.concat(rest)
+            .map(n => tpTrimTail(n.trim().replace(/^and\s+/i, '')))
+            .filter(Boolean)
+            .map(n => tpClip(n[0].toUpperCase() + n.slice(1), 300))
+            .slice(0, 30);
+    }
+
+    function tpNormalizeSays(says) {
+        const t = says.trim();
+        return /^(?:joe bob says? )?check it out\.?$/i.test(t) ? 'Joe Bob says check it out.' : t;
+    }
+
+    // A CSV row (from tpIndexDriveInCsv) -> the card, or null when there's
+    // nothing to count. Counts and Fu's -> lines (MonsterVision style: digits,
+    // Title Case; a long comma list is one count per item); `stars` -> 0..4 in
+    // half steps (null when unrated); says = the star phrase, plus Joe Bob's
+    // "check it out" pulled off the end of the counts.
+    function tpDriveInCardFromRow(row) {
+        if (!row || !row.totals) return null;
+        const lines = [], signOff = [];
+        for (const s of tpSplitSentences(row.totals)) {
+            if (tpIsVerdict(s)) { if (TP_SIGN_OFF.test(s)) signOff.push(s); continue; }
+            const parts = s.split(/,\s+(?:and\s+)?/);
+            for (const part of parts.length >= 4 ? parts : [s]) {
+                const line = tpCleanTotalsLine(part);
+                if (line && !/^(?:and|but|also|plus|so)$/i.test(line)) lines.push(tpClip(line, 300));
+            }
+        }
         if (!lines.length) return null;
-        const stars = typeof d.stars === 'number' && Number.isFinite(d.stars) ? Math.min(4, Math.max(0, Math.round(d.stars * 2) / 2)) : null;
-        const says = typeof d.says === 'string' ? d.says.trim().slice(0, 120) : '';
-        return { t: d.t, lines, stars, says };
+        const n = parseFloat(row.stars);
+        const stars = Number.isFinite(n) ? Math.min(4, Math.max(0, Math.round(n * 2) / 2)) : null;
+        const says = tpClip([row.starRating, ...signOff.map(tpNormalizeSays)].filter(Boolean).join(' '), 120);
+        return { t: TP_DRIVEIN_T, lines: lines.slice(0, 60), stars, says, awards: tpNominationLines(row.nominations) };
     }
 
     // 'due' at its moment (within the same window as timed facts), 'catchup'
@@ -1037,10 +1212,38 @@
     const TP_CURATED_RECHECK_MS = 10 * 60 * 1000;
     const _tpCuratedCache = {};
 
-    // { facts, driveIn } for a usable curated doc, else null.
+    // { facts } for a usable curated doc, else null. (A doc's old `driveIn`
+    // is ignored -- the Drive-In Totals CSV below is the card's only source.)
     function _tpCurated(doc, id) {
         const facts = tpValidateCurated(doc, id);
-        return facts ? { facts, driveIn: tpValidateDriveIn(doc) } : null;
+        return facts ? { facts } : null;
+    }
+
+    // Joe Bob's Drive-In Totals, one row per movie keyed by imdb_id. Fetched
+    // once per page session (~430KB); a failed fetch isn't cached, so the
+    // next movie tries again.
+    const TP_DRIVEIN_CSV_URL = 'https://raw.githubusercontent.com/spudzareneat/JoeBobBriggsDriveInTotals/main/drivein_totals.csv';
+    let _tpDriveInIndex = null; // Promise<index | null>
+    function fetchDriveInTotals() {
+        if (_tpDriveInIndex) return _tpDriveInIndex;
+        _tpDriveInIndex = new Promise(resolve => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: TP_DRIVEIN_CSV_URL,
+                timeout: 20000,
+                onload: r => {
+                    let index = null;
+                    if (r.status >= 200 && r.status < 300) { try { index = tpIndexDriveInCsv(r.responseText); } catch (e) {} }
+                    resolve(index);
+                },
+                onerror: () => resolve(null),
+                ontimeout: () => resolve(null),
+            });
+        }).then(index => {
+            if (!index) _tpDriveInIndex = null;
+            return index;
+        });
+        return _tpDriveInIndex;
     }
 
     function fetchCuratedTrivia(id) {
@@ -1238,6 +1441,13 @@
         _tpCuratedRecheckAt = Date.now() + TP_CURATED_RECHECK_MS;
         if (!id) return; // not identified yet; next poll tick will retry
 
+        // Drive-In Totals card, for any movie in Joe Bob's list -- independent
+        // of whether it runs curated or on IMDb trivia.
+        fetchDriveInTotals().then(index => {
+            if (id !== _tpLastImdbId || !index) return; // movie changed again while this was in flight
+            _tpDriveIn = tpDriveInCardFromRow(index[id]);
+        });
+
         // Curated file first. If there is one, the movie runs in timeline
         // mode (_tpTimelineTick on the heartbeat) and none of the IMDb /
         // cast / known-for fetching below happens -- the generator already
@@ -1245,7 +1455,7 @@
         // unchanged.
         fetchCuratedTrivia(id).then(curated => {
             if (id !== _tpLastImdbId) return; // movie changed again while this was in flight
-            if (curated) { _tpTimeline = curated.facts; _tpDriveIn = curated.driveIn; return; }
+            if (curated) { _tpTimeline = curated.facts; return; }
             _tpStartImdbQueue(id);
         });
     }
@@ -1335,9 +1545,10 @@
         if (_currentImdbId !== _tpLastImdbId) return; // stale timer from a since-reset movie
         if (_tpTimeline) return; // switched to a curated timeline since this timer was armed
 
-        if (!popupTriviaEnabled() || !_tpMovieIsPlaying() || !document.hasFocus()) {
-            // Blocked (paused / YouTube / setting off / window not focused),
-            // not exhausted -- recheck soon without consuming a queue item.
+        if (!popupTriviaEnabled() || !_tpMovieIsPlaying() || !document.hasFocus() || _tpCardEl) {
+            // Blocked (paused / YouTube / setting off / window not focused /
+            // Drive-In Totals card up), not exhausted -- recheck soon without
+            // consuming a queue item.
             _tpPopTimer = setTimeout(_tpAttemptPop, TP_RETRY_MS);
             return;
         }
@@ -1354,11 +1565,25 @@
 
         showTriviaBubble(fact);
         _tpMarkSeen(_tpLastImdbId, fact.text);
+        _tpLastPopAt = Date.now();
         _tpScheduleNextPop(); // arms the next pop, or flips _tpExhausted if that was the last one
     }
 
-    // Timeline mode's whole scheduler: every heartbeat, show the Drive-In
-    // Totals card when it's due (or missed), else pop whichever curated
+    // Drive-In Totals card, both modes: every heartbeat, show it when it's
+    // due at TP_DRIVEIN_T (or missed, for a late joiner). Waits for any
+    // bubble already up; bubbles then wait for the card.
+    function _tpDriveInTick() {
+        if (!_tpDriveIn || _currentImdbId !== _tpLastImdbId) return;
+        if (!popupTriviaEnabled() || !_tpMovieIsPlaying() || !document.hasFocus()) return;
+        if (_tpCardEl || _tpBubbleEl) return;
+        const seen = _tpLoadSeenTexts(_tpLastImdbId);
+        const sinceLastPop = (Date.now() - _tpLastPopAt) / 1000;
+        if (!tpDriveInAction(_tpDriveIn, getPlayerVideoEl().currentTime, seen, sinceLastPop)) return;
+        _tpShowDriveInCard(_tpDriveIn);
+        _tpMarkSeen(_tpLastImdbId, TP_DRIVEIN_SEEN_KEY);
+    }
+
+    // Timeline mode's whole scheduler: every heartbeat, pop whichever curated
     // fact is due at the current playback position (synced for everyone);
     // otherwise, in the gaps, catch up on a fact this viewer missed by joining
     // late, skipping ahead, or being paused/unfocused past its window
@@ -1374,11 +1599,6 @@
         const tier = getKey(LS_TRIVIA_POPUP_FREQUENCY) || TP_FREQUENCY_DEFAULT;
         const seen = _tpLoadSeenTexts(_tpLastImdbId);
         const sinceLastPop = (Date.now() - _tpLastPopAt) / 1000;
-        if (tpDriveInAction(_tpDriveIn, v.currentTime, seen, sinceLastPop)) {
-            _tpShowDriveInCard(_tpDriveIn);
-            _tpMarkSeen(_tpLastImdbId, TP_DRIVEIN_SEEN_KEY);
-            return;
-        }
         const fact = tpDueFact(_tpTimeline, v.currentTime, tier, seen)
             || tpCatchUpFact(_tpTimeline, v.currentTime, tier, seen, sinceLastPop);
         if (!fact) return;
@@ -1399,7 +1619,6 @@
             _tpQueue = [];
             _tpExhausted = true;
             _tpTimeline = curated.facts;
-            _tpDriveIn = curated.driveIn;
         });
     }
 
@@ -1409,13 +1628,16 @@
             _tpResetForNewMovie(_tpLastImdbId);
         }
         if (!_tpTimeline && _tpLastImdbId && Date.now() >= _tpCuratedRecheckAt) _tpRecheckCurated(_tpLastImdbId);
+        _tpDriveInTick();
         _tpTimelineTick();
     }
 
     // Shift+D: play this movie's Drive-In Totals card now (a sample one when it
     // has none); again to close it. Doesn't count as seen, works while muted.
     const TP_SAMPLE_CARD = { t: 0, lines: ['No Breasts (1962)', '19 Dead Bodies', 'About 15 Zombies', '1 Motor Vehicle Chase, with Watery Crash',
-        'Zombie Bus Tour', 'Church Organ Fu', 'Zombie Fu'], stars: 4, says: 'Joe Bob says check it out.' };
+        'Zombie Bus Tour', 'Church Organ Fu', 'Zombie Fu'], stars: 4, says: 'Four stars. Joe Bob says check it out.',
+        awards: ['Candace Hilligoss, for saying "I don\'t belong in the world"', 'Frances Feist, as the creepy old rooming house lady',
+            'Herk Harvey, for producing, directing, and playing the Head Zombie', 'In the Drive-In Hall of Fame'] };
     function _tpCardTestKey(e) {
         const t = e.target;
         if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;
@@ -1856,13 +2078,20 @@
        DRIVE-IN TOTALS CARD -- MonsterVision-style: transparent over
        the picture, "Drive-In Totals" header, Joe Bob's counts rolling
        in one at a time (long lists scroll, oldest off the top), then
-       his star rating and sign-off. No fixed length: it stays until
-       every count has shown and the verdict has held. Bubbles wait
+       his star rating and sign-off, then -- if he handed any out -- a
+       "Drive-In Academy Award Nominations" slide, one nominee per line.
+       No fixed length: it stays until every line has shown and the
+       last slide has held. Bubbles wait
        while it's up (_tpTimelineTick). Design + mockup:
        grindhouse-popup-trivia docs/superpowers/specs/2026-10-10-drive-in-totals-card-*.
     ========================================================== */
 
-    const TP_CARD_MS = { header: 1200, line: 1500, pause: 1200, clear: 600, starStart: 150, star: 280, says: 300, hold: 6000, fade: 800 };
+    const TP_CARD_MS = { header: 1200, line: 1500, pause: 1200, clear: 600, starStart: 150, star: 280, says: 300, hold: 6000, fade: 800,
+        // Academy Award slide: the verdict holds `verdictHold` first, then the
+        // header swaps; each nominee stays up long enough to read
+        // (`awardCharMs` per character, never less than `line`, at most
+        // `awardLineMax`), then the slide holds `awardHold`.
+        verdictHold: 4000, swap: 600, awardCharMs: 55, awardLineMax: 8000, awardHold: 10000 };
     const TP_CARD_FONT_LINK_ID = 'sc-tp-card-font';
     const TP_STAR_PATH = 'M12 1.8l3.1 6.6 7.1.8-5.3 4.9 1.4 7.1L12 17.6l-6.3 3.6 1.4-7.1L1.8 9.2l7.1-.8z';
     let _tpCardEl = null;
@@ -1901,6 +2130,7 @@
         el.style.setProperty('width', (P.width * 0.40) + 'px', 'important');
         el.style.setProperty('--sc-tp-head', Math.max(18, P.height * 0.09) + 'px');
         el.style.setProperty('--sc-tp-line', Math.max(12, P.height * 0.046) + 'px');
+        const awards = card.awards || [];
         el.innerHTML = `
             <div class="sc-tp-card-h">Drive-In<br>Totals</div>
             <div class="sc-tp-card-rule"></div>
@@ -1915,21 +2145,22 @@
         const track = el.querySelector('.sc-tp-card-track');
 
         requestAnimationFrame(() => el.classList.add('sc-tp-card-on'));
+        const addLine = text => {
+            const line = document.createElement('div');
+            line.className = 'sc-tp-card-line';
+            line.textContent = text;
+            track.appendChild(line);
+            requestAnimationFrame(() => line.classList.add('sc-tp-card-in'));
+            // Fill top-down; once full, roll the oldest lines off the top.
+            const over = track.offsetHeight - linesEl.clientHeight;
+            if (over > 0) {
+                linesEl.classList.add('sc-tp-card-scrolling');
+                track.style.setProperty('transform', `translateY(${-over}px)`, 'important');
+            }
+        };
         let t = TP_CARD_MS.header;
         for (const text of card.lines) {
-            _tpCardLater(t, () => {
-                const line = document.createElement('div');
-                line.className = 'sc-tp-card-line';
-                line.textContent = text;
-                track.appendChild(line);
-                requestAnimationFrame(() => line.classList.add('sc-tp-card-in'));
-                // Fill top-down; once full, roll the oldest counts off the top.
-                const over = track.offsetHeight - linesEl.clientHeight;
-                if (over > 0) {
-                    linesEl.classList.add('sc-tp-card-scrolling');
-                    track.style.setProperty('transform', `translateY(${-over}px)`, 'important');
-                }
-            });
+            _tpCardLater(t, () => addLine(text));
             t += TP_CARD_MS.line;
         }
         if (card.stars !== null || card.says) {
@@ -1943,6 +2174,33 @@
             t += TP_CARD_MS.starStart + stars.length * TP_CARD_MS.star + TP_CARD_MS.says;
             const says = el.querySelector('.sc-tp-card-says');
             _tpCardLater(t, () => says.classList.add('sc-tp-card-on'));
+        }
+        if (awards.length) {
+            // Its own slide: verdict out, header becomes "Drive-In Academy
+            // Award Nominations", the count area is reused for the nominees.
+            t += TP_CARD_MS.verdictHold;
+            const head = el.querySelector('.sc-tp-card-h');
+            const verdict = el.querySelector('.sc-tp-card-verdict');
+            _tpCardLater(t, () => {
+                head.classList.add('sc-tp-card-swap');
+                verdict.classList.remove('sc-tp-card-on');
+                linesEl.classList.add('sc-tp-card-gone');
+            });
+            t += TP_CARD_MS.swap;
+            _tpCardLater(t, () => {
+                head.innerHTML = 'Drive-In Academy<br>Award Nominations';
+                el.classList.add('sc-tp-card-awards');
+                track.textContent = '';
+                track.style.setProperty('transform', 'none', 'important');
+                linesEl.classList.remove('sc-tp-card-scrolling', 'sc-tp-card-gone');
+                head.classList.remove('sc-tp-card-swap');
+            });
+            t += TP_CARD_MS.header;
+            for (const text of awards) {
+                _tpCardLater(t, () => addLine(text));
+                t += Math.min(TP_CARD_MS.awardLineMax, Math.max(TP_CARD_MS.line, text.length * TP_CARD_MS.awardCharMs));
+            }
+            t += TP_CARD_MS.awardHold - TP_CARD_MS.hold;
         }
         t += TP_CARD_MS.hold;
         _tpCardLater(t, () => _tpHideDriveInCard(false));
@@ -2028,7 +2286,7 @@
         id: 'sc-input-triviapopup',
         group: 'trivia-popup',
         label: 'Pop-up trivia bubbles during movies (Experimental)',
-        note: 'Every few minutes, shows a small trivia fact for about 15 seconds, VH1 Pop-up Video style, then fades out. Off by default. Movies with curated Pop-up Video trivia get hand-picked, sourced facts timed to the movie -- everyone in the channel sees each one at the same moment; join late and the ones you missed show up in the gaps. Movies Joe Bob Briggs reviewed open with his Drive-In Totals card — the counts, then his star rating. Other movies fall back to IMDb trivia at random intervals. Facts never repeat, and this is remembered for a few hours so a page reload won\'t re-show ones you already saw. While a movie is playing, a "Pop-ups" button in the top bar mutes or resumes the bubbles for the session.',
+        note: 'Every few minutes, shows a small trivia fact for about 15 seconds, VH1 Pop-up Video style, then fades out. Off by default. Movies with curated Pop-up Video trivia get hand-picked, sourced facts timed to the movie -- everyone in the channel sees each one at the same moment; join late and the ones you missed show up in the gaps. Movies Joe Bob Briggs reviewed open with his Drive-In Totals card — the counts, then his star rating, then any Drive-In Academy Award nominations. Other movies fall back to IMDb trivia at random intervals. Facts never repeat, and this is remembered for a few hours so a page reload won\'t re-show ones you already saw. While a movie is playing, a "Pop-ups" button in the top bar mutes or resumes the bubbles for the session.',
         key: LS_TRIVIA_POPUP_ENABLED,
         defaultOn: false,
         order: 9,
@@ -2179,6 +2437,13 @@ injectCSS('pv-popup', `            /* ===== POP-UP TRIVIA BUBBLE ===== */
                 transition: width 0.6s 0.2s !important;
             }
             #sc-tp-card.sc-tp-card-on .sc-tp-card-h { opacity: 1 !important; }
+            /* Academy Award slide: header fades out, swaps text, fades back in
+               smaller (two long lines instead of "Drive-In / Totals"). */
+            #sc-tp-card.sc-tp-card-on .sc-tp-card-h.sc-tp-card-swap { opacity: 0 !important; }
+            #sc-tp-card.sc-tp-card-awards .sc-tp-card-h { font-size: calc(var(--sc-tp-head) * 0.62) !important; }
+            /* Nominees can run long (role + quote): smaller text, same box, so
+               even a 300-char entry fits whole before the track scrolls. */
+            #sc-tp-card.sc-tp-card-awards .sc-tp-card-line { font-size: 0.8em !important; }
             #sc-tp-card.sc-tp-card-on .sc-tp-card-rule { width: 80% !important; }
             #sc-tp-card .sc-tp-card-lines {
                 position: relative !important;
