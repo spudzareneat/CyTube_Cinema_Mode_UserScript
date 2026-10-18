@@ -3,6 +3,11 @@
     ========================================================== */
 
     function isVerticalMonitor() {
+        // Prefer screen.orientation: Brave's fingerprinting protection can
+        // report screen.width/height of a different (landscape) display
+        // while orientation.type still reflects the monitor we're on.
+        const type = window.screen.orientation && window.screen.orientation.type;
+        if (type) return type.startsWith('portrait');
         return window.screen.height > window.screen.width;
     }
     function applyMonitorLayout() {
