@@ -1,7 +1,7 @@
 {
   "scriptId": "cytube.pc",
   "displayName": "Spuds Grindhouse Experience",
-  "baseVersion": "4.13.65",
+  "baseVersion": "4.13.69",
   "headerTemplate": "src/pc/header.template.js",
   "match": [
     "https://cytu.be/r/420Grindhouse",
@@ -89,6 +89,7 @@
       "features": [
         "\"Trivia\" button appears once a movie is identified",
         "Opens a floating panel of real IMDb trivia facts (T hotkey too)",
+        "Joe Bob's Drive-In Totals (when he reviewed the movie) listed first, with copy buttons that give chat-ready greentext messages split to fit the 240-char limit",
         "Cached per-title"
       ],
       "screenshot": "screenshots/imdb-trivia.png"

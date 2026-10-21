@@ -100,4 +100,44 @@
             .sc-trivia-by { color: rgba(255,255,255,0.55) !important; font-size: 12px !important; }
             .sc-trivia-src { color: rgba(255,255,255,0.55) !important; font-size: 11px !important; text-decoration: underline !important; }
             .sc-trivia-src:hover { color: #fff !important; }
+            /* Drive-In Totals block: counts in two columns, verdict, nominations, copy footer */
+            .sc-trivia-drivein {
+                margin: 8px 0 6px !important; padding: 12px 14px 10px !important;
+                border-radius: 8px !important; border: 1px solid rgba(255,255,255,0.08) !important;
+                border-left: 3px solid var(--np-accent,#ff5b73) !important;
+                background: rgba(255,255,255,0.035) !important;
+                color: rgba(255,255,255,0.86) !important; font-size: 13px !important; line-height: 1.45 !important;
+            }
+            .sc-di-totals, .sc-di-awards { list-style: none !important; margin: 0 !important; padding: 0 !important; }
+            .sc-di-totals { columns: 2 !important; column-gap: 18px !important; }
+            .sc-di-totals li, .sc-di-awards li {
+                position: relative !important; padding: 1px 0 1px 12px !important; break-inside: avoid !important;
+            }
+            .sc-di-totals li::before, .sc-di-awards li::before {
+                content: '' !important; position: absolute !important; left: 1px !important; top: 0.65em !important;
+                width: 4px !important; height: 4px !important; border-radius: 50% !important;
+                background: var(--np-accent,#ff5b73) !important; opacity: 0.8 !important;
+            }
+            .sc-di-awards li { padding-bottom: 4px !important; color: rgba(255,255,255,0.78) !important; }
+            .sc-di-verdict {
+                margin-top: 10px !important; padding-top: 8px !important;
+                border-top: 1px solid rgba(255,255,255,0.08) !important;
+                font-weight: 600 !important; color: #fff !important;
+            }
+            .sc-di-stars { color: #f0c040 !important; letter-spacing: 1px !important; margin-right: 8px !important; }
+            .sc-di-sub {
+                margin: 12px 0 4px !important; font-size: 10px !important; font-weight: 700 !important;
+                text-transform: uppercase !important; letter-spacing: 0.06em !important; color: rgba(255,255,255,0.5) !important;
+            }
+            .sc-di-copy {
+                display: flex !important; flex-wrap: wrap !important; justify-content: flex-end !important; gap: 6px !important;
+                margin-top: 10px !important;
+            }
+            .sc-trivia-copy {
+                padding: 2px 8px !important; border-radius: 4px !important;
+                border: 1px solid rgba(255,255,255,0.14) !important; background: transparent !important;
+                color: rgba(255,255,255,0.5) !important; font-size: 10px !important; font-weight: 600 !important;
+                cursor: pointer !important; font-family: inherit !important;
+            }
+            .sc-trivia-copy:hover { color: #fff !important; background: rgba(255,255,255,0.1) !important; }
             body.sc-vertical #sc-trivia-panel { right: 4px !important; width: min(420px, 95vw) !important; }
