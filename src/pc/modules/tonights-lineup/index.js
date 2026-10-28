@@ -904,6 +904,7 @@
             genres: info.genres || [],
             parentalGuide: info.parentalGuide || null,
             certificate: info.certificate ?? null,
+            cast: info.cast || null,
             killCount: info.killCount ?? null,
             imdbId: info.imdbId || null,
             links: info.links || {},

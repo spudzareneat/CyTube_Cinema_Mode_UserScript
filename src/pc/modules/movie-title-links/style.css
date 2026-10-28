@@ -87,6 +87,49 @@
                 display: -webkit-box !important; -webkit-line-clamp: 3 !important;
                 -webkit-box-orient: vertical !important; overflow: hidden !important;
             }
+            /* ===== STARRING ROW (top-billed cast, between overview and MPAA) ===== */
+            #sc-np-cast { margin: 0 0 16px !important; }
+            .sc-np-cast-label {
+                font-size: 11px !important; font-weight: 700 !important;
+                letter-spacing: 0.18em !important; text-transform: uppercase !important;
+                color: rgba(255,255,255,0.5) !important; margin-bottom: 8px !important;
+            }
+            .sc-np-cast-row { display: flex !important; gap: 20px !important; flex-wrap: wrap !important; }
+            .sc-np-cast-item { display: flex !important; align-items: center !important; gap: 10px !important; min-width: 0 !important; }
+            .sc-np-cast-pic {
+                position: relative !important; flex-shrink: 0 !important;
+                width: 46px !important; height: 46px !important; border-radius: 50% !important;
+                overflow: hidden !important; background: rgba(255,255,255,0.14) !important;
+                border: 2px solid rgba(255,255,255,0.25) !important;
+                box-shadow: 0 4px 14px rgba(0,0,0,0.6) !important;
+                display: flex !important; align-items: center !important; justify-content: center !important;
+                font-size: 15px !important; font-weight: 700 !important; color: rgba(255,255,255,0.7) !important;
+            }
+            .sc-np-cast-pic img {
+                position: absolute !important; inset: 0 !important;
+                width: 100% !important; height: 100% !important;
+                object-fit: cover !important; object-position: center 20% !important;
+            }
+            .sc-np-cast-text { min-width: 0 !important; line-height: 1.25 !important; }
+            .sc-np-cast-name {
+                font-size: 14px !important; font-weight: 700 !important; color: #fff !important;
+                white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; max-width: 180px !important;
+            }
+            .sc-np-cast-char {
+                font-size: 12px !important; color: rgba(255,255,255,0.6) !important; font-style: italic !important;
+                white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; max-width: 180px !important;
+            }
+            .sc-np-cast-known {
+                font-size: 11px !important; color: rgba(255,255,255,0.45) !important;
+                white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; max-width: 180px !important;
+            }
+            .sc-np-cast-known::before { content: "Known for: " !important; color: var(--np-accent, #ff5b73) !important; opacity: 0.85 !important; }
+            /* Linked variants (<a> to IMDb) -- keep the card's look, not CyTube's link colors */
+            a.sc-np-cast-name, a.sc-np-cast-known { display: block !important; text-decoration: none !important; cursor: pointer !important; }
+            a.sc-np-cast-pic { text-decoration: none !important; cursor: pointer !important; transition: border-color 0.15s ease, transform 0.15s ease !important; }
+            a.sc-np-cast-name:hover, a.sc-np-cast-known:hover { text-decoration: underline !important; color: #fff !important; }
+            a.sc-np-cast-pic:hover { border-color: var(--np-accent, #ff5b73) !important; transform: scale(1.06) !important; }
+
             /* ===== MPAA / IMDb CERTIFICATE BADGE (between overview and chips) ===== */
             #sc-np-mpaa { margin: 0 0 16px !important; }
             .sc-np-mpaa-box {

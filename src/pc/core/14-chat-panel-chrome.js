@@ -65,9 +65,18 @@
             });
         };
 
+        // Dim-group buttons are recreated asynchronously (movie-title-links
+        // rebuilds Trivia/Pop-ups after the IMDb lookup resolves). If that
+        // lands while the bar is already dimmed, the fresh node would stay
+        // visible until the next wake/dim cycle -- so adopt the bar's state.
+        const syncDimState = () => {
+            if (!bar.classList.contains('sc-bar-dim')) return;
+            getDimEls().forEach(el => el.classList.add('sc-bar-dim'));
+        };
+
         // Re-check whenever DOM changes (video element may be injected later)
         bindVideoEvents();
-        new MutationObserver(bindVideoEvents)
+        new MutationObserver(() => { bindVideoEvents(); syncDimState(); })
             .observe(document.body, { childList: true, subtree: true });
 
         // Mouse near top of video area wakes the bar

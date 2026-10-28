@@ -92,11 +92,27 @@
     // { guide, certificate }: `guide` is the parental-guide severity array (or
     // null, unchanged from the old bare-array return -- see the one caller in
     // lookupMovie), `certificate` is the rating string ("R", "PG-13",
-    // "Not Rated", "X", "Approved", ...) or null. Whole call fails soft to
-    // { guide: null, certificate: null } on any error.
+    // "Not Rated", "X", "Approved", ...) or null. Also rides along the top 3
+    // billed cast with headshots for the card's "Starring" row -- `cast` is
+    // [{ name, character, photo, knownFor }] (any but name may be null);
+    // knownFor is the actor's most-voted IMDb "known for" title { title, year }
+    // other than the one playing (or, for an episode, its parent series --
+    // IMDb's knownFor only lists series-level titles). Whole call
+    // fails soft to { guide: null, certificate: null, cast: null } on any error.
+    // `characters` only exists on the Cast implementation, hence the inline
+    // fragment (same shape as trivia-popup's fetchCastAndDirector).
+    //
+    // Cast comes from principalCredits (IMDb's "Stars" line = top billing)
+    // first. The full `credits` list is NOT reliably in billing order -- for
+    // some titles (e.g. Candyman: Farewell to the Flesh) it's alphabetical,
+    // which dropped Tony Todd off the card. `credits` stays as a fallback for
+    // titles with no principal cast.
     async function fetchImdbTitleGuide(tconst) {
-        if (!tconst) return { guide: null, certificate: null };
-        const q = 'query GHGuide($id: ID!){ title(id:$id){ certificate{ rating } parentsGuide{ categories{ category{ text } severity{ text } } } } }';
+        if (!tconst) return { guide: null, certificate: null, cast: null };
+        const P = 'name{ id nameText{ text } primaryImage{ url } knownFor(first: 4){ edges{ node{ title{ id titleText{ text } releaseYear{ year } ratingsSummary{ voteCount } } } } } } ... on Cast { characters{ name } }';
+        const q = 'query GHGuide($id: ID!){ title(id:$id){ series{ series{ id } } certificate{ rating } parentsGuide{ categories{ category{ text } severity{ text } } } '
+            + 'stars: principalCredits(filter: { categories: ["cast"] }) { credits{ ' + P + ' } } '
+            + 'cast: credits(first: 3, filter: { categories: ["cast"] }) { edges{ node{ ' + P + ' } } } } }';
         try {
             const data = await imdbQuery('GHGuide', q, { id: tconst });
             const t = data?.data?.title;
@@ -105,8 +121,39 @@
                 ? cats.map(c => ({ category: c.category?.text, severity: c.severity?.text }))
                       .filter(c => c.category && c.severity)
                 : null;
-            return { guide, certificate: t?.certificate?.rating ?? null };
-        } catch (e) { return { guide: null, certificate: null }; }
+            const stars = (t?.stars || []).flatMap(g => g?.credits || []);
+            const credits = stars.length ? stars : (t?.cast?.edges || []).map(e => e?.node);
+            const cast = credits.map(c => ({
+                name: c?.name?.nameText?.text ?? null,
+                nconst: c?.name?.id ?? null,
+                character: c?.characters?.[0]?.name ?? null,
+                photo: _imdbThumb(c?.name?.primaryImage?.url),
+                knownFor: _topKnownFor(c?.name?.knownFor, [tconst, t?.series?.series?.id]),
+            })).filter(c => c.name).slice(0, 3);
+            return { guide, certificate: t?.certificate?.rating ?? null, cast };
+        } catch (e) { return { guide: null, certificate: null, cast: null }; }
+    }
+
+    // Highest-vote-count knownFor title not in `excludeIds`, as { title, year },
+    // else null -- same pick rule as trivia-popup's fetchPersonKnownFor.
+    function _topKnownFor(knownFor, excludeIds) {
+        const titles = (knownFor?.edges || [])
+            .map(e => e?.node?.title)
+            .filter(t => t && t.id && !excludeIds.includes(t.id) && t.titleText?.text);
+        if (!titles.length) return null;
+        titles.sort((a, b) => (b.ratingsSummary?.voteCount ?? 0) - (a.ratingsSummary?.voteCount ?? 0));
+        return { title: titles[0].titleText.text, year: titles[0].releaseYear?.year ?? null, tconst: titles[0].id };
+    }
+
+    // Bump when the cached `cast` shape/source changes so lookupMovie's cache
+    // hit path refetches it (2 = principalCredits billing order + knownFor,
+    // 3 = + actor nconst / knownFor tconst for the IMDb links).
+    const CAST_VER = 3;
+
+    // IMDb image URLs are full-size originals (some headshots are 6000px wide);
+    // the `._V1_UX120_` suffix asks the CDN for a 120px-wide resize instead.
+    function _imdbThumb(url) {
+        return url ? url.replace(/\._V1_[^/]*\.jpg$/, '._V1_UX120_.jpg') : null;
     }
 
     const LINK_DEFS = [
@@ -220,7 +267,23 @@
         const cacheKey = override
             ? ('override:' + rawFilename)
             : _parsedCacheKey(title, year, season, episode);
-        if (movieLinkCache[cacheKey] !== undefined) return movieLinkCache[cacheKey];
+        if (movieLinkCache[cacheKey] !== undefined) {
+            const hit = movieLinkCache[cacheKey];
+            // Entries cached before the current "Starring" row shape have an
+            // older (or no) castVer -- missing cast, no knownFor, or cast taken
+            // in IMDb's non-billing order. Backfill once from the same GHGuide
+            // query and re-persist.
+            if (hit && hit.imdbId && hit.castVer !== CAST_VER) {
+                const { cast } = await fetchImdbTitleGuide(hit.imdbId);
+                if (cast) {
+                    hit.cast = cast;
+                    hit.castVer = CAST_VER;
+                    try { localStorage.setItem(LS_MOVIE_CACHE, JSON.stringify(movieLinkCache)); }
+                    catch (e) { /* in-memory cache still has it */ }
+                }
+            }
+            return hit;
+        }
 
         // ── TMDB-primary attempt + Wikipedia, kicked off together ─────────────────
         // TMDB-primary doesn't depend on Wikipedia's result (or vice versa), so
@@ -346,7 +409,7 @@
         // file; called directly, same as fetchImdbMovieByTitle above. No TMDB
         // equivalent exists, so this always runs off whichever path resolved
         // imdbId. ───────
-        const { guide: parentalGuide, certificate } = await fetchImdbTitleGuide(imdbId);
+        const { guide: parentalGuide, certificate, cast } = await fetchImdbTitleGuide(imdbId);
 
         // wikiPromise has been running in the background this whole time; awaited
         // here (rather than up front via Promise.all) so it never blocks the
@@ -382,6 +445,10 @@
             // MPAA/IMDb certificate string ("R", "PG-13", "Not Rated", ...) or
             // null. IMDb-only -- fetchImdbTitleGuide above runs on every path.
             certificate: certificate ?? null,
+            // Top-billed cast for the "Starring" row (IMDb-only, same call as
+            // the certificate). null on a fetch failure, [] when IMDb lists none.
+            cast:        cast ?? null,
+            castVer:     CAST_VER,
             imdbId,
             // episodeName has no series-level equivalent to fall back to -- null
             // for movies and for episodes fetchImdbEpisodeInfo couldn't match.
@@ -557,6 +624,7 @@
                             <button id="sc-np-simkl" type="button" title="Open the Simkl scrobble card (Alt+Shift+S)">✓ Log on Simkl</button>
                         </div>
                         <div id="sc-np-overview"></div>
+                        <div id="sc-np-cast"></div>
                         <div id="sc-np-mpaa"></div>
                         <div id="sc-np-chips"></div>
                         <div id="sc-np-links"></div>
@@ -591,6 +659,76 @@
         card.querySelector('#sc-np-title').textContent = title + year + (epTag ? ` · ${epTag}` : '')
             + (data.episodeName ? ` · ${data.episodeName}` : '');
         card.querySelector('#sc-np-overview').textContent = data.overview || '';
+
+        // ── "Starring" row: top-billed cast with round headshots. Built with
+        // textContent (names come from IMDb, never trust them as HTML); a
+        // missing/broken photo falls back to the actor's initials.
+        const castEl = card.querySelector('#sc-np-cast');
+        castEl.textContent = '';
+        const cast = (data.cast || []).slice(0, 3);
+        if (cast.length) {
+            const lbl = document.createElement('div');
+            lbl.className = 'sc-np-cast-label';
+            lbl.textContent = 'Starring';
+            castEl.appendChild(lbl);
+            const row = document.createElement('div');
+            row.className = 'sc-np-cast-row';
+            // The actor's photo + name link to their IMDb page and the
+            // "Known for" line to that title's -- <a> when we have an id
+            // (cache entries older than CAST_VER 3 don't), plain <div> otherwise.
+            // stopPropagation keeps the click from also closing the card.
+            const linkOrDiv = (url) => {
+                if (!url) return document.createElement('div');
+                const a = document.createElement('a');
+                a.href = url;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                a.addEventListener('click', (e) => e.stopPropagation());
+                return a;
+            };
+            cast.forEach(c => {
+                const personUrl = c.nconst ? `https://www.imdb.com/name/${c.nconst}/` : null;
+                const item = document.createElement('div');
+                item.className = 'sc-np-cast-item';
+                const pic = linkOrDiv(personUrl);
+                pic.className = 'sc-np-cast-pic';
+                pic.textContent = c.name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+                if (c.photo) {
+                    const img = document.createElement('img');
+                    img.alt = '';
+                    img.src = c.photo;
+                    img.addEventListener('error', () => img.remove());
+                    pic.appendChild(img);
+                }
+                const txt = document.createElement('div');
+                txt.className = 'sc-np-cast-text';
+                const nm = linkOrDiv(personUrl);
+                nm.className = 'sc-np-cast-name';
+                nm.textContent = c.name;
+                if (personUrl) nm.title = `${c.name} on IMDb`;
+                txt.appendChild(nm);
+                if (c.character) {
+                    const ch = document.createElement('div');
+                    ch.className = 'sc-np-cast-char';
+                    ch.textContent = c.character;
+                    txt.appendChild(ch);
+                }
+                if (c.knownFor) {
+                    const kf = linkOrDiv(c.knownFor.tconst ? `https://www.imdb.com/title/${c.knownFor.tconst}/` : null);
+                    kf.className = 'sc-np-cast-known';
+                    kf.textContent = c.knownFor.title + (c.knownFor.year ? ` (${c.knownFor.year})` : '');
+                    kf.title = `Best known for ${kf.textContent}`;
+                    txt.appendChild(kf);
+                }
+                item.appendChild(pic);
+                item.appendChild(txt);
+                row.appendChild(item);
+            });
+            castEl.appendChild(row);
+            castEl.style.display = '';
+        } else {
+            castEl.style.display = 'none';
+        }
         const metaParts = [];
         if (data.rating)  metaParts.push(`⭐ ${data.rating}`);
         if (data.runtime) metaParts.push(`${Math.floor(data.runtime / 60)}h ${data.runtime % 60}m`);
@@ -883,7 +1021,7 @@
         // rawTitle (the exact, unparsed #currenttitle text) is threaded as the
         // 6th arg so lookupMovie can consult the per-filename match-override
         // store. Every other caller omits it -> no-op.
-        lookupMovie(title, year, season, episode, knownSeconds > 0 ? knownSeconds : undefined, rawTitle).then(({ links, killCount, parentalGuide, certificate, imdbId, cleanTitle, cleanYear, episodeName, rating, runtime, genres, poster, backdrop, overview, matchSource, runtimeDelta, season, episode }) => {
+        lookupMovie(title, year, season, episode, knownSeconds > 0 ? knownSeconds : undefined, rawTitle).then(({ links, killCount, parentalGuide, certificate, cast, imdbId, cleanTitle, cleanYear, episodeName, rating, runtime, genres, poster, backdrop, overview, matchSource, runtimeDelta, season, episode }) => {
             if (mySeq !== _titleRequestSeq) return; // a newer title lookup has since superseded this one — discard
 
             if (isYt && !cleanTitle) {
@@ -899,7 +1037,7 @@
             // "Matched as" diagnostic line + the "Fix match" pencil on the card.
             // title/year here are the outer parseMovieFilename() values (the
             // .then destructure shadows only season/episode, never title/year).
-            _npData = { cleanTitle, cleanYear, episodeName, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, certificate, killCount, imdbId, links, matchSource, season, episode,
+            _npData = { cleanTitle, cleanYear, episodeName, poster, backdrop, overview, rating, runtime, genres: genres || [], parentalGuide, certificate, cast, killCount, imdbId, links, matchSource, season, episode,
                         parsedTitle: title, parsedYear: year, runtimeDelta, rawFilename: rawTitle };
 
             // Update title with clean IMDb title, wrapped in a clickable span

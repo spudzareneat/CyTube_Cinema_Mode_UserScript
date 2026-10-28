@@ -63,7 +63,7 @@
         "www.youtube.com"
       ],
       "features": [
-        "Full-screen Now Playing info card auto-triggered on title change — backdrop, poster, title/year, rating, runtime, genres, synopsis",
+        "Full-screen Now Playing info card auto-triggered on title change — backdrop, poster, title/year, rating, runtime, genres, synopsis, plus a \"Starring\" row of the top 3 billed actors with headshots and each one's best-known other title, each linking to IMDb",
         "IMDb / Letterboxd / Wikipedia badge links",
         "Color-coded parental-guide content-warning chips",
         "Floating stats strip + I hotkey to reopen the card",
