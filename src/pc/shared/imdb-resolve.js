@@ -242,7 +242,14 @@
         return (2 * intersection) / (setA.size + setB.size) >= 0.7;
     }
 
-    async function imdbSearchTitle(title, year, knownSeconds) {
+    // preferSeries: the filename carried an episode marker (S02E17 etc.), so
+    // the parsed title is a SERIES name. Without this, the movie tier always
+    // wins -- "Twin Peaks S02E17" resolved to a 1977 movie also called "Twin
+    // Peaks", and fetchImdbEpisodeInfo then had no series tconst to refine
+    // from. With it, series-typed titles (tvSeries/tvMiniSeries, isSeries)
+    // get their own tier ahead of movies; movies stay as a fallback for a
+    // mis-parsed marker.
+    async function imdbSearchTitle(title, year, knownSeconds, preferSeries) {
         if (!title) return null;
         // One MainSearch for `term`, then the titleType tier walk, returning
         // the candidates whose own title actually resembles `term`. Factored
@@ -270,7 +277,10 @@
             // titleType other than 'movie' on IMDb, so a same-named-but-wrong
             // 'movie' entry must not block the loop from ever reaching the
             // tier that actually holds the real title.
-            const tiers = [movies, tvEpisodes, nonPodcast, results];
+            const series = results.filter(r => r.titleType?.isSeries);
+            const tiers = preferSeries
+                ? [series, movies, tvEpisodes, nonPodcast, results]
+                : [movies, tvEpisodes, nonPodcast, results];
             for (const tier of tiers) {
                 const matches = tier.filter(r => titlesMatch(r.titleText?.text, term));
                 if (matches.length) return matches;
@@ -365,8 +375,8 @@
     // spread in as {} in that case). `match.title`/`match.year` win over the
     // spread -- fetchImdbTitleFields deliberately returns its own title/year
     // under titleText/releaseYear, so there's no key collision here.
-    async function fetchImdbMovieByTitle(title, year, knownSeconds) {
-        const match = await imdbSearchTitle(title, year, knownSeconds);
+    async function fetchImdbMovieByTitle(title, year, knownSeconds, preferSeries) {
+        const match = await imdbSearchTitle(title, year, knownSeconds, preferSeries);
         if (!match || !match.tconst) return null;
         const fields = await fetchImdbTitleFields(match.tconst);
         return {

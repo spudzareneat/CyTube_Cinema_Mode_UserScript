@@ -6,7 +6,11 @@
     const LS_CHAT_FONT   = 'sc_chat_fontsize';
     const LS_MOVIE_LINKS = 'sc_movie_links';
     const LS_IMGBB       = 'sc_imgbb_key';
-    const LS_MOVIE_CACHE = 'sc_movie_cache_v6'; // v6: MPAA/IMDb certificate added to lookupMovie result -- v5 entries
+    const LS_MOVIE_CACHE = 'sc_movie_cache_v7'; // v7: episode files now prefer series matches (preferSeries) -- v6
+                                                 // episode entries may be cached against a same-named movie
+                                                 // (Twin Peaks S02E17 -> 1977 "Twin Peaks") and would shadow the
+                                                 // fix forever; bump forces a clean slate.
+                                                 // v6: MPAA/IMDb certificate added to lookupMovie result -- v5 entries
                                                  // lack `certificate` and would otherwise shadow enriched results
                                                  // forever; bump forces a clean slate.
                                                  // v5: episode-specific IMDb refinement added (fetchImdbEpisodeInfo) --

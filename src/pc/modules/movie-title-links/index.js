@@ -239,7 +239,7 @@
         // Override path skips the TMDB-primary *search* entirely -- the pinned
         // id is authoritative. Non-override path is unchanged.
         const tmdbPrimaryPromise = (!override && typeof fetchTmdbPrimary === 'function')
-            ? fetchTmdbPrimary(title, year, knownSeconds)
+            ? fetchTmdbPrimary(title, year, knownSeconds, episode != null)
             : Promise.resolve(null);
 
         // Wikipedia can start immediately with the raw title; we'll use the
@@ -317,7 +317,7 @@
             // restoring the original IMDb/Wikipedia parallelism byte-for-byte, just
             // with fetchTmdbPrimary's near-instant no-key check now also racing
             // alongside both.
-            imdbResult = await fetchImdbMovieByTitle(title, year, knownSeconds);
+            imdbResult = await fetchImdbMovieByTitle(title, year, knownSeconds, episode != null);
             imdbId = imdbResult?.tconst || null;
             tmdbSupplemental = (typeof fetchTmdbSupplemental === 'function')
                 ? await fetchTmdbSupplemental(imdbId)
@@ -589,7 +589,7 @@
         if (data.poster) { poster.src = data.poster; poster.style.display = ''; }
         else poster.style.display = 'none';
         card.querySelector('#sc-np-title').textContent = title + year + (epTag ? ` · ${epTag}` : '')
-            + (data.episodeName ? ` — ${data.episodeName}` : '');
+            + (data.episodeName ? ` · ${data.episodeName}` : '');
         card.querySelector('#sc-np-overview').textContent = data.overview || '';
         const metaParts = [];
         if (data.rating)  metaParts.push(`⭐ ${data.rating}`);
@@ -747,7 +747,7 @@
         if (!data || !data.cleanTitle || !titleEl) return;
         const epTag = _episodeTag(data.season, data.episode);
         const newText = data.cleanTitle + (data.cleanYear ? ` (${data.cleanYear})` : '') + (epTag ? ` · ${epTag}` : '')
-            + (data.episodeName ? ` — ${data.episodeName}` : '');
+            + (data.episodeName ? ` · ${data.episodeName}` : '');
         let span = document.getElementById('sc-title-text');
         if (!span) {
             span = document.createElement('span');

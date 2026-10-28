@@ -32,7 +32,7 @@
         if (!_npData || !_npData.cleanTitle) return 'Trivia';
         const epTag = _episodeTag(_npData.season, _npData.episode);
         const epPart = epTag ? ` · ${epTag}` : '';
-        const namePart = _npData.episodeName ? ` — ${_npData.episodeName}` : '';
+        const namePart = _npData.episodeName ? ` · ${_npData.episodeName}` : '';
         return `${_npData.cleanTitle}${epPart}${namePart} — Trivia`;
     }
 

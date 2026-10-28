@@ -171,7 +171,11 @@
     // breaker, whereas TMDB already has server-side relevance ranking PLUS the
     // Task 2 `&year=` hard filter doing the same disambiguation job. So this
     // param is intentionally unused; omitting or passing it changes nothing here.
-    async function fetchTmdbPrimary(title, year, knownSeconds) {
+    //
+    // preferSeries: the filename had an episode marker, so restrict the pick to
+    // media_type 'tv' when any tv candidate exists (same reason as
+    // imdbSearchTitle's preferSeries -- a same-named movie otherwise wins).
+    async function fetchTmdbPrimary(title, year, knownSeconds, preferSeries) {
         // No key configured -- instant, no network. This is what keeps the
         // zero-key path exactly as fast as it is today.
         if (!title || !hasKey(LS_TMDB)) return null;
@@ -244,6 +248,11 @@
                 candidates = (searchData?.results || [])
                     .filter(r => r.media_type === 'movie' || r.media_type === 'tv');
                 if (!candidates.length) return null;
+            }
+
+            if (preferSeries) {
+                const tvOnly = candidates.filter(r => r.media_type === 'tv');
+                if (tvOnly.length) candidates = tvOnly;
             }
 
             // Year tiebreak: prefer the first candidate whose release/first-air
