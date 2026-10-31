@@ -881,22 +881,35 @@
     // cleanYear/season/episode/episodeName -- shared by the normal lookup
     // success path and the DOM-repair branch below, which re-renders from
     // cached _npData with no new network call.
+    //
+    // An UNRESOLVED lookup (no cleanTitle) still gets the span, showing the raw
+    // filename: with no match there's no Now Playing card, so its "Wrong match?"
+    // pencil -- the only other way into the Fix match modal -- is unreachable.
+    // Clicking the unmatched title opens that modal directly instead.
     function _renderTitleSpan(titleEl, data) {
-        if (!data || !data.cleanTitle || !titleEl) return;
+        if (!data || !titleEl) return;
+        const unmatched = !data.cleanTitle;
+        if (unmatched && !(data.rawFilename && data.parsedTitle)) return;
         const epTag = _episodeTag(data.season, data.episode);
-        const newText = data.cleanTitle + (data.cleanYear ? ` (${data.cleanYear})` : '') + (epTag ? ` · ${epTag}` : '')
+        const newText = unmatched ? data.rawFilename
+            : data.cleanTitle + (data.cleanYear ? ` (${data.cleanYear})` : '') + (epTag ? ` · ${epTag}` : '')
             + (data.episodeName ? ` · ${data.episodeName}` : '');
         let span = document.getElementById('sc-title-text');
         if (!span) {
             span = document.createElement('span');
             span.id = 'sc-title-text';
             span.style.cursor = 'pointer';
-            span.title = 'Movie info (I)';
-            span.addEventListener('click', (e) => { e.stopPropagation(); showNowPlayingCard(_npData, { autoHide: false }); });
+            // Reads the live _npData, so the one handler serves both states.
+            span.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (_npData && _npData.cleanTitle) showNowPlayingCard(_npData, { autoHide: false });
+                else if (_npData && _npData.rawFilename && _npData.parsedTitle) openFixMatchModal(_npData.rawFilename, _npData.parsedTitle, _npData.parsedYear);
+            });
             const textNode = [...titleEl.childNodes].find(n => n.nodeType === 3 && n.textContent.trim());
             if (textNode) textNode.parentNode.replaceChild(span, textNode);
             else titleEl.insertBefore(span, titleEl.firstChild);
         }
+        span.title = unmatched ? 'No match found -- click to search for the right title' : 'Movie info (I)';
         span.textContent = newText;
         // Remember exactly what we wrote so the header MutationObserver's
         // echo of this very mutation is recognised and dropped by the guard
