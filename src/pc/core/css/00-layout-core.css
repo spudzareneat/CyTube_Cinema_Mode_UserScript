@@ -252,6 +252,47 @@
                 margin-right: 0.15em !important;
                 text-align: center !important;
             }
+            /* Profile-pic thumbnail; the empty span keeps names aligned for users without one */
+            .sc-users-panel-avatar {
+                display: inline-block !important;
+                width: 18px !important;
+                height: 18px !important;
+                margin-right: 6px !important;
+                vertical-align: middle !important;
+                border-radius: 50% !important;
+                object-fit: cover !important;
+            }
+            /* Hover card for a user's profile picture -- see showProfileCard() */
+            #sc-profile-card {
+                position: fixed !important;
+                z-index: 20000 !important;
+                display: none;
+                width: 180px !important;
+                padding: 8px !important;
+                background: rgba(12,12,15,0.97) !important;
+                border: 1px solid rgba(255,255,255,0.12) !important;
+                border-radius: 10px !important;
+                box-shadow: 0 12px 28px rgba(0,0,0,0.6) !important;
+                pointer-events: none !important;
+                font-size: 12px !important;
+            }
+            #sc-profile-card img {
+                display: block !important;
+                width: 100% !important;
+                max-height: 220px !important;
+                object-fit: contain !important;
+                border-radius: 6px !important;
+            }
+            .sc-profile-card-name {
+                margin-top: 6px !important;
+                font-weight: 700 !important;
+            }
+            .sc-profile-card-text {
+                margin-top: 2px !important;
+                color: rgba(255,255,255,0.7) !important;
+                white-space: pre-wrap !important;
+                word-break: break-word !important;
+            }
             .sc-users-panel-actions {
                 display: flex !important;
                 gap: 6px !important;

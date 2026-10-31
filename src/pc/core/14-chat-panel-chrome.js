@@ -501,7 +501,11 @@
                     const { ignoreBtn, pmBtn } = item ? getUserActionButtons(item) : { ignoreBtn: null, pmBtn: null };
                     const actionableClass = (ignoreBtn || pmBtn) ? ' sc-users-panel-actionable' : '';
                     const afkClass = u.afk ? ' sc-users-panel-afk' : '';
-                    return `<div class="sc-users-panel-name${actionableClass}${afkClass}" style="color:${color}">${emojiHtml}${u.name}</div>`;
+                    const profile = getUserProfile(u.name);
+                    const avatarHtml = profile && profile.image
+                        ? `<img class="sc-users-panel-avatar" src="${profile.image.replace(/"/g, '&quot;')}" alt="">`
+                        : '<span class="sc-users-panel-avatar"></span>';
+                    return `<div class="sc-users-panel-name${actionableClass}${afkClass}" data-username="${u.name}" style="color:${color}">${avatarHtml}${emojiHtml}${u.name}</div>`;
                 }).join('')}
             `;
 
