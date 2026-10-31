@@ -35,6 +35,7 @@
        Ported from the Android Grindhouse app's web/src/lineup/{reddit,timing}.js.
     ========================================================== */
 
+    // ── test marker: parse-schedule slice start ──
     const LINEUP_FEED_URL = 'https://www.reddit.com/r/420Grindhouse/.rss';
     const LINEUP_DAY_NAMES = ['Friday', 'Saturday', 'Sunday'];
 
@@ -180,11 +181,14 @@
         const days = [];
         let currentDay = null;
         let pendingSectionName = null;
-        const re = /<strong>([^<]*)<\/strong>|<ul>([\s\S]*?)<\/ul>/g;
+        // [\s\S]*? + tag strip, not [^<]*: a header can nest other tags inside the bold
+        // (confirmed live 2026-10-30: "<strong><em>Halloween Raffle Winners Reveal</em></strong>"
+        // was skipped entirely, silently dropping its film).
+        const re = /<strong>([\s\S]*?)<\/strong>|<ul>([\s\S]*?)<\/ul>/g;
         let m;
         while ((m = re.exec(contentHtml))) {
             if (m[1] !== undefined) {
-                const text = m[1].trim();
+                const text = m[1].replace(/<[^>]+>/g, '').trim();
                 // Mods sometimes wrap the day header in extra markdown emphasis inside the
                 // bold ("==Friday=="), which survives entity-decoding as literal '=' characters
                 // -- strip any leading/trailing non-letters before comparing so decoration
@@ -192,8 +196,20 @@
                 // "==Friday==" header silently produced zero parsed days). The cleaned name,
                 // not the decorated text, is stored so dateByDay's Friday/Saturday/Sunday
                 // lookup in fetchTonightsSchedule still matches.
-                const dayName = text.replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, '');
-                if (LINEUP_DAY_NAMES.includes(dayName)) {
+                const cleaned = text.replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, '');
+                let dayName = LINEUP_DAY_NAMES.includes(cleaned) ? cleaned : null;
+                // Themed weekends add words around the day ("==Halloween Eve Friday==",
+                // confirmed live 2026-10-30 -- zero days parsed again). Section names also
+                // contain day names ("Funky Cheese Friday"), so containment alone can't tell
+                // them apart; structure can: a section header is followed by its <ul>, a day
+                // header by the next bold header.
+                if (!dayName) {
+                    const words = LINEUP_DAY_NAMES.filter(d => new RegExp(`\\b${d}\\b`, 'i').test(cleaned));
+                    const rest = contentHtml.slice(re.lastIndex);
+                    const nextUl = rest.indexOf('<ul>'), nextStrong = rest.indexOf('<strong>');
+                    if (words.length === 1 && nextStrong !== -1 && (nextUl === -1 || nextStrong < nextUl)) dayName = words[0];
+                }
+                if (dayName) {
                     currentDay = { day: dayName, sections: [] };
                     days.push(currentDay);
                     pendingSectionName = null;
@@ -208,6 +224,7 @@
         }
         return days;
     }
+    // ── test marker: parse-schedule slice end ──
 
     function lineupGmFetch(url) {
         return new Promise((resolve, reject) => {

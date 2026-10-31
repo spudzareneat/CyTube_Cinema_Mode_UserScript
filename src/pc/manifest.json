@@ -1,7 +1,7 @@
 {
   "scriptId": "cytube.pc",
   "displayName": "Spuds Grindhouse Experience",
-  "baseVersion": "4.13.76",
+  "baseVersion": "4.13.77",
   "headerTemplate": "src/pc/header.template.js",
   "match": [
     "https://cytu.be/r/420Grindhouse",
