@@ -21,7 +21,9 @@ if (start === -1 || end === -1 || end < start) {
     process.exit(1);
 }
 // eslint-disable-next-line no-new-func
-const { lineupParseSchedule } = new Function(`${src.slice(start, end)}\n;return { lineupParseSchedule };`)();
+const EXPORTS = 'lineupParseSchedule, lineupParseListItems, lineupParseDateRange, lineupTitleVariants, lineupItemMatchesTitle';
+const { lineupParseSchedule, lineupParseListItems, lineupParseDateRange, lineupTitleVariants, lineupItemMatchesTitle } =
+    new Function(`${src.slice(start, end)}\n;return { ${EXPORTS} };`)();
 
 let failed = 0;
 function eq(label, actual, expected) {
@@ -55,6 +57,50 @@ eq('themed day headers + nested-tag section', shape(lineupParseSchedule(
         { day: 'Saturday', sections: ['Saturday Prime Time Drive-In:The Exorcist', 'Halloween Raffle Winners Reveal:The Beyond'] },
         { day: 'Sunday', sections: ['The Sunday Classics:Blood Feast'] },
     ]);
+
+// Year typos and double-encoded '&' seen across the 2024-2026 posts; unbracketed numbers stay in titles.
+const items = lineupParseListItems(['Jason X )2001)', 'Family Reunion [2003]', 'A Wrestling Christmas Miracle (2020',
+    'Fit to Kill 1993)', 'Judge &amp; Jury (1996)', 'Equalizer 2000 (1987)', 'Class of 1984 (1982)',
+    'The Chosen (1977) aka Holocaust 2000', 'Decampitated (1998))'].map(t => `<li>${t}</li>`).join(''));
+eq('year typos + entities', items.map(i => [i.title, i.year]), [
+    ['Jason X', '2001'], ['Family Reunion', '2003'], ['A Wrestling Christmas Miracle', '2020'], ['Fit to Kill', '1993'],
+    ['Judge & Jury', '1996'], ['Equalizer 2000', '1987'], ['Class of 1984', '1982'], ['The Chosen', '1977'], ['Decampitated', '1998']]);
+eq('aka keeps its number', items[7].akas, ['Holocaust 2000']);
+
+// A list under a day with no section header of its own is kept, named for the day.
+eq('unlabeled list under a day', shape(lineupParseSchedule(
+    '<p><strong>Friday</strong></p><ul><li>A (1990)</li></ul><p><strong>Late</strong></p><ul><li>B (1991)</li></ul>')),
+    [{ day: 'Friday', sections: ['Friday:A', 'Late:B'] }]);
+
+// Event-label prefixes: lookup variants and now-playing matching.
+eq('variants: label prefix', lineupTitleVariants('Basement Grindhouse - HauntedWeen'), ['HauntedWeen']);
+eq('variants: label + subtitle', lineupTitleVariants('Monstervision – The Howling III: The Marsupials'), ['The Howling III: The Marsupials', 'The Howling III']);
+eq('variants: none for plain / unspaced hyphen', [lineupTitleVariants('Carnival of Souls'), lineupTitleVariants('Psycho-Circus')], [[], []]);
+eq('now-playing matches past the label', lineupItemMatchesTitle({ title: 'Basement Grindhouse - HauntedWeen', akas: [] }, 'HauntedWeen'), true);
+
+// Every saved schedule post from the trivia generator repo (97 posts, Dec 2024 - Oct 2026)
+// must parse with all three days, every non-empty <li> captured, and a year on each film.
+// Read in place, not copied: set SCHEDULE_CORPUS_DIR, or keep grindhouse-popup-trivia
+// checked out next to this repo. Refresh it there with scripts/fetch-schedule-corpus.js.
+const corpusDir = process.env.SCHEDULE_CORPUS_DIR
+    || path.join(__dirname, '..', '..', 'grindhouse-popup-trivia', 'test', 'fixtures', 'schedule-corpus');
+const KNOWN_YEARLESS = new Set(['Bloodstone: Subspecies II']);   // the post itself gives no year
+if (fs.existsSync(corpusDir)) {
+    const files = fs.readdirSync(corpusDir).filter(f => f.endsWith('.json'));
+    for (const f of files) {
+        const post = JSON.parse(fs.readFileSync(path.join(corpusDir, f), 'utf8'));
+        if (!lineupParseDateRange(post.title, post.publishedAt)) { console.error(`FAIL: corpus ${f}: no date range`); failed++; continue; }
+        const days = lineupParseSchedule(post.contentHtml);
+        eq(`corpus ${f}: days`, days.map(d => d.day), ['Friday', 'Saturday', 'Sunday']);
+        const liCount = [...post.contentHtml.matchAll(/<li>([\s\S]*?)<\/li>/g)].filter(m => m[1].replace(/<[^>]+>/g, '').trim()).length;
+        const parsed = days.flatMap(d => d.sections.flatMap(s => s.items));
+        eq(`corpus ${f}: items captured`, parsed.length, liCount);
+        for (const it of parsed) if (!it.year && !KNOWN_YEARLESS.has(it.title)) { console.error(`FAIL: corpus ${f}: no year for "${it.title}"`); failed++; }
+    }
+    console.log(`corpus: ${files.length} posts checked`);
+} else {
+    console.log(`corpus: skipped (${corpusDir} not found)`);
+}
 
 if (failed) { console.error(`\n${failed} failure(s)`); process.exit(1); }
 console.log('OK: lineupParseSchedule');

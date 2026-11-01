@@ -89,20 +89,18 @@
         return lineupParseEntries(feedXml)[0] || null;
     }
 
-    // The pinned schedule post is expected within the top 3 feed entries; scanning a
-    // couple extra costs nothing and covers a mod re-pin landing it one slot further out.
-    const LINEUP_CANDIDATE_SCAN_LIMIT = 5;
-
-    // Picks the actual current schedule post out of the top of the feed: of the entries
+    // Picks the actual current schedule post out of the feed: of the entries
     // whose title looks like a schedule post (lineupParseDateRange returns non-null --
     // filters out unrelated posts like "4 Days" or a single-film announcement), the one
     // published most recently wins. Confirmed live 2026-07-22: the correct post is always
     // the newest one, even when an older, already-expired schedule post happens to sort
     // ahead of it in raw feed order (seen that day -- last weekend's post stayed in entry
-    // #0 while this weekend's, published same-day, sat in entry #1).
+    // #0 while this weekend's, published same-day, sat in entry #1). The whole feed (~25
+    // entries) is scanned: a title check per entry costs nothing, and a fixed top-N cutoff
+    // would miss the post if a mod re-pin pushed it further down.
     function lineupSelectCurrentEntry(entries) {
         let best = null;
-        for (const entry of entries.slice(0, LINEUP_CANDIDATE_SCAN_LIMIT)) {
+        for (const entry of entries) {
             if (!lineupParseDateRange(entry.title, entry.publishedAt)) continue; // not a schedule post
             if (!best || new Date(entry.publishedAt) > new Date(best.publishedAt)) best = entry;
         }
@@ -131,21 +129,31 @@
     // "aka Other Title" name(s). The primary (title, year) pair drives the TMDB lookup;
     // akas become extra MATCH aliases (the stream sometimes plays a film under the
     // file's aka name); `display` keeps the full original text.
+    // Year typos seen across two years of posts (Dec 2024 - Oct 2026): "Decampitated (1998))",
+    // "Jason X )2001)", "...Family Reunion [2003]", "A Wrestling Christmas Miracle (2020",
+    // "Fit to Kill 1993)". Bracketed form first: non-greedy up to the FIRST bracketed year, so
+    // trailing garbage is tolerated. A year with no bracket on either side stays part of the
+    // title ("Equalizer 2000 (1987)", "Class of 1984 (1982)", aka "Holocaust 2000").
+    const LINEUP_BRACKETED_YEAR_RE = /^(.*?)\s*[(\[)]\s*((?:18|19|20)\d{2})\s*[)\]]?/;
+    const LINEUP_CLOSE_ONLY_YEAR_RE = /^(.*\S)\s+((?:18|19|20)\d{2})\s*[)\]]+/;
+    const LINEUP_TRAILING_YEAR_RE = /\s*(?:[(\[)]\s*\d{4}\s*[)\]]*|\d{4}\s*[)\]]+)\s*$/;
+
     function lineupParseListItems(ulInnerHtml) {
         const items = [];
         const liRe = /<li>([\s\S]*?)<\/li>/g;
         let lm;
         while ((lm = liRe.exec(ulInnerHtml))) {
-            const display = lm[1].replace(/<strong>[^<]*<\/strong>\s*/, '').replace(/<[^>]+>/g, '').trim();
+            // Second decode: Reddit entity-encodes '&' inside the already-escaped feed blob,
+            // so "Judge & Jury" is still "Judge &amp; Jury" after lineupParseEntries' pass
+            // (8 titles across the 2024-2026 posts).
+            const display = lineupDecodeHtmlEntities(lm[1].replace(/<strong>[^<]*<\/strong>\s*/, '').replace(/<[^>]+>/g, '')).trim();
             if (!display) continue;
             const [primary, ...akaParts] = display.split(/\s+aka\s+/i);
             const akas = akaParts
-                .map(a => a.replace(/\s*\(\d{4}\)\s*$/, '').trim())
+                .map(a => a.replace(LINEUP_TRAILING_YEAR_RE, '').trim())
                 .filter(Boolean);
-            // Non-greedy up to the FIRST "(YYYY)" -- tolerates trailing typos/garbage after
-            // it (confirmed live 2026-08-07: a mod typo left "Decampitated (1998))" with an
-            // extra closing paren, which the old exact-end-anchored regex rejected outright).
-            const ym = primary.trim().match(/^(.*?)\s*\((\d{4})\)/);
+            const p = primary.trim();
+            const ym = p.match(LINEUP_BRACKETED_YEAR_RE) || p.match(LINEUP_CLOSE_ONLY_YEAR_RE);
             if (ym) {
                 items.push({ title: ym[1].trim(), year: ym[2], display, akas });
             } else {
@@ -172,7 +180,24 @@
         const t = lineupNormTitle(title);
         if (!t) return false;
         if (lineupNormTitle(item.title) === t) return true;
-        return (item.akas || []).some(a => lineupNormTitle(a) === t);
+        if ((item.akas || []).some(a => lineupNormTitle(a) === t)) return true;
+        // The file is named for the film, not the event label the post puts in front of it
+        // ("HauntedWeen.1991.mp4" vs "Basement Grindhouse - HauntedWeen").
+        return lineupTitleVariants(item.title).some(v => lineupNormTitle(v) === t);
+    }
+
+    // Fallback lookup terms for a schedule title that resolved to nothing as written. Posts
+    // prefix event labels with a spaced dash ("Basement Grindhouse - HauntedWeen",
+    // "Monstervision – The Howling III: The Marsupials", seen 2025-10 and 2026-10). Only the
+    // part after the dash (and that part minus its subtitle) is tried; the original is always
+    // looked up first, since real titles have spaced dashes too ("976 – Evil" is 976-EVIL).
+    function lineupTitleVariants(title) {
+        const m = (title || '').match(/^(.+?)\s+[-–—]\s+(.+)$/);
+        if (!m) return [];
+        const out = [m[2].trim()];
+        const colon = out[0].match(/^(.+?):\s*.+$/);
+        if (colon) out.push(colon[1].trim());
+        return out.filter(s => /[A-Za-z0-9]/.test(s));
     }
 
     // Walks the post body in document order, assigning each <ul> of films to the most
@@ -216,9 +241,13 @@
                 } else {
                     pendingSectionName = text;
                 }
-            } else if (currentDay && pendingSectionName) {
+            } else if (currentDay) {
+                // A list under a day with no section header of its own used to be dropped
+                // silently; it takes the day's name as its section instead. (Lists before
+                // any day header are still skipped -- they'd have no date to show under.)
+                const name = pendingSectionName || currentDay.day;
                 const items = lineupParseListItems(m[2]);
-                if (items.length) currentDay.sections.push({ name: pendingSectionName, slug: lineupSlugify(pendingSectionName), items });
+                if (items.length) currentDay.sections.push({ name, slug: lineupSlugify(name), items });
                 pendingSectionName = null;
             }
         }
@@ -1064,11 +1093,17 @@
     // under each aka in turn -- the stream sometimes plays (and the post lists) a film under
     // a retitle TMDB doesn't recognize (e.g. "Alien Predators" has no TMDB entry, but its
     // stated aka "The Falling" does) that lineupItemMatchesTitle already treats as the same film.
+    // After the title and every aka as written, the label-stripped variants of each
+    // (lineupTitleVariants) -- only reached when nothing as written resolved.
     async function lineupLookupItem(item) {
         const primary = await lookupMovie(item.title, item.year);
-        if (primary.cleanTitle || !item.akas?.length) return primary;
-        for (const aka of item.akas) {
-            const info = await lookupMovie(aka, item.year);
+        if (primary.cleanTitle) return primary;
+        const names = [item.title, ...(item.akas || [])];
+        const tried = new Set([item.title]);
+        for (const term of [...names, ...names.flatMap(lineupTitleVariants)]) {
+            if (tried.has(term)) continue;
+            tried.add(term);
+            const info = await lookupMovie(term, item.year);
             if (info.cleanTitle) return info;
         }
         return primary;
