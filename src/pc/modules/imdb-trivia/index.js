@@ -70,15 +70,19 @@
         const driveInP = typeof fetchDriveInTotals === 'function'
             ? fetchDriveInTotals().then(index => index && tpDriveInCardFromRow(index[id])).catch(() => null)
             : Promise.resolve(null);
-        Promise.all([curatedP, fetchImdbTrivia(_currentImdbId), driveInP]).then(([curated, items, driveIn]) => {
+        // IMDb trivia is only a fallback: when the server has curated facts for
+        // this movie, they are listed instead and IMDb is not even fetched.
+        const triviaP = curatedP.then(doc => doc && doc.facts && doc.facts.length
+            ? { curated: doc.facts, items: null }
+            : fetchImdbTrivia(id).then(items => ({ curated: null, items })));
+        Promise.all([triviaP, driveInP]).then(([{ curated, items }, driveIn]) => {
             const list = panel.querySelector('#sc-trivia-list');
             if (!list) return;
             let html = driveIn ? _triviaDriveInHtml(driveIn) : '';
-            if (curated && curated.length) {
+            if (curated) {
                 html += `<div class="sc-trivia-section">Pop-up Video trivia (${curated.length})</div>`
                     + curated.map(_triviaCuratedItemHtml).join('');
-            }
-            if (items && items.length) {
+            } else if (items && items.length) {
                 if (html) html += `<div class="sc-trivia-section">IMDb trivia (${items.length})</div>`;
                 html += items.map(t => `<div class="sc-trivia-item">${_escHtml(t)}</div>`).join('');
             }
