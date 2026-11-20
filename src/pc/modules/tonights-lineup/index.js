@@ -36,7 +36,6 @@
     ========================================================== */
 
     // ── test marker: parse-schedule slice start ──
-    const LINEUP_FEED_URL = 'https://www.reddit.com/r/420Grindhouse/.rss';
     const LINEUP_DAY_NAMES = ['Friday', 'Saturday', 'Sunday'];
 
     function lineupSlugify(name) {
@@ -267,28 +266,33 @@
         });
     }
 
-    // Fetches and fully parses the current schedule post. Throws on any failure
-    // (network, missing entry, unparseable date range, zero days/sections parsed) --
-    // the caller (lineupEnsureSchedule, Task 3) catches this and falls back to the
-    // Now/Next-only view built from live changeMedia data.
+    // Reddit ended RSS on 2026-11-13, so the lineup now comes from the file the
+    // grindhouse-popup-trivia generator publishes (schema 1): the same postId/title/
+    // publishedAt/days shape the Reddit parse produced (string years, per-day dates),
+    // plus imdbId/imdbRating/imdbVotes on each item. The Reddit-era parsers above are
+    // no longer called from here (kept: they share helpers with live code and have probes).
+    // ── test marker: published-schedule slice start ──
+    const LINEUP_SCHEDULE_URL = 'https://raw.githubusercontent.com/spudzareneat/grindhouse-popup-trivia/main/schedule/current.json';
+
+    function lineupParsePublishedSchedule(text) {
+        let doc;
+        try { doc = JSON.parse(text); } catch (e) { throw new Error('published schedule is not valid JSON'); }
+        if (!doc || doc.schema !== 1) throw new Error('published schedule has an unsupported schema: ' + (doc && doc.schema));
+        if (!Array.isArray(doc.days) || !doc.days.length) throw new Error('no days in published schedule');
+        for (const d of doc.days) {
+            if (!d || !Array.isArray(d.sections)) throw new Error('published schedule day without sections: ' + (d && d.day));
+        }
+        return { postId: doc.postId, title: doc.title, publishedAt: doc.publishedAt, days: doc.days };
+    }
+    // ── test marker: published-schedule slice end ──
+
+    // Fetches and validates the published lineup. Throws on any failure (network, bad
+    // JSON, unsupported schema, no days) -- the caller (lineupEnsureSchedule) catches this
+    // and keeps its cache or falls back to the Now/Next-only view from live changeMedia data.
     async function fetchTonightsSchedule() {
-        const res = await lineupGmFetch(LINEUP_FEED_URL);
-        if (!res || res.status !== 200) throw new Error('Reddit feed HTTP ' + (res && res.status));
-        const entries = lineupParseEntries(res.responseText);
-        if (!entries.length) throw new Error('no entries found in feed');
-        const entry = lineupSelectCurrentEntry(entries);
-        if (!entry) throw new Error('no schedule post found in feed');
-        const dateRange = lineupParseDateRange(entry.title, entry.publishedAt);
-        if (!dateRange) throw new Error('could not parse weekend date range from title: ' + entry.title);
-        const days = lineupParseSchedule(entry.contentHtml);
-        if (!days.length) throw new Error('no days parsed from schedule post');
-        const dateByDay = { Friday: dateRange.fri, Saturday: dateRange.sat, Sunday: dateRange.sun };
-        return {
-            postId: entry.postId,
-            title: entry.title,
-            publishedAt: entry.publishedAt,
-            days: days.map(d => ({ ...d, date: dateByDay[d.day] || null })),
-        };
+        const res = await lineupGmFetch(LINEUP_SCHEDULE_URL);
+        if (!res || res.status !== 200) throw new Error('published schedule HTTP ' + (res && res.status));
+        return lineupParsePublishedSchedule(res.responseText);
     }
 
     // The channel's community Up Next bot (the same dashboard the up-next module embeds)
