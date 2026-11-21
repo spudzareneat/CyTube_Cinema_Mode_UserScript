@@ -49,6 +49,12 @@ eq('resolved is true', out.resolved, true);
 // imdbId falls back to the item's own id when info lacks one.
 eq('imdbId from the item when info has none', lineupInfoFromItem(item({ info: { ...info(), imdbId: undefined } })).imdbId, 'tt0103327');
 
+// Info that belongs to a DIFFERENT film than the item (stale or hand-edited file) is never shown: fall back to the lookup.
+eq('mismatched ids fall back', lineupInfoFromItem(item({ imdbId: 'tt9999999' })), null);
+eq('matching ids are served', lineupInfoFromItem(item({ imdbId: 'tt0103327' })) !== null, true);
+eq('an item without an id still uses its info', lineupInfoFromItem(item({ imdbId: null })) !== null, true);
+eq('partial info is still served (the generator retries it; a card without a cast beats a slow lookup)', lineupInfoFromItem(item({ info: { ...info(), partial: true, cast: null } })) !== null, true);
+
 // No usable info -> null, so lineupLookupItem falls back to the lookup chain.
 eq('no info key', lineupInfoFromItem({ title: 'Tenebre', year: '1984' }), null);
 eq('info null', lineupInfoFromItem(item({ info: null })), null);

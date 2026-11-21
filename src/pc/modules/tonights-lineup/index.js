@@ -1103,6 +1103,8 @@
     function lineupInfoFromItem(item) {
         const info = item && item.info;
         if (!info || !info.cleanTitle) return null;
+        // Info for a different film than the item (stale or hand-edited file) must never be shown: fall back to the lookup.
+        if (info.imdbId && item.imdbId && info.imdbId !== item.imdbId) return null;
         return { ...JSON.parse(JSON.stringify(info)), imdbId: info.imdbId || item.imdbId || null, resolved: true };
     }
     // ── test marker: published-info slice end ──
