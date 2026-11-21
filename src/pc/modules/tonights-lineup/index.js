@@ -1093,6 +1093,20 @@
         }));
     }
 
+    // File-first: the published schedule item carries `info`, everything the cards show (title/year,
+    // rating, runtime, genres, poster/backdrop, overview, certificate, parental guide, cast, kill count,
+    // links), looked up once by the grindhouse-popup-trivia generator in lookupMovie's own result shape.
+    // Returns that as a lookup-shaped object (a copy: the item lives in the cached schedule), or null when
+    // the item has no usable info (unresolved film, failed server-side fetch) so the caller falls back to
+    // lookupMovie for that one film.
+    // ── test marker: published-info slice start ──
+    function lineupInfoFromItem(item) {
+        const info = item && item.info;
+        if (!info || !info.cleanTitle) return null;
+        return { ...JSON.parse(JSON.stringify(info)), imdbId: info.imdbId || item.imdbId || null, resolved: true };
+    }
+    // ── test marker: published-info slice end ──
+
     // TMDB is searched under the post's primary title first; if that comes up empty, retry
     // under each aka in turn -- the stream sometimes plays (and the post lists) a film under
     // a retitle TMDB doesn't recognize (e.g. "Alien Predators" has no TMDB entry, but its
@@ -1100,6 +1114,8 @@
     // After the title and every aka as written, the label-stripped variants of each
     // (lineupTitleVariants) -- only reached when nothing as written resolved.
     async function lineupLookupItem(item) {
+        const fromFile = lineupInfoFromItem(item);
+        if (fromFile) return fromFile;
         const primary = await lookupMovie(item.title, item.year);
         if (primary.cleanTitle) return primary;
         const names = [item.title, ...(item.akas || [])];
